@@ -371,6 +371,18 @@ func (o *CNATimerWheel) InitTW(size uint32, level1Div uint32) RCtw {
 	return RC_HTW_OK
 }
 
+// NewTimerW create a new TW with number of buckets and div
+func NewTimerW(size uint32, level1Div uint32) (*CNATimerWheel, RCtw) {
+
+	var o *CNATimerWheel
+
+	o = new(CNATimerWheel)
+
+	r := o.InitTW(size, level1Div)
+
+	return o, r
+}
+
 /* onTickLevel0 handle the tick of the first level */
 func (o *CNATimerWheel) onTickLevel0() {
 	tm := &o.timerw[0]
