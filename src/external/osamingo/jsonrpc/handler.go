@@ -18,6 +18,9 @@ type Handler interface {
 // context is nill in this case
 func (mr *MethodRepository) ServeBytes(req []byte) []byte {
 
+	if mr.Verbose {
+		fmt.Println(string(req))
+	}
 	rs, batch, err := ParseRequestBytes(req)
 	if err != nil {
 		b, _ := GetResponseBytes([]*Response{
@@ -35,13 +38,24 @@ func (mr *MethodRepository) ServeBytes(req []byte) []byte {
 	}
 
 	b, _ := GetResponseBytes(resp, batch)
-
+	if mr.Verbose {
+		fmt.Println(string(b))
+	}
 	return b
 }
 
 // ServeString provides basic JSON-RPC handling of string to string
 func (mr *MethodRepository) ServeString(req string) string {
 	return string(mr.ServeBytes([]byte(req)))
+}
+
+// ServeBytesCompress if request is compressed return compressed response
+func (mr *MethodRepository) ServeBytesCompress(req []byte) []byte {
+	if isCompress(req) {
+		return compressBuff(mr.ServeBytes(uncompressBuff(req)))
+	} else {
+		return mr.ServeBytes(req)
+	}
 }
 
 // ServeHTTP provides basic JSON-RPC handling.

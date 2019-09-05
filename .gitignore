@@ -30,4 +30,5 @@ Thumbs.db
 *.swp
 
 pkg/
+bin/
 
