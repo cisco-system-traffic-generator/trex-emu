@@ -10,9 +10,8 @@ import (
 	"math/rand"
 	"time"
 
-	zmq "external/pebbe/zmq4"
-
 	"external/osamingo/jsonrpc"
+	zmq "external/pebbe/zmq4"
 
 	"encoding/binary"
 	"encoding/hex"
@@ -22,6 +21,15 @@ import (
 	ffmt "github.com/go-ffmt/ffmt"
 	"github.com/intel-go/fastjson"
 )
+
+type CZmqJsonRPC2 struct {
+	ctx        *zmq.Context
+	socket     *zmq.Socket
+	serverPort uint16
+	mr         *jsonrpc.MethodRepository
+}
+
+var RcpCtx CZmqJsonRPC2
 
 type (
 	ApiSyncHandler struct{}
@@ -64,9 +72,11 @@ var apiHandler string
 
 func (h ApiSyncHandler) ServeJSONRPC(c context.Context, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
 
-	if len(apiHandler) == 0 {
+	api := RcpCtx.mr.GetAPI()
+	if len(api) == 0 {
 		// generate handler
-		apiHandler = core.RandSeq(10)
+		api = core.RandSeq(10)
+		RcpCtx.mr.SetAPI(api)
 	}
 	var p ApiSyncParams
 	if err := jsonrpc.Unmarshal(params, &p); err != nil {
@@ -93,13 +103,6 @@ func (h ApiSyncHandler) ServeJSONRPC(c context.Context, params *fastjson.RawMess
 	}
 }
 
-type CZmqJsonRPC2 struct {
-	ctx        *zmq.Context
-	socket     *zmq.Socket
-	serverPort uint16
-	mr         *jsonrpc.MethodRepository
-}
-
 // Create create a zmq server in port
 func (o *CZmqJsonRPC2) Create(serverPort uint16) {
 	context, err := zmq.NewContext()
@@ -122,11 +125,11 @@ func (o *CZmqJsonRPC2) Create(serverPort uint16) {
 	o.mr = mr
 	o.mr.Verbose = true
 
-	if err := mr.RegisterMethod("api_sync_v2", ApiSyncHandler{}, ApiSyncParams{}, ApiSyncResult{}); err != nil {
+	if err := mr.RegisterMethod("api_sync_v2", ApiSyncHandler{}, true); err != nil {
 		log.Fatalln(err)
 	}
 
-	if err := mr.RegisterMethod("get_version", ApiGetVersionHandler{}, ApiGetVersionParams{}, ApiGetVersionResult{}); err != nil {
+	if err := mr.RegisterMethod("get_version", ApiGetVersionHandler{}, false); err != nil {
 		log.Fatalln(err)
 	}
 
@@ -152,14 +155,12 @@ func (o *CZmqJsonRPC2) HandleReqRes() {
 func testZMQJSONRPC() {
 	fmt.Println(" start server ")
 
-	var jsonrpc CZmqJsonRPC2
-
-	jsonrpc.Create(4510)
+	RcpCtx.Create(4510)
 	for {
-		jsonrpc.HandleReqRes()
+		RcpCtx.HandleReqRes()
 	}
 
-	jsonrpc.Delete()
+	RcpCtx.Delete()
 }
 
 type mt struct {
@@ -300,10 +301,46 @@ func randSeq(n int) string {
 	return string(b)
 }
 
+func testMarshal2() {
+	id := fastjson.RawMessage([]byte(`{"a":"b","api_h": "xDtMBRVXwr"}`))
+	//var p map[string]*fastjson.RawMessage
+	var p ApiSyncResult
+	if err := fastjson.Unmarshal(id, &p); err != nil {
+		fmt.Println(err)
+		return
+	}
+	fmt.Printf("%+v", p)
+
+	//if val, ok := p["api_h"]; ok {
+	//string(*val)
+	//	var str string
+
+	//	fmt.Printf("%s", "hey")
+	//}
+
+}
+
+/*func testMarshal() {
+	id := fastjson.RawMessage([]byte(`{"a":"b","api_h": "xDtMBRVXwr"}`))
+	var p map[string]*fastjson.RawMessage
+	if err := fastjson.Unmarshal(&id, &p); err != nil {
+		fmt.Println(err)
+		return
+	}
+	if val, ok := p["api_h"]; ok {
+		//string(*val)
+		var str string
+
+		fmt.Printf("%s", "hey")
+	}
+
+}*/
+
 func main() {
 	rand.Seed(time.Now().UnixNano())
+	testMarshal2()
 
-	testZMQJSONRPC()
+	//testZMQJSONRPC()
 
 	//testFastJsonParser5()
 	//	testFastJsonParser()

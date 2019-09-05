@@ -43,11 +43,11 @@ func makeMethodReference(k string, md Metadata) *MethodReference {
 		tv = tv.Elem()
 	}
 	mr.Handler = tv.Name()
-	if md.Params != nil {
+	/*if md.Params != nil {
 		mr.Params = jsonschema.Reflect(md.Params)
-	}
-	if md.Result != nil {
+	}*/
+	/*if md.Result != nil {
 		mr.Result = jsonschema.Reflect(md.Result)
-	}
+	}*/
 	return mr
 }
