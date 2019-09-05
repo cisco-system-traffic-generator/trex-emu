@@ -101,3 +101,41 @@ func SendResponse(w http.ResponseWriter, resp []*Response, batch bool) error {
 	}
 	return nil
 }
+
+// ParseRequestBytes parses a bytes request to JSON-RPC request object.
+func ParseRequestBytes(req []byte) ([]*Request, bool, *Error) {
+
+	if len(req) == 0 {
+		return nil, false, ErrInvalidRequest()
+	}
+
+	f := req[0]
+	var rs []*Request
+
+	if f != '[' {
+		var singleReq *Request
+		err := fastjson.Unmarshal(req, &singleReq)
+		if err != nil {
+			return nil, false, ErrParse()
+		}
+		return append(rs, singleReq), false, nil
+	}
+
+	err := fastjson.Unmarshal(req, &rs)
+
+	if err != nil {
+		return nil, false, ErrParse()
+	}
+
+	return rs, true, nil
+}
+
+// GetResponseBytes convert Response object to bytes
+func GetResponseBytes(resp []*Response, batch bool) ([]byte, error) {
+	if batch || len(resp) > 1 {
+		return fastjson.Marshal(resp)
+	} else if len(resp) == 1 {
+		return fastjson.Marshal(resp[0])
+	}
+	panic(" JSON-RPC There is no valid response  ")
+}

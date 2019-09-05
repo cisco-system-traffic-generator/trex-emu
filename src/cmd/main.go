@@ -6,10 +6,12 @@ import (
 	"log"
 	"time"
 
+	zmq "external/pebbe/zmq4"
+
+	"external/osamingo/jsonrpc"
+
 	ffmt "github.com/go-ffmt/ffmt"
 	"github.com/intel-go/fastjson"
-	"github.com/osamingo/jsonrpc"
-	zmq "github.com/pebbe/zmq4"
 )
 
 type (
@@ -129,14 +131,14 @@ func ParseRequest(req []byte) ([]*jsonrpc.Request, bool, *jsonrpc.Error) {
 	return rs, true, nil
 }
 
-// GetResponse help 
+// GetResponse help
 func GetResponse(resp []*jsonrpc.Response, batch bool) ([]byte, error) {
 	if batch || len(resp) > 1 {
 		return fastjson.Marshal(resp)
 	} else if len(resp) == 1 {
 		return fastjson.Marshal(resp[0])
 	}
-	return nil,nil 
+	return nil, nil
 }
 
 // HandleReq input buffer return buffer
@@ -144,7 +146,7 @@ func (o *CZmqJsonRPC2) HandleReq(req []byte) []byte {
 
 	rs, batch, err := ParseRequest(req)
 	if err != nil {
-		b,_ := GetResponse([]*jsonrpc.Response{
+		b, _ := GetResponse([]*jsonrpc.Response{
 			{
 				Version: jsonrpc.Version,
 				Error:   err,
@@ -158,7 +160,7 @@ func (o *CZmqJsonRPC2) HandleReq(req []byte) []byte {
 		resp[i] = o.mr.InvokeMethod(nil, rs[i])
 	}
 
-	b,_ := GetResponse(resp,batch)
+	b, _ := GetResponse(resp, batch)
 	return b
 }
 
@@ -374,17 +376,15 @@ func testFastJsonParser5() {
 
 	resp := []*jsonrpc.Response{
 		{
-		Version: jsonrpc.Version,
-		Error: jsonrpc.ErrParse(),
+			Version: jsonrpc.Version,
+			Error:   jsonrpc.ErrParse(),
 		},
 	}
 
-	b, err := GetResponse(resp, false) 
+	b, err := GetResponse(resp, false)
 	fmt.Println(string(b))
 	fmt.Println(err)
 }
-
-
 
 func testFastJsonParser2() {
 	var jsonBlob = []byte(`[
@@ -406,7 +406,7 @@ func testFastJsonParser2() {
 }
 
 func main() {
-	testFastJsonParser5() 
+	testFastJsonParser5()
 	//	testFastJsonParser()
 	return
 	//exampleFfmt()
