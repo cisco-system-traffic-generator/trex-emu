@@ -1,0 +1,12 @@
+linters-settings:
+  errcheck:
+    check-type-asserts: true
+    check-blank: true
+    ignore: fmt:Fprint.*,
+  misspell:
+    locale: US
+  lll:
+    line-length: 130
+
+linters:
+  enable-all: true
