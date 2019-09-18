@@ -90,11 +90,26 @@ func (mr *MethodRepository) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // InvokeMethod invokes JSON-RPC method.
 func (mr *MethodRepository) InvokeMethod(c context.Context, r *Request) *Response {
 	var h Handler
+	var noAPI bool
 	res := NewResponse(r)
-	h, res.Error = mr.TakeMethod(r)
+	h, res.Error, noAPI = mr.TakeMethod(r)
 	if res.Error != nil {
 		return res
 	}
+
+	if !noAPI {
+		// should check the API version
+		var p ApiSyncResult
+		if err := Unmarshal(r.Params, &p); err != nil {
+			res.Error = ErrMethodNotValidAPI()
+			return res
+		}
+		if p.Api != mr.GetAPI() {
+			res.Error = ErrMethodNotValidAPI()
+			return res
+		}
+	}
+
 	res.Result, res.Error = h.ServeJSONRPC(WithRequestID(c, r.ID), r.Params)
 	if res.Error != nil {
 		res.Result = nil

@@ -64,6 +64,14 @@ func ErrInvalidParams() *Error {
 	}
 }
 
+// ErrMethodNotValidAPI returns invalid params error.
+func ErrMethodNotValidAPI() *Error {
+	return &Error{
+		Code:    ErrorCodeInvalidParams,
+		Message: "Method with not a valid API ",
+	}
+}
+
 // ErrInternal returns internal error.
 func ErrInternal() *Error {
 	return &Error{

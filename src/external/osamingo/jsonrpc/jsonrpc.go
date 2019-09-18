@@ -33,6 +33,10 @@ type (
 		Error   *Error               `json:"error,omitempty"`
 		ID      *fastjson.RawMessage `json:"id,omitempty"`
 	}
+
+	ApiSyncResult struct {
+		Api string `json:"api_h"`
+	}
 )
 
 // ParseRequest parses a HTTP request to JSON-RPC request.

@@ -38,9 +38,6 @@ type (
 		Major uint8  `json:"major"`
 		Minor uint8  `json:"minor"`
 	}
-	ApiSyncResult struct {
-		Api string `json:"api_h"`
-	}
 
 	ApiGetVersionHandler struct{}
 	ApiGetVersionParams  struct{}
@@ -51,7 +48,20 @@ type (
 		Buildby   string `json:"built_by"`
 		Mode      string `json:"mode"`
 	}
+
+	ApiPingHandler struct{}
+	ApiPingParams  struct{}
+	ApiPingResult  struct {
+		Timestamp float64 `json:"ts"`
+	}
 )
+
+func (h ApiPingHandler) ServeJSONRPC(c context.Context, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
+
+	return ApiPingResult{
+		Timestamp: float64(time.Now().Second()),
+	}, nil
+}
 
 func (h ApiGetVersionHandler) ServeJSONRPC(c context.Context, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
 
@@ -76,6 +86,8 @@ func (h ApiSyncHandler) ServeJSONRPC(c context.Context, params *fastjson.RawMess
 	if len(api) == 0 {
 		// generate handler
 		api = core.RandSeq(10)
+		apiHandler = api
+		fmt.Println(" API" + apiHandler)
 		RcpCtx.mr.SetAPI(api)
 	}
 	var p ApiSyncParams
@@ -89,7 +101,7 @@ func (h ApiSyncHandler) ServeJSONRPC(c context.Context, params *fastjson.RawMess
 	}
 
 	if valid {
-		return ApiSyncResult{
+		return jsonrpc.ApiSyncResult{
 			Api: apiHandler,
 		}, nil
 	} else {
@@ -130,6 +142,10 @@ func (o *CZmqJsonRPC2) Create(serverPort uint16) {
 	}
 
 	if err := mr.RegisterMethod("get_version", ApiGetVersionHandler{}, false); err != nil {
+		log.Fatalln(err)
+	}
+
+	if err := mr.RegisterMethod("ping", ApiPingHandler{}, true); err != nil {
 		log.Fatalln(err)
 	}
 
@@ -301,25 +317,6 @@ func randSeq(n int) string {
 	return string(b)
 }
 
-func testMarshal2() {
-	id := fastjson.RawMessage([]byte(`{"a":"b","api_h": "xDtMBRVXwr"}`))
-	//var p map[string]*fastjson.RawMessage
-	var p ApiSyncResult
-	if err := fastjson.Unmarshal(id, &p); err != nil {
-		fmt.Println(err)
-		return
-	}
-	fmt.Printf("%+v", p)
-
-	//if val, ok := p["api_h"]; ok {
-	//string(*val)
-	//	var str string
-
-	//	fmt.Printf("%s", "hey")
-	//}
-
-}
-
 /*func testMarshal() {
 	id := fastjson.RawMessage([]byte(`{"a":"b","api_h": "xDtMBRVXwr"}`))
 	var p map[string]*fastjson.RawMessage
@@ -338,9 +335,9 @@ func testMarshal2() {
 
 func main() {
 	rand.Seed(time.Now().UnixNano())
-	testMarshal2()
+	//testMarshal2()
 
-	//testZMQJSONRPC()
+	testZMQJSONRPC()
 
 	//testFastJsonParser5()
 	//	testFastJsonParser()

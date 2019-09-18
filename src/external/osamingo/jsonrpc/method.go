@@ -29,19 +29,19 @@ func NewMethodRepository() *MethodRepository {
 }
 
 // TakeMethod takes jsonrpc.Func in MethodRepository.
-func (mr *MethodRepository) TakeMethod(r *Request) (Handler, *Error) {
+func (mr *MethodRepository) TakeMethod(r *Request) (Handler, *Error, bool) {
 	if r.Method == "" || r.Version != Version {
-		return nil, ErrInvalidParams()
+		return nil, ErrInvalidParams(), false
 	}
 
 	mr.m.RLock()
 	md, ok := mr.r[r.Method]
 	mr.m.RUnlock()
 	if !ok {
-		return nil, ErrMethodNotFound()
+		return nil, ErrMethodNotFound(), false
 	}
 
-	return md.Handler, nil
+	return md.Handler, nil, md.NoApi
 }
 
 //SetAPI set the random value of the API
