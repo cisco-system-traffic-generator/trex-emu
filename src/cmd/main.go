@@ -2,11 +2,16 @@ package main
 
 import (
 	"emu/rpc"
+	"encoding/hex"
 	"fmt"
 	"math/rand"
 	"time"
 	"unsafe"
 )
+
+const RTE_PKTMBUF_HEADROOM = 64
+const MBUF_INVALID_PORT = 0xffff
+const IND_ATTACHED_MBUF = 0x2
 
 type DList struct {
 	next *DList
@@ -34,6 +39,9 @@ func (o *DList) Append(obj *DList) {
 	obj.prev = o.prev
 	o.prev.next = obj
 	o.prev = obj
+}
+func (o *DList) AppendTail(obj *DList) {
+	o.prev.Append(obj)
 }
 
 func (o *DList) Next() *DList {
@@ -129,16 +137,130 @@ func testdList() {
 	}
 }
 
-type MbufPollSize struct {
-	mlist     DList
-	cacheSize uint32
-	size      uint32
+type MbufPoll struct {
+	pools []MbufPollSize
 }
 
-const RTE_PKTMBUF_HEADROOM = 64
-const MBUF_INVALID_PORT = 0xffff
-const EXT_ATTACHED_MBUF = 0x1
-const IND_ATTACHED_MBUF = 0x2
+var pool_sizes = [...]uint16{128, 256, 512, 1024, 2048, 4096, 9 * 1024}
+
+func (o *MbufPoll) GetMaxPacketSize() uint16 {
+	return (9 * 1024)
+}
+
+func (o *MbufPoll) Init(maxCacheSize uint32) {
+
+	o.pools = make([]MbufPollSize, len(pool_sizes))
+	for i, s := range pool_sizes {
+		o.pools[i].Init(maxCacheSize, s)
+	}
+}
+
+func (o *MbufPoll) Alloc(size uint16) *Mbuf {
+	for i, ps := range pool_sizes {
+		if size <= ps {
+			return o.pools[i].NewMbuf()
+		}
+	}
+	s := fmt.Sprintf(" MbufPoll.Alloc size is too big %d ", size)
+	panic(s)
+}
+
+func (o *MbufPoll) GetStats() *MbufPollStats {
+	var stats MbufPollStats
+
+	for i, _ := range pool_sizes {
+		stats.Add(&o.pools[i].stats)
+	}
+	return &stats
+}
+
+func (o *MbufPoll) DumpStats() {
+	fmt.Println(" size  | stats ")
+	fmt.Println(" ----------------------")
+	for i, s := range pool_sizes {
+		p := &o.pools[i].stats
+		fmt.Printf(" %-04d  | %3.0f%%  %+v  \n", s, p.HitRate(), *p)
+	}
+
+}
+
+type MbufPollStats struct {
+	CntAlloc      uint64
+	CntFree       uint64
+	CntCacheAlloc uint64
+	CntCacheFree  uint64
+}
+
+func (o *MbufPollStats) HitRate() float32 {
+	if o.CntCacheFree == 0 {
+		return 0.0
+	}
+	return float32(o.CntCacheAlloc) * 100.0 / float32(o.CntCacheFree)
+}
+
+// Add o = o + obj
+func (o *MbufPollStats) Add(obj *MbufPollStats) {
+	o.CntAlloc += obj.CntAlloc
+	o.CntFree += obj.CntFree
+	o.CntCacheAlloc += obj.CntCacheAlloc
+	o.CntCacheFree += obj.CntCacheFree
+}
+
+type MbufPollSize struct {
+	mlist        DList
+	cacheSize    uint32 /*	the active cache size */
+	maxCacheSize uint32 /*	the maximum cache size */
+	mbufSize     uint16 /* buffer size without the RTE_PKTMBUF_HEADROOM */
+
+	stats MbufPollStats
+}
+
+// Init the pool
+func (o *MbufPollSize) Init(maxCacheSize uint32, mbufSize uint16) {
+	o.mlist.SetSelf()
+	o.maxCacheSize = maxCacheSize
+	o.mbufSize = mbufSize
+}
+
+func (o *MbufPollSize) getHead() *Mbuf {
+	h := o.mlist.DetachTail()
+	o.cacheSize -= 1
+	return (toMbuf(h))
+}
+
+// NewMbuf alloc new mbuf with the right size
+func (o *MbufPollSize) NewMbuf() *Mbuf {
+
+	// ignore the size of the packet
+	var m *Mbuf
+	if o.cacheSize > 0 {
+		o.stats.CntCacheAlloc++
+		m = o.getHead()
+		m.resetMbuf()
+		return (m)
+	}
+
+	// allocate new mbuf
+	m = new(Mbuf)
+	m.bufLen = uint16(o.mbufSize) + RTE_PKTMBUF_HEADROOM
+	m.data = make([]byte, m.bufLen)
+	m.pool = o
+	m.resetMbuf()
+	o.stats.CntAlloc++
+	return (m)
+}
+
+// FreeMbuf free mbuf to cache
+func (o *MbufPollSize) FreeMbuf(obj *Mbuf) {
+
+	if o.cacheSize < o.maxCacheSize {
+		o.mlist.Append(&obj.dlist)
+		o.cacheSize++
+		o.stats.CntCacheFree++
+	} else {
+		o.stats.CntFree++
+	}
+}
 
 func toMbuf(dlist *DList) *Mbuf {
 	return (*Mbuf)(unsafe.Pointer(dlist))
@@ -163,19 +285,21 @@ func (o *Mbuf) GetRefCnt() uint16 {
 	return o.refcnt
 }
 
-func (o *Mbuf) SetRefCnt(new uint16) {
-	o.refcnt = new
+func (o *Mbuf) SetRefCnt(n uint16) {
+	o.refcnt = n
 }
 
 func (o *Mbuf) UpdateRefCnt(update int16) {
 	o.refcnt = o.refcnt + uint16(update)
 }
 
-func (o *Mbuf) resetMbuf(bufLen uint16) {
+func (o *Mbuf) resetMbuf() {
+
+	o.dlist.SetSelf()
 	o.dataLen = 0
-	o.bufLen = 0
 	o.pktLen = 0
 	o.nbSegs = 1
+	o.dataOff = RTE_PKTMBUF_HEADROOM
 	o.port = MBUF_INVALID_PORT
 	o.olFlags = 0
 	o.refcnt = 1
@@ -183,25 +307,7 @@ func (o *Mbuf) resetMbuf(bufLen uint16) {
 }
 
 func (o *Mbuf) IsDirect() bool {
-	if o.olFlags&(IND_ATTACHED_MBUF|EXT_ATTACHED_MBUF) == 0 {
-		return true
-	} else {
-		return false
-	}
-}
-
-func (o *Mbuf) IsClone() bool {
-
 	if o.olFlags&(IND_ATTACHED_MBUF) == 0 {
-		return true
-	} else {
-		return false
-	}
-}
-
-func (o *Mbuf) HasExtBuf() bool {
-
-	if o.olFlags&(EXT_ATTACHED_MBUF) == 0 {
 		return true
 	} else {
 		return false
@@ -294,15 +400,39 @@ func (o *Mbuf) Adj(dlen uint16) int {
 	return 0
 }
 
-func (o *Mbuf) Attach(m *Mbuf) {
+// Attach new mbuf
+func (o *Mbuf) AppendMbuf(m *Mbuf) {
+	o.dlist.Append(&m.dlist)
+	o.pktLen += uint32(m.dataLen)
+	o.nbSegs += 1
 }
 
-func (o *Mbuf) beforeFreeMbuf() {
+func (o *Mbuf) DetachHead() *Mbuf {
+	m := toMbuf(o.dlist.DetachHead())
+	o.pktLen -= uint32(m.dataLen)
+	o.nbSegs -= 1
+	return m
+}
 
+func (o *Mbuf) DetachTail() *Mbuf {
+	m := toMbuf(o.dlist.DetachTail())
+	o.pktLen -= uint32(m.dataLen)
+	o.nbSegs -= 1
+	return m
+}
+
+// Next return next mbuf. should be compared to head node
+func (o *Mbuf) Next() *Mbuf {
+	return toMbuf(o.dlist.Next())
 }
 
 func (o *Mbuf) freeMbufSeg() {
-
+	if o.refcnt != 1 {
+		s := fmt.Sprintf(" refcnt should be 1")
+		panic(s)
+	}
+	// give the mbuf back
+	o.pool.FreeMbuf(o)
 }
 
 //FreeMbuf to original pool
@@ -310,14 +440,88 @@ func (o *Mbuf) FreeMbuf() {
 
 	var next *Mbuf
 	m := o
+	for {
+		next = m.Next()
+		m.freeMbufSeg()
+		if next == o {
+			break
+		}
+		m = next
+	}
+	o = nil
+}
+
+// SanityCheck verify that mbuf is OK, panic if not
+func (o *Mbuf) SanityCheck(header bool) {
+	if o.pool == nil {
+		panic(" pool is nil ")
+	}
+
+	if o.refcnt != 1 {
+		panic(" refcnt is not supported ")
+	}
+
+	if !header {
+		return
+	}
+
+	if uint32(o.dataLen) > o.pktLen {
+		panic(" bad data_len ")
+	}
+	segs := o.nbSegs
+	pktLen := o.pktLen
+	m := o
 
 	for {
-		next = toMbuf(o.dlist.Next())
-		m.freeMbufSeg()
-		m = next
+		if m.dataOff > m.bufLen {
+			panic(" data offset too big in mbuf segment ")
+		}
+		if m.dataOff+m.dataLen > m.bufLen {
+			panic(" data length too big in mbuf segment ")
+		}
+		segs -= 1
+		pktLen -= uint32(m.dataLen)
+		m = m.Next()
 		if m == o {
 			break
 		}
+	}
+	if segs > 0 {
+		panic(" bad nb_segs ")
+	}
+	if pktLen > 0 {
+		panic(" bad pkt_len")
+	}
+}
+
+// Dump dump as hex
+func (o *Mbuf) Dump() {
+
+	var next *Mbuf
+	first := true
+	cnt := 0
+	m := o
+	for {
+		next = m.Next()
+		fmt.Printf(" %d: ", cnt)
+		if first {
+			fmt.Printf(" pktlen : %d, ", m.pktLen)
+			fmt.Printf(" segs   : %d, ", m.nbSegs)
+			fmt.Printf(" ports  : %d, ", m.port)
+		}
+		fmt.Printf(" buflen  : %d ", m.bufLen)
+		fmt.Printf(" dataLen : %d ", m.dataLen)
+		if o.dataLen > 0 {
+			fmt.Printf("\n%s\n", hex.Dump(m.GetData()))
+		} else {
+			fmt.Printf("\n Empty\n")
+		}
+		if next == o {
+			break
+		}
+		first = false
+		m = next
+		cnt += 1
 	}
 }
 
@@ -362,7 +566,7 @@ func freePkt() {
 
 var que []pkt
 
-//var mque []*mbuf
+var mque []*Mbuf
 
 func test1() {
 	size := 5000000
@@ -409,7 +613,102 @@ func test2() {
 }
 */
 
+func testStats() {
+	var a MbufPollStats
+	var b MbufPollStats
+	b.CntAlloc = 12
+	b.CntCacheFree = 17
+	a.Add(&b)
+	a.Add(&b)
+	//fmt.Printf("%+v", a)
+	//fmt.Println(a)
+}
+
+func getBufIndex(size uint16) []byte {
+	buf := make([]byte, size)
+	for i, _ := range buf {
+		buf[i] = byte(i)
+	}
+	return buf
+}
+
+func testMpool1() {
+
+	var pool MbufPoll
+	pool.Init(1024)
+
+	fmt.Println(pool.GetMaxPacketSize())
+	fmt.Printf("%+v \n", *pool.GetStats())
+	pool.DumpStats()
+
+	for i := 0; i < 10; i++ {
+		m := pool.Alloc(128)
+		//m.Dump()
+		m.Append(getBufIndex(100))
+		//m.Append([]byte{1, 2, 3, 4, 5})
+		//m.Dump()
+		m1 := pool.Alloc(256)
+		m1.Append(getBufIndex(200))
+		m.AppendMbuf(m1)
+		m.SanityCheck(true)
+		//m.Dump()
+		m2 := pool.Alloc(1025)
+		m2.Append(getBufIndex(300))
+		m.AppendMbuf(m2)
+		m.SanityCheck(true)
+		//m.Dump()
+
+		//_ = m.DetachTail()
+		//m.Dump()
+
+		m.FreeMbuf()
+	}
+	pool.DumpStats()
+	fmt.Printf("%+v \n", *pool.GetStats())
+
+	//m1 := pool.Alloc(128)
+	//m.AppendMbuf(m1)
+
+	//m.Dump()
+}
+
+func testMpool2() {
+
+	var pool MbufPoll
+	pool.Init(1024)
+	mque = make([]*Mbuf, 0)
+
+	size := 5000000
+	cnt := 0
+	start := time.Now().UnixNano()
+
+	for i := 0; i < size; i++ {
+		if cnt == 10 {
+			if len(mque) != 10 {
+				panic("error")
+			}
+			for _, m := range mque {
+				m.FreeMbuf()
+			}
+			mque = mque[:0]
+			cnt = 0
+		}
+		if cnt < 10 {
+			m := pool.Alloc(uint16(rand.Intn(2000)))
+			mque = append(mque, m)
+			cnt++
+		}
+	}
+	d := time.Now().UnixNano() - start
+	fmt.Printf(" nsec %d %d \n", d, d/int64(size))
+	pool.DumpStats()
+
+}
+
 func main() {
+	testMpool2()
+	//testStats()
+	return
 	var data *[]byte
 	d := make([]byte, 10)
 	data = &d
