@@ -14,7 +14,7 @@ see
 https://doc.dpdk.org/guides/prog_guide/mbuf_lib.html
 
 1. It uses pool of memory for each packet size and cache the mbuf
-2. The performance is about ~x20 relative to simple allocation (~50nsec vs 900nsec)
+2. The performance is about ~x20 relative to simple allocation (~20nsec vs 900nsec)
 3. The memory is normal allocated memory from heap/GC
 3. It does not support attach/detach for multicast  (simplification)
 4. Single threaded -- each thread should have its own local pool
@@ -133,7 +133,7 @@ func (o *MbufPollSize) Init(maxCacheSize uint32, mbufSize uint16) {
 }
 
 func (o *MbufPollSize) getHead() *Mbuf {
-	h := o.mlist.DetachTail()
+	h := o.mlist.RemoveLast()
 	o.cacheSize -= 1
 	return (toMbuf(h))
 }
@@ -434,7 +434,7 @@ func (o *Mbuf) String() string {
 		if o.dataLen > 0 {
 			s += fmt.Sprintf("\n%s\n", hex.Dump(m.GetData()))
 		} else {
-			S += fmt.Sprintf("\n Empty\n")
+			s += fmt.Sprintf("\n Empty\n")
 		}
 		if next == o {
 			break

@@ -10,7 +10,7 @@ type MyObjectTest struct {
 	dlist DList
 }
 
-
+//There is no better solotion in go right now! maybe go2.0
 func covert(dlist *DList) *MyObjectTest {
 	var s MyObjectTest
 	return (*MyObjectTest)(unsafe.Pointer(uintptr(unsafe.Pointer(dlist)) - unsafe.Offsetof(s.dlist)))
@@ -30,14 +30,10 @@ func testdList() {
 		}
 	}
 
-	n := first
-	for {
-		fmt.Println(n.val)
-		n = covert(n.dlist.Next())
-		if n == first {
-			break
-		}
+	for it.Init(&first.dlist); it.Cont(); it.Next() {
+		fmt.Println(covert(it.Val()).val)
 	}
+
 
 }
 
@@ -48,7 +44,40 @@ type DList struct {
 	prev *DList
 }
 
-//IsEmpty return if empty
+//DListIter iterator
+type DListIter struct {
+	head  *DList
+	cur   *DList
+	first bool
+}
+
+// Init init the iterator (there always one Element)
+func (o *DListIter) Init(obj *DList) {
+	o.cur = obj
+	o.head = obj
+	o.first = true
+}
+
+// Next go to the next
+func (o *DListIter) Next() {
+	o.cur = o.cur.Next()
+	o.first = false
+}
+
+// Val Get the curent val
+func (o *DListIter) Val() *DList {
+	return o.cur
+}
+
+// IsCont - can we continue
+func (o *DListIter) IsCont() bool {
+	if (o.first == false) && o.cur == o.head {
+		return false
+	}
+	return true
+}
+
+//IsEmpty return if only root exists
 func (o *DList) IsEmpty() bool {
 	return o.IsSelf()
 }
