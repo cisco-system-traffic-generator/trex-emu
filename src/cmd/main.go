@@ -3,12 +3,11 @@ package main
 import (
 	"bytes"
 	"emu/rpc"
+	"external/google/gopacket"
+	"external/google/gopacket/pcapgo"
 	"fmt"
 	"math/rand"
 	"time"
-
-	"github.com/google/gopacket"
-	"github.com/google/gopacket/pcapgo"
 )
 
 func testpcapWrite() {
