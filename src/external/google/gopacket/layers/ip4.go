@@ -39,6 +39,60 @@ func (f IPv4Flag) String() string {
 	return strings.Join(s, "|")
 }
 
+//IPv4Header  For in place change
+// ipv4 := IPv4Header(data[14 : 14+20])
+// ipv4.SetIpDst(0x20000010)
+// ipv4.SetIpSrc(0x40000010)
+// ipv4.SetTOS(0x10)
+type IPv4Header []byte
+
+// SetLength set the length
+func (o IPv4Header) SetLength(len uint16) {
+	binary.BigEndian.PutUint16(o[2:4], len)
+}
+
+// GetLength set the length
+func (o IPv4Header) GetLength() uint16 {
+	return binary.BigEndian.Uint16(o[2:4])
+}
+
+// SetTOS update the value
+func (o IPv4Header) SetTOS(tos uint8) {
+	o[1] = tos
+}
+
+// GetTOS update the value
+func (o IPv4Header) GetTOS() uint8 {
+	return uint8(o[1])
+}
+
+// SetIPSrc Update IP Src
+func (o IPv4Header) SetIPSrc(ip uint32) {
+	binary.BigEndian.PutUint32(o[12:16], ip)
+}
+
+// GetIPSrc Get the IP src
+func (o IPv4Header) GetIPSrc() uint32 {
+	return binary.BigEndian.Uint32(o[12:16])
+}
+
+// SetIPDst Set the IP dst
+func (o IPv4Header) SetIPDst(ip uint32) {
+	binary.BigEndian.PutUint32(o[16:20], ip)
+}
+
+// GetIPDst as uint32
+func (o IPv4Header) GetIPDst() uint32 {
+	return binary.BigEndian.Uint32(o[16:20])
+}
+
+// UpdateChecksum  update the checksum
+func (o IPv4Header) UpdateChecksum() {
+	binary.BigEndian.PutUint16(o[10:12], 0x0000)
+	cs := tcpipChecksum(o, 0)
+	binary.BigEndian.PutUint16(o[10:12], cs)
+}
+
 // IPv4 is the header of an IP packet.
 type IPv4 struct {
 	BaseLayer
