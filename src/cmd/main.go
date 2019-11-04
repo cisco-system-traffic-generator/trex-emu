@@ -1,13 +1,117 @@
 package main
 
 import (
+	"emu/core"
 	"emu/rpc"
 	"fmt"
 	"math/rand"
+	"reflect"
 	"time"
+	"unsafe"
 )
 
+func testVarHash() {
+	m := make(map[string]int)
+	b := []uint8{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
+	fmt.Println(b)
+	fmt.Println(cap(b), len(b))
+
+	m["a"] = 12
+	m["b"] = 13
+	s := string(b)
+	fmt.Printf(" %d,%v", len(s), s)
+
+	m[string(b)] = 17
+	_, prs := m[string(b)]
+	fmt.Println(prs)
+	fmt.Println(m)
+}
+
+func testVarHash2() {
+	/* convert to string but not efficient*/
+	m := make(map[[2]byte]int)
+	b := [2]uint8{1, 2}
+
+	m[b] = 17
+	_, prs := m[b]
+	fmt.Println(prs)
+	fmt.Println(m)
+}
+
+func testCnt1() {
+	var cnt uint64
+	var cnt1 float64
+	cnt = 17
+	cnt1 = 18.1
+
+	c1 := &core.CCounterRec{
+		Counter:  &cnt,
+		Name:     "A",
+		Help:     "an example",
+		Unit:     "pkts",
+		DumpZero: false,
+		Info:     core.ScINFO}
+	c2 := &core.CCounterRec{
+		Counter:  &cnt1,
+		Name:     "B",
+		Help:     "an example",
+		Unit:     "pkts",
+		DumpZero: false,
+		Info:     core.ScINFO}
+	fmt.Println("val:" + string(c1.MarshalValue()))
+	fmt.Println("meta:" + string(c1.MarshalMetaAndVal()))
+	db := core.NewCCounterDb("my db")
+	db.Add(c1)
+	db.Add(c2)
+	db.Dump()
+	cnt = 18
+	cnt1 = 19.31
+
+	fmt.Println()
+	fmt.Printf(string(db.MarshalMeta()))
+	fmt.Println()
+	fmt.Printf(string(db.MarshalValues()))
+	fmt.Println()
+}
+
+func desc(i interface{}) {
+
+	switch v := i.(type) {
+	case *int:
+		val := reflect.ValueOf(i)
+		elm := val.Elem()
+		a := (*int)(unsafe.Pointer(elm.Addr().Pointer()))
+		fmt.Printf("int  %d\n", *a)
+	case *float32:
+		fmt.Printf("float32\n")
+	case *float64:
+		fmt.Printf("float64\n")
+	default:
+		fmt.Printf("I don't know about type %T!\n", v)
+	}
+}
+
 func main() {
+	testCnt1()
+	return
+	var i interface{}
+	var cnt int
+	cnt = 17
+	i = &cnt
+
+	fmt.Printf("(%v, %T)\n", i, i)
+	//desc(i)
+
+	cnt = 18
+	fmt.Printf("(%v, %T)\n", i, i)
+	//desc(i)
+	//fmt.Printf("(%v, %T)\n", i, i)
+
+	//i = 42.21
+	//desc(i)
+	//fmt.Printf("(%v, %T)\n", i, i)
+
+	//testVarHash2()
 	//testPkt2()
 	//testpcapWrite3()
 	//testpcapWrite2()
