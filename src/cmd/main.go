@@ -91,19 +91,35 @@ func desc(i interface{}) {
 	}
 }
 
+type MapPortT map[uint16]bool
+
+func testTunnelKey() {
+	var portMap MapPortT
+	portMap = make(MapPortT)
+	portMap[1] = true
+	portMap[2] = true
+	fmt.Println(portMap)
+	v, ok := portMap[3]
+	if ok {
+		fmt.Println(v)
+	} else {
+		fmt.Println("3 is not there")
+	}
+
+}
+
 func main() {
-	testCnt1()
+	core.TestNs1()
 	return
 	var i interface{}
 	var cnt int
 	cnt = 17
-	i = &cnt
+	i = cnt
+	val, _ := i.(int)
 
-	fmt.Printf("(%v, %T)\n", i, i)
+	fmt.Printf("(%v, %T)\n", val, val)
 	//desc(i)
 
-	cnt = 18
-	fmt.Printf("(%v, %T)\n", i, i)
 	//desc(i)
 	//fmt.Printf("(%v, %T)\n", i, i)
 

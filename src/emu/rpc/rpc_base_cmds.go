@@ -1,7 +1,6 @@
 package rpc
 
 import (
-	"context"
 	"emu/core"
 	"external/osamingo/jsonrpc"
 	"fmt"
@@ -36,7 +35,7 @@ type (
 )
 
 // ping
-func (h ApiPingHandler) ServeJSONRPC(c context.Context, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
+func (h ApiPingHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
 
 	return ApiPingResult{
 		Timestamp: float64(time.Now().Second()),
@@ -44,7 +43,7 @@ func (h ApiPingHandler) ServeJSONRPC(c context.Context, params *fastjson.RawMess
 }
 
 // GetVersion
-func (h ApiGetVersionHandler) ServeJSONRPC(c context.Context, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
+func (h ApiGetVersionHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
 
 	return ApiGetVersionResult{
 		Version:   "v0.1",
@@ -63,7 +62,7 @@ var apiHandler string
 var RcpCtx CZmqJsonRPC2
 
 // AsyncHandler
-func (h ApiSyncHandler) ServeJSONRPC(c context.Context, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
+func (h ApiSyncHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
 
 	api := RcpCtx.mr.GetAPI()
 	if len(api) == 0 {
