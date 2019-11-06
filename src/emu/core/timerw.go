@@ -418,7 +418,7 @@ func max(a, b uint32) uint32 {
 	return a
 }
 
-func (o *CNATimerWheel) restart(tmr *CHTimerObj, ticks uint32) {
+func (o *CNATimerWheel) restart(tmr *CHTimerObj, ticks uint32) RCtw {
 
 	nticks := (ticks + o.wheelLevel1Err) >> o.wheelLevel1Shift
 
@@ -428,11 +428,11 @@ func (o *CNATimerWheel) restart(tmr *CHTimerObj, ticks uint32) {
 		}
 		tmr.ticksLeft = 0
 		tmr.wheel = 1
-		o.timerw[1].start(tmr, nticks-1)
+		return o.timerw[1].start(tmr, nticks-1)
 	} else {
 		tmr.ticksLeft = ticks - ((o.wheelSize - 1) << o.wheelLevel1Shift)
 		tmr.wheel = 1
-		o.timerw[1].start(tmr, o.wheelSize-1)
+		return o.timerw[1].start(tmr, o.wheelSize-1)
 	}
 }
 
@@ -488,20 +488,27 @@ func (o *CNATimerWheel) OnTick(minEvents uint32) {
 }
 
 // Stop schedule a timer event
-func (o *CNATimerWheel) Stop(tmr *CHTimerObj) {
+func (o *CNATimerWheel) Stop(tmr *CHTimerObj) RCtw {
 	if tmr.IsRunning() {
 		o.timerw[tmr.wheel].stop(tmr)
 		o.totalEvents--
 	}
+	return RC_HTW_OK
 }
 
-// Start schedule a timer event
-func (o *CNATimerWheel) Start(tmr *CHTimerObj, ticks uint32) {
+// Start schedule a timer event, the timer should not be running
+func (o *CNATimerWheel) Start(tmr *CHTimerObj, ticks uint32) RCtw {
 	o.totalEvents++
 	if ticks < o.wheelSize {
 		tmr.ticksLeft = 0
 		tmr.wheel = 0
-		o.timerw[0].start(tmr, ticks)
+		return o.timerw[0].start(tmr, ticks)
 	}
-	o.restart(tmr, ticks)
+	return o.restart(tmr, ticks)
+}
+
+//RefreshTimer works on a scheduled timer and just extend it expiration time without changing it location
+// on the wheel (cheaper) in performance preceptive
+func (o *CNATimerWheel) RefreshTimer(tmr *CHTimerObj, ticks uint32) RCtw {
+	panic(" not implemented yet ")
 }
