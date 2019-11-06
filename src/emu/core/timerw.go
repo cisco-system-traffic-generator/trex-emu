@@ -131,7 +131,7 @@ func (o *cHTimerBucket) decCount() {
 // To do replace with Event
 // CHTimerOnEvent callback interface
 type CHTimerOnEvent interface {
-	onEvent(a, b interface{})
+	OnEvent(a, b interface{})
 }
 
 // CHTimerObj timer object to allocate
@@ -153,14 +153,14 @@ func (o *CHTimerObj) SetCB(cb CHTimerOnEvent, a interface{}, b interface{}) {
 }
 
 func (o *CHTimerObj) call() {
-	o.cb.onEvent(o.cbA, o.cbB)
+	o.cb.OnEvent(o.cbA, o.cbB)
 }
 
 func (o *CHTimerObj) reset() {
 	o.cHTimerWheelLink.reset()
 }
 
-func (o *CHTimerObj) isRunning() bool {
+func (o *CHTimerObj) IsRunning() bool {
 	if o.next != nil {
 		return (true)
 	}
@@ -277,7 +277,7 @@ func (o *cHTimerOneWheel) detachAll() uint32 {
 }
 
 func (o *cHTimerOneWheel) start(tmr *CHTimerObj, ticks uint32) RCtw {
-	if tmr.isRunning() {
+	if tmr.IsRunning() {
 		return RC_HTW_ERR_TIMER_IS_ON
 	}
 	o.append(tmr, uint32(ticks))
@@ -285,7 +285,7 @@ func (o *cHTimerOneWheel) start(tmr *CHTimerObj, ticks uint32) RCtw {
 }
 
 func (o *cHTimerOneWheel) stop(tmr *CHTimerObj) {
-	if tmr.isRunning() {
+	if tmr.IsRunning() {
 		tmr.detach()
 	}
 }
@@ -489,7 +489,7 @@ func (o *CNATimerWheel) OnTick(minEvents uint32) {
 
 // Stop schedule a timer event
 func (o *CNATimerWheel) Stop(tmr *CHTimerObj) {
-	if tmr.isRunning() {
+	if tmr.IsRunning() {
 		o.timerw[tmr.wheel].stop(tmr)
 		o.totalEvents--
 	}

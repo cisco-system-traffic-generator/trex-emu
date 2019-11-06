@@ -41,7 +41,7 @@ type myEventTest struct {
 	stats  *myTest1Stats
 }
 
-func (o *myEventTest) onEvent(a, b interface{}) {
+func (o *myEventTest) OnEvent(a, b interface{}) {
 	//fmt.Printf(" [event %d] \n", o.id)
 	o.timerw.Start(&o.CHTimerObj, 2)
 	o.stats.ticks++

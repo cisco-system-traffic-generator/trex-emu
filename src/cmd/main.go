@@ -126,7 +126,7 @@ func (o *ArpExample) StartTimers() {
 	o.ctx.Start(&o.timer2, time.Second*2)
 }
 
-func (o *ArpExample) onEvent(a, b interface{}) {
+func (o *ArpExample) OnEvent(a, b interface{}) {
 
 	vala, ok := a.(int)
 	if !ok {
