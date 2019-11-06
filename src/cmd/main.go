@@ -108,8 +108,62 @@ func testTunnelKey() {
 
 }
 
+const (
+	eARP_TIMER1 = 1
+	eARP_TIMER2 = 2
+)
+
+type ArpExample struct {
+	ctx    *core.TimerCtx
+	timer1 core.CHTimerObj
+	timer2 core.CHTimerObj
+}
+
+func (o *ArpExample) StartTimers() {
+	o.timer1.SetCB(o, eARP_TIMER1, nil)
+	o.timer2.SetCB(o, eARP_TIMER2, nil)
+	o.ctx.Start(&o.timer1, time.Second*1)
+	o.ctx.Start(&o.timer2, time.Second*2)
+}
+
+func (o *ArpExample) onEvent(a, b interface{}) {
+
+	vala, ok := a.(int)
+	if !ok {
+		fmt.Printf("error ")
+		return
+	}
+	if vala == eARP_TIMER1 {
+		fmt.Printf("timer a")
+		o.ctx.Start(&o.timer1, time.Second*1)
+	}
+	if vala == eARP_TIMER2 {
+		fmt.Printf("timer b")
+		o.ctx.Start(&o.timer2, time.Second*2)
+	}
+}
+
+func TestNs1() {
+	var arp ArpExample
+	tctx := core.NewTimerCtx()
+	arp.ctx = tctx
+	arp.StartTimers()
+	fmt.Printf("start  \n")
+	for {
+		select {
+		case <-tctx.Timer.C:
+			if tctx.Ticks%100 == 0 {
+				fmt.Printf("\n %d \n", tctx.Ticks)
+			}
+			tctx.RestartTimer()
+		}
+	}
+
+	fmt.Printf("end  \n")
+}
+
 func main() {
-	core.TestNs1()
+	TestNs1()
 	return
 	var i interface{}
 	var cnt int
