@@ -193,8 +193,65 @@ func testdList() {
 	}
 }
 
+type A struct {
+	a uint32
+}
+
+type B struct {
+	b uint32
+}
+
+type PluginEvents interface {
+	OnEvent(msg string, a, b interface{})
+}
+
+type PluginBase struct {
+	a     *A           // pointer to ns
+	b     *B           // pointer to the thread
+	i     PluginEvents //
+	Ext   interface{}  // extention memory that can be converted to specific memory
+	NsExt interface{}
+}
+
+type PluginArp struct {
+	PluginBase
+	arpEnable bool
+}
+
+func (o *PluginArp) OnEvent(a, b interface{}) {
+	fmt.Printf(" OnEvent %v %v \n", a, b)
+	fmt.Printf(" values %v %v arp:%v \n", o.a.a, o.b.b, o.arpEnable)
+}
+
+type InterfaceMem struct {
+	a *interface{}
+	b *interface{}
+	c *interface{}
+}
+
+func RunArp(o *PluginBase) {
+	o.i.OnEvent(27, 28)
+	p := o.Ext.(PluginArp)
+	fmt.Printf(" %v  \n", p)
+}
+
+func testPlugin() {
+	var a A
+	var b B
+	a.a = 11
+	b.b = 12
+	var plugArp PluginArp
+	plugArp.a = &a
+	plugArp.b = &b
+	plugArp.i = &plugArp
+	plugArp.Ext = plugArp // point to itself
+	plugArp.arpEnable = true
+	RunArp(&plugArp.PluginBase)
+}
+
 func main() {
-	testdList()
+	testPlugin()
+	//testdList()
 	//TestNs1()
 	return
 	var i interface{}

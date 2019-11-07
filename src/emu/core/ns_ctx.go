@@ -41,9 +41,13 @@ type MapClientMAC map[MACKey]*CClient
 type MapPlugin map[string]interface{}
 
 type CNSCtxStats struct {
-	addNs    uint64
-	removeNs uint64
-	activeNs uint64
+	addNs            uint64
+	removeNs         uint64
+	activeNs         uint64
+	errRemoveIPv4tbl uint64 /* ipv4 does not exits in the IPv4 table */
+	errRemoveMactbl  uint64 /* client MAC does not exits in the MAC table */
+	errRemoveIPv6tbl uint64 /* ipv4 of client does not exits in the ipv6 table */
+	errInvalidMac    uint64 /* mac is zero  */
 }
 
 // CNSCtx network namespace context
@@ -144,7 +148,6 @@ func (o *CNSCtx) AddClient(client *CClient) error {
 	}
 	// Valid client add it
 	o.mapMAC[client.Mac] = client
-
 	if hasIpv4 {
 		o.mapIpv4[client.Ipv4] = client
 	}
@@ -153,6 +156,7 @@ func (o *CNSCtx) AddClient(client *CClient) error {
 		o.mapIpv6[client.Ipv6] = client
 	}
 	o.clientHead.AddLast(&client.dlist)
+	o.epoc++
 
 	return nil
 }
@@ -161,12 +165,47 @@ func (o *CNSCtx) AddClient(client *CClient) error {
 func (o *CNSCtx) RemoveClient(client *CClient) error {
 
 	if client.Mac.IsZero() {
+		o.stats.errInvalidMac++
 		return fmt.Errorf(" Removing client with invalid zero MAC (zero)")
 	}
 
 	var c *CClient
 	c = o.CLookupByMac(&client.Mac)
 	if c == nil {
+		o.stats.errRemoveMactbl++
 		return fmt.Errorf(" client with the MAC %v does not exist", client.Mac)
 	}
+
+	delete(o.mapMAC, client.Mac)
+
+	o.clientHead.RemoveNode(&client.dlist)
+
+	if !client.Ipv4.IsZero() {
+		if o.CLookupByIPv4(&client.Ipv4) != nil {
+			delete(o.mapIpv4, client.Ipv4)
+		} else {
+			o.stats.errRemoveIPv4tbl++
+		}
+	}
+
+	if !client.Ipv6.IsZero() {
+		if o.CLookupByIPv6(&client.Ipv6) != nil {
+			delete(o.mapIpv6, client.Ipv6)
+		} else {
+			o.stats.errRemoveIPv6tbl++
+		}
+	}
+	o.epoc++
+
+	return nil
+}
+
+// IterReset save the rpc epoc and operate only if there wasn't a change
+func (o *CNSCtx) IterReset() {
+	fmt.Printf("reset iterator ")
+}
+
+// GetNext return error in case the epoc was changed, use
+func (o *CNSCtx) GetNext(n uint16) {
+	fmt.Printf("next")
 }
