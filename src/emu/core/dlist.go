@@ -33,9 +33,27 @@ func testdList() {
 	for it.Init(&first.dlist); it.Cont(); it.Next() {
 		fmt.Println(covert(it.Val()).val)
 	}
-
-
 }
+
+ in this case the head is not part of the link list
+func testdList() {
+	var head core.DList
+	head.SetSelf()
+
+	var it core.DListIterHead    << iterator should be DListIterHead
+
+	for i := 0; i < 10; i++ {
+		o := new(MyObjectTest)
+		o.val = uint32(i)
+		head.AddLast(&o.dlist)
+	}
+
+	for it.Init(&head); it.IsCont(); it.Next() {
+		fmt.Println(covert(it.Val()).val)
+	}
+}
+
+
 
 */
 // DList embedded inside a diffrent struct
@@ -44,7 +62,37 @@ type DList struct {
 	prev *DList
 }
 
-//DListIter iterator
+// DListIterHead iterator in case there are a root the point to the first element
+type DListIterHead struct {
+	head *DList
+	cur  *DList
+}
+
+// Init
+func (o *DListIterHead) Init(obj *DList) {
+	o.cur = obj.Next()
+	o.head = obj
+}
+
+// IsCont - can we continue
+func (o *DListIterHead) IsCont() bool {
+	if o.cur == o.head {
+		return false
+	}
+	return true
+}
+
+// Next go to the next
+func (o *DListIterHead) Next() {
+	o.cur = o.cur.Next()
+}
+
+// Val Get the curent val
+func (o *DListIterHead) Val() *DList {
+	return o.cur
+}
+
+//DListIter iterator, the first element is valid object
 type DListIter struct {
 	head  *DList
 	cur   *DList
@@ -141,4 +189,12 @@ func (o *DList) RemoveLast() *DList {
 	prev.prev.next = o
 	prev.SetSelf()
 	return (prev)
+}
+
+// RemoveNode remove this node
+func (o *DList) RemoveNode(n *DList) {
+	if n.IsSelf() || (n == o) {
+		return
+	}
+	n.prev.RemoveFirst()
 }

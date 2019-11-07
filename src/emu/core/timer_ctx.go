@@ -4,11 +4,8 @@ import (
 	"time"
 )
 
-/* timer context per thread handler the timerw and the tick of 10msec
-
-This class include the information per thread
-each thread responsible to a port range or vlan range
-
+/* timer context there is one per thread ctx
+   tick is 10msec. two levels
 */
 
 /* ticks */

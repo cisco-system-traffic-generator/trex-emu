@@ -507,8 +507,9 @@ func (o *CNATimerWheel) Start(tmr *CHTimerObj, ticks uint32) RCtw {
 	return o.restart(tmr, ticks)
 }
 
-//RefreshTimer works on a scheduled timer and just extend it expiration time without changing it location
-// on the wheel (cheaper) in performance preceptive
+// RefreshTimer works on a scheduled timer and just extend it expiration time without changing it location
+// on the wheel (cheaper) in performance preceptive. remember the last tick and duration and restart with the diff
+// this logic could be done in upper layer
 func (o *CNATimerWheel) RefreshTimer(tmr *CHTimerObj, ticks uint32) RCtw {
 	panic(" not implemented yet ")
 }

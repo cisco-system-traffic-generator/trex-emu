@@ -1,0 +1,172 @@
+package core
+
+import "fmt"
+
+/* Context per thread object
+
+This class include the information per thread
+each thread responsible to a port range or vlan range
+
+*/
+
+type Ipv6Key [16]byte
+type Ipv4Key [4]byte
+type MACKey [6]byte // mac key
+
+func (key *Ipv6Key) IsZero() bool {
+	if *key == [16]byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0} {
+		return true
+	}
+	return false
+}
+
+func (key *Ipv4Key) IsZero() bool {
+
+	if *key == [4]byte{0, 0, 0, 0} {
+		return true
+	}
+	return false
+}
+
+func (key *MACKey) IsZero() bool {
+	if *key == [6]byte{0, 0, 0, 0, 0, 0} {
+		return true
+	}
+	return false
+}
+
+type MapClientIPv6 map[Ipv6Key]*CClient
+type MapClientIPv4 map[Ipv4Key]*CClient
+type MapClientMAC map[MACKey]*CClient
+type MapPlugin map[string]interface{}
+
+type CNSCtxStats struct {
+	addNs    uint64
+	removeNs uint64
+	activeNs uint64
+}
+
+// CNSCtx network namespace context
+type CNSCtx struct {
+	dlist      DList //for thread  ctx dlist
+	ThreadCtx  *CThreadCtx
+	Key        CTunnelKey // the key tunnel of this namespace
+	mapIpv6    MapClientIPv6
+	mapIpv4    MapClientIPv4
+	mapMAC     MapClientMAC
+	clientHead DList // list of ns
+	stats      CNSCtxStats
+	plugin     MapPlugin // plugin to the share name-space
+	epoc       uint32
+}
+
+// NewNSCtx create new one
+func NewNSCtx(tctx *CThreadCtx,
+	key *CTunnelKey) *CNSCtx {
+	o := new(CNSCtx)
+	o.ThreadCtx = tctx
+	o.Key = *key
+	o.mapIpv6 = make(MapClientIPv6)
+	o.mapIpv4 = make(MapClientIPv4)
+	o.mapMAC = make(MapClientMAC)
+	o.plugin = make(MapPlugin)
+	o.clientHead.SetSelf()
+	return o
+}
+
+// Look for a client by MAC
+func (o *CNSCtx) CLookupByMac(mac *MACKey) *CClient {
+	if mac.IsZero() {
+		return nil
+	}
+	c, ok := o.mapMAC[*mac]
+	if ok {
+		return c
+	} else {
+		return nil
+	}
+}
+
+func (o *CNSCtx) CLookupByIPv4(ipv4 *Ipv4Key) *CClient {
+
+	if ipv4.IsZero() {
+		return nil
+	}
+	c, ok := o.mapIpv4[*ipv4]
+	if ok {
+		return c
+	} else {
+		return nil
+	}
+}
+
+func (o *CNSCtx) CLookupByIPv6(ipv6 *Ipv6Key) *CClient {
+
+	if ipv6.IsZero() {
+		return nil
+	}
+	c, ok := o.mapIpv6[*ipv6]
+	if ok {
+		return c
+	} else {
+		return nil
+	}
+}
+
+// AddClient add a client object to the maps and dlist
+func (o *CNSCtx) AddClient(client *CClient) error {
+
+	if client.Mac.IsZero() {
+		return fmt.Errorf(" Adding client with invalid zero MAC (zero)")
+	}
+
+	var c *CClient
+	c = o.CLookupByMac(&client.Mac)
+	if c != nil {
+		return fmt.Errorf(" client with the same MAC %v already exist", client.Mac)
+	}
+	// mac is valid
+	hasIpv4 := !client.Ipv4.IsZero()
+	hasIpv6 := !client.Ipv6.IsZero()
+
+	if hasIpv4 {
+		c = o.CLookupByIPv4(&client.Ipv4)
+		if c != nil {
+			return fmt.Errorf(" client with the same IPv4 %v already exist", client.Ipv4)
+		}
+	}
+
+	if hasIpv6 {
+		c = o.CLookupByIPv6(&client.Ipv6)
+		if c != nil {
+			return fmt.Errorf(" client with the same IPv6 %v already exist", client.Ipv6)
+		}
+	}
+	// Valid client add it
+	o.mapMAC[client.Mac] = client
+
+	if hasIpv4 {
+		o.mapIpv4[client.Ipv4] = client
+	}
+
+	if hasIpv6 {
+		o.mapIpv6[client.Ipv6] = client
+	}
+	o.clientHead.AddLast(&client.dlist)
+
+	return nil
+}
+
+// RemoveClient remove a client
+func (o *CNSCtx) RemoveClient(client *CClient) error {
+
+	if client.Mac.IsZero() {
+		return fmt.Errorf(" Removing client with invalid zero MAC (zero)")
+	}
+
+	var c *CClient
+	c = o.CLookupByMac(&client.Mac)
+	if c == nil {
+		return fmt.Errorf(" client with the MAC %v does not exist", client.Mac)
+	}
+}

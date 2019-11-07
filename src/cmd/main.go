@@ -162,8 +162,40 @@ func TestNs1() {
 	fmt.Printf("end  \n")
 }
 
+//func (o *DList) RemoveSelffunc (o *DList) RemoveSelf(n *DList) {
+//(n *DList) {
+type MyObjectTest struct {
+	val   uint32
+	dlist core.DList
+}
+
+//There is no better solotion in go right now! maybe go2.0
+func covert(dlist *core.DList) *MyObjectTest {
+	var s MyObjectTest
+	return (*MyObjectTest)(unsafe.Pointer(uintptr(unsafe.Pointer(dlist)) - unsafe.Offsetof(s.dlist)))
+}
+
+func testdList() {
+	var head core.DList
+	head.SetSelf()
+
+	var it core.DListIterHead
+
+	for i := 0; i < 10; i++ {
+		o := new(MyObjectTest)
+		o.val = uint32(i)
+		head.AddLast(&o.dlist)
+	}
+
+	//head.RemoveNode(&ptr.dlist)
+	for it.Init(&head); it.IsCont(); it.Next() {
+		fmt.Println(covert(it.Val()).val)
+	}
+}
+
 func main() {
-	TestNs1()
+	testdList()
+	//TestNs1()
 	return
 	var i interface{}
 	var cnt int
