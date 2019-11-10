@@ -17,6 +17,7 @@ type PluginArp struct {
 	arpEnable bool
 }
 
+
 */
 type PluginBase struct {
 	Client *CClient
@@ -28,8 +29,8 @@ type PluginBase struct {
 
 type IPluginRegister interface {
 	OnCreate(initJson []byte) *PluginBase        // call to create a new plugin
-	OnDelete(*PluginBase, MapEventBus)           // call to delete, need to unregister events
-	OnEventBusRegister(*PluginBase, MapEventBus) // register to event bus 
+	OnDelete(*PluginBase, MapEventBus)           // call to delete, need to unregister events bus
+	OnEventBusRegister(*PluginBase, MapEventBus) // register to event bus
 }
 
 type PluginRegisterLevel struct {
