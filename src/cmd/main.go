@@ -252,7 +252,106 @@ func testPlugin() {
 
 */
 
+type A struct {
+	a uint32
+}
+
+func (o *A) dump() {
+	fmt.Printf(" A:%d %p\n", o.a, o)
+}
+
+type MyMapEventBus map[string][]*A
+
+func CreateEventBus() *MyMapEventBus {
+	o := make(MyMapEventBus)
+	return &o
+}
+
+func (o MyMapEventBus) DumpAll(msg string) {
+
+	v, ok := o[msg]
+	if !ok {
+		fmt.Printf(" nothing ! \n")
+		return
+	}
+	if len(v) == 0 {
+		fmt.Printf(" nothing ! \n")
+		return
+	}
+	for _, obj := range v {
+		obj.dump()
+	}
+}
+
+func (o MyMapEventBus) AddObj(msg string, a *A) {
+
+	v, ok := o[msg]
+	if !ok {
+		o[msg] = []*A{a}
+	} else {
+		for _, obj := range v {
+			if obj == a {
+				fmt.Printf(" add alreay exists")
+				return
+			}
+		}
+		v = append(v, a)
+		o[msg] = v
+	}
+}
+
+func (o MyMapEventBus) RemoveObj(msg string, a *A) {
+	v, ok := o[msg]
+	if !ok {
+		fmt.Printf("RemoveObj does not exits")
+		return
+	}
+	index := -1
+	for i, obj := range v {
+		if obj == a {
+			index = i
+			fmt.Printf(" remove index %d \n", i)
+		}
+	}
+	if index != -1 {
+		if index < len(v)-1 {
+			fmt.Printf("at middle %d:%d+ \n", index, index+1)
+			v = append(v[:index], v[index+1:]...)
+		} else {
+			fmt.Printf("at end %d \n", index)
+			v = v[:index]
+		}
+	}
+	o[msg] = v
+}
+
 func main() {
+	eb := CreateEventBus()
+	var a1 A
+	var a2 A
+	var a3 A
+	a1.a = 1
+	a2.a = 2
+	a3.a = 3
+	eb.DumpAll("on_drop")
+	eb.DumpAll("on_fail")
+
+	eb.AddObj("on_drop", &a1)
+	eb.AddObj("on_drop", &a2)
+	eb.AddObj("on_fail", &a3)
+	eb.AddObj("on_fail", &a1)
+
+	eb.DumpAll("on_drop")
+	eb.DumpAll("on_fail")
+
+	eb.RemoveObj("on_fail", &a3)
+	eb.RemoveObj("on_fail", &a3)
+
+	eb.DumpAll("on_fail")
+
+	eb.RemoveObj("on_fail", &a1)
+	eb.DumpAll("on_fail")
+
 	//testPlugin()
 	//testdList()
 	//TestNs1()
