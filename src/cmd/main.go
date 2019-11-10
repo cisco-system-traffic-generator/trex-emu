@@ -193,6 +193,7 @@ func testdList() {
 	}
 }
 
+/*
 type A struct {
 	a uint32
 }
@@ -249,8 +250,10 @@ func testPlugin() {
 	RunArp(&plugArp.PluginBase)
 }
 
+*/
+
 func main() {
-	testPlugin()
+	//testPlugin()
 	//testdList()
 	//TestNs1()
 	return
