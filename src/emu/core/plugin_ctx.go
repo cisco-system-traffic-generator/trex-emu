@@ -162,7 +162,7 @@ func (o *PluginCtx) getRegLevel(v *PluginRegisterData) *PluginRegisterLevel {
 	return p
 }
 
-// addPlugins, there is no way to remove plugin
+// addPlugins n
 func (o *PluginCtx) addPlugins(pl string, initJson []byte) error {
 
 	v, ok := pluginregister.M[pl]

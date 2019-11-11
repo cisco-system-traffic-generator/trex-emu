@@ -38,7 +38,6 @@ func (key *MACKey) IsZero() bool {
 type MapClientIPv6 map[Ipv6Key]*CClient
 type MapClientIPv4 map[Ipv4Key]*CClient
 type MapClientMAC map[MACKey]*CClient
-type MapPlugin map[string]interface{}
 
 type CNSCtxStats struct {
 	addNs            uint64
@@ -60,7 +59,7 @@ type CNSCtx struct {
 	mapMAC     MapClientMAC
 	clientHead DList // list of ns
 	stats      CNSCtxStats
-	plugin     MapPlugin // plugin to the share name-space
+	PluginCtx  *PluginCtx
 	epoc       uint32
 }
 
@@ -73,7 +72,7 @@ func NewNSCtx(tctx *CThreadCtx,
 	o.mapIpv6 = make(MapClientIPv6)
 	o.mapIpv4 = make(MapClientIPv4)
 	o.mapMAC = make(MapClientMAC)
-	o.plugin = make(MapPlugin)
+	o.PluginCtx = NewPluginCtx(nil, o, tctx, PLUGIN_LEVEL_NS)
 	o.clientHead.SetSelf()
 	return o
 }
@@ -197,6 +196,54 @@ func (o *CNSCtx) RemoveClient(client *CClient) error {
 	}
 	o.epoc++
 
+	return nil
+}
+
+func (o *CNSCtx) UpdateClientIpv4(client *CClient, NewIpv4 Ipv4Key) error {
+
+	oldIpv4 := client.Ipv4
+	var ok bool
+
+	if !oldIpv4.IsZero() {
+		_, ok = o.mapIpv4[oldIpv4]
+		if !ok {
+			client.Ipv4 = [4]byte{0, 0, 0, 0}
+			return fmt.Errorf(" Somthing is wrong, couldn't find self ipv4 %v ", oldIpv4)
+		}
+		delete(o.mapIpv4, oldIpv4)
+	}
+
+	_, ok = o.mapIpv4[NewIpv4]
+	if ok {
+		client.Ipv4 = [4]byte{0, 0, 0, 0}
+		return fmt.Errorf(" Somthing is wrong, couldn't update client with new ipv4 %v ", NewIpv4)
+	}
+	o.mapIpv4[NewIpv4] = client
+	client.PluginCtx.BroadcastMsg(nil, MSG_UPDATE_IPV4_ADDR, oldIpv4, NewIpv4)
+	return nil
+}
+
+func (o *CNSCtx) UpdateClientIpv6(client *CClient, NewIpv6 Ipv6Key) error {
+
+	oldIpv6 := client.Ipv6
+	var ok bool
+
+	if !oldIpv6.IsZero() {
+		_, ok = o.mapIpv6[oldIpv6]
+		if !ok {
+			client.Ipv6 = [16]byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+			return fmt.Errorf(" Somthing is wrong, couldn't find self ipv4 %v ", oldIpv6)
+		}
+		delete(o.mapIpv6, oldIpv6)
+	}
+
+	_, ok = o.mapIpv6[NewIpv6]
+	if ok {
+		client.Ipv6 = [16]byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+		return fmt.Errorf(" Somthing is wrong, couldn't update client with new ipv4 %v ", NewIpv6)
+	}
+	o.mapIpv6[NewIpv6] = client
+	client.PluginCtx.BroadcastMsg(nil, MSG_UPDATE_IPV6_ADDR, oldIpv6, NewIpv6)
 	return nil
 }
 

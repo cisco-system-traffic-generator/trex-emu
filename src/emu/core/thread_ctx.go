@@ -55,14 +55,14 @@ type CThreadCtxStats struct {
 
 // CThreadCtx network namespace context
 type CThreadCtx struct {
-	timerctx *TimerCtx
-	portMap  MapPortT // valid port for this context
-	Id       uint32
-	mapNs    MapNsT // map tunnel to namespace
-	nsHead   DList  // list of ns
-	epoc     uint32 // number of timer adding/removing ns used by RPC
-
-	stats CThreadCtxStats
+	timerctx  *TimerCtx
+	portMap   MapPortT // valid port for this context
+	Id        uint32
+	mapNs     MapNsT // map tunnel to namespace
+	nsHead    DList  // list of ns
+	epoc      uint32 // number of timer adding/removing ns used by RPC
+	PluginCtx *PluginCtx
+	stats     CThreadCtxStats
 }
 
 func NewThreadCtx(Id uint32) *CThreadCtx {
@@ -71,6 +71,7 @@ func NewThreadCtx(Id uint32) *CThreadCtx {
 	o.portMap = make(MapPortT)
 	o.mapNs = make(MapNsT)
 	o.nsHead.SetSelf()
+	o.PluginCtx = NewPluginCtx(nil, nil, o, PLUGIN_LEVEL_THREAD)
 	return o
 }
 
