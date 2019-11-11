@@ -285,7 +285,17 @@ func (o MyMapEventBus) DumpAll(msg string) {
 
 func (o MyMapEventBus) AddObj(msg string, a *A) {
 
-	v, ok := o[msg]
+	v := o[msg]
+	for _, obj := range v {
+		if obj == a {
+			fmt.Printf(" add alreay exists")
+			return
+		}
+	}
+	v = append(v, a)
+	o[msg] = v
+
+	/*v, ok := o[msg]
 	if !ok {
 		o[msg] = []*A{a}
 	} else {
@@ -297,7 +307,7 @@ func (o MyMapEventBus) AddObj(msg string, a *A) {
 		}
 		v = append(v, a)
 		o[msg] = v
-	}
+	}*/
 }
 
 func (o MyMapEventBus) RemoveObj(msg string, a *A) {
@@ -314,13 +324,17 @@ func (o MyMapEventBus) RemoveObj(msg string, a *A) {
 		}
 	}
 	if index != -1 {
-		if index < len(v)-1 {
-			fmt.Printf("at middle %d:%d+ \n", index, index+1)
-			v = append(v[:index], v[index+1:]...)
-		} else {
-			fmt.Printf("at end %d \n", index)
-			v = v[:index]
-		}
+		v[index] = v[len(v)-1]
+		v = v[:len(v)-1]
+
+		/*
+			if index < len(v)-1 {
+				fmt.Printf("at middle %d:%d+ \n", index, index+1)
+				v = append(v[:index], v[index+1:]...)
+			} else {
+				fmt.Printf("at end %d \n", index)
+				v = v[:index]
+			}*/
 	}
 	o[msg] = v
 }
@@ -334,23 +348,45 @@ func main() {
 	a2.a = 2
 	a3.a = 3
 	eb.DumpAll("on_drop")
-	eb.DumpAll("on_fail")
 
 	eb.AddObj("on_drop", &a1)
 	eb.AddObj("on_drop", &a2)
-	eb.AddObj("on_fail", &a3)
-	eb.AddObj("on_fail", &a1)
-
+	eb.AddObj("on_drop", &a1)
 	eb.DumpAll("on_drop")
-	eb.DumpAll("on_fail")
 
-	eb.RemoveObj("on_fail", &a3)
-	eb.RemoveObj("on_fail", &a3)
+	fmt.Printf(" remove a3 does not exits \n")
+	eb.RemoveObj("on_drop", &a3)
+	eb.DumpAll("on_drop")
 
-	eb.DumpAll("on_fail")
+	fmt.Printf(" remove a1 -first \n")
+	eb.RemoveObj("on_drop", &a1)
+	eb.DumpAll("on_drop")
 
-	eb.RemoveObj("on_fail", &a1)
-	eb.DumpAll("on_fail")
+	fmt.Printf(" remove a2 - last \n")
+	eb.RemoveObj("on_drop", &a2)
+	eb.DumpAll("on_drop")
+
+	fmt.Printf(" add a2 - last \n")
+	eb.AddObj("on_drop", &a2)
+	eb.AddObj("on_drop", &a1)
+	eb.AddObj("on_drop", &a3)
+	eb.DumpAll("on_drop")
+	eb.RemoveObj("on_drop", &a2)
+	eb.DumpAll("on_drop")
+
+	//eb.AddObj("on_fail", &a3)
+	//eb.AddObj("on_fail", &a1)
+
+	//eb.DumpAll("on_drop")
+	//eb.DumpAll("on_fail")
+
+	//eb.RemoveObj("on_fail", &a3)
+	//eb.RemoveObj("on_fail", &a3)
+
+	//eb.DumpAll("on_fail")
+
+	//eb.RemoveObj("on_fail", &a1)
+	//eb.DumpAll("on_fail")
 
 	//testPlugin()
 	//testdList()

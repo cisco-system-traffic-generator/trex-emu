@@ -52,18 +52,14 @@ type MapEventBus map[string][]*PluginBase // string is the msg name
 
 func (o MapEventBus) Add(msg string, vo *PluginBase) {
 
-	v, ok := o[msg]
-	if !ok {
-		o[msg] = []*PluginBase{vo}
-	} else {
-		for _, obj := range v {
-			if obj == vo {
-				return
-			}
+	v := o[msg]
+	for _, obj := range v {
+		if obj == vo {
+			return
 		}
-		v = append(v, vo)
-		o[msg] = v
 	}
+	v = append(v, vo)
+	o[msg] = v
 }
 
 func (o MapEventBus) Remove(msg string, vo *PluginBase) {
@@ -78,21 +74,19 @@ func (o MapEventBus) Remove(msg string, vo *PluginBase) {
 		}
 	}
 	if index != -1 {
-		if index < len(v)-1 {
-			v = append(v[:index], v[index+1:]...)
-		} else {
-			v = v[:index]
-		}
+		v[index] = v[len(v)-1]
+		v = v[:len(v)-1]
 	}
 	o[msg] = v
 }
 
+// BroadcastMsg In case vo is provided the msg will be filtered (not provided) to this plugin
+// used in case we want to filter message to the same object the publish them
 func (o MapEventBus) BroadcastMsg(vo *PluginBase, msg string, a, b interface{}) {
 	v, ok := o[msg]
 	if !ok {
 		return
 	}
-
 	for _, obj := range v {
 		if obj != vo {
 			obj.I.OnEvent(msg, a, b)
