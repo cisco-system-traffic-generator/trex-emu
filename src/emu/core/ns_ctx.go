@@ -1,6 +1,9 @@
 package core
 
-import "fmt"
+import (
+	"fmt"
+	"unsafe"
+)
 
 /* Context per thread object
 
@@ -49,6 +52,10 @@ type CNSCtxStats struct {
 	errInvalidMac    uint64 /* mac is zero  */
 }
 
+func castDlistNSCtx(dlist *DList) *CNSCtx {
+	return (*CNSCtx)(unsafe.Pointer(uintptr(unsafe.Pointer(dlist))))
+}
+
 // CNSCtx network namespace context
 type CNSCtx struct {
 	dlist      DList //for thread  ctx dlist
@@ -61,6 +68,9 @@ type CNSCtx struct {
 	stats      CNSCtxStats
 	PluginCtx  *PluginCtx
 	epoc       uint32
+	iterEpoc   uint32
+	iterReady  bool
+	iter       DListIterHead
 }
 
 // NewNSCtx create new one
@@ -74,6 +84,7 @@ func NewNSCtx(tctx *CThreadCtx,
 	o.mapMAC = make(MapClientMAC)
 	o.PluginCtx = NewPluginCtx(nil, o, tctx, PLUGIN_LEVEL_NS)
 	o.clientHead.SetSelf()
+	o.iterReady = false
 	return o
 }
 
@@ -248,11 +259,44 @@ func (o *CNSCtx) UpdateClientIpv6(client *CClient, NewIpv6 Ipv6Key) error {
 }
 
 // IterReset save the rpc epoc and operate only if there wasn't a change
-func (o *CNSCtx) IterReset() {
-	fmt.Printf("reset iterator ")
+func (o *CNSCtx) IterReset() bool {
+
+	o.iterEpoc = o.epoc
+	o.iter.Init(&o.clientHead)
+	if o.clientHead.IsEmpty() {
+		o.iterReady = false
+		return false
+	}
+	o.iterReady = true
+	return true
 }
 
 // GetNext return error in case the epoc was changed, use
-func (o *CNSCtx) GetNext(n uint16) {
-	fmt.Printf("next")
+func (o *CNSCtx) GetNext(n uint16) ([]*MACKey, error) {
+
+	r := make([]*MACKey, 0)
+
+	if !o.iterReady {
+		return r, fmt.Errorf(" Iterator is not ready- reset the iterator  ")
+	}
+
+	if o.iterEpoc != o.epoc {
+		return r, fmt.Errorf(" iterator was interupted , reset and start again ")
+	}
+	cnt := 0
+	for {
+		if !o.iter.IsCont() {
+			o.iterReady = false // require a new reset
+			break
+		}
+		cnt++
+		if cnt > int(n) {
+			break
+		}
+		client := castDlistClient(o.iter.Val())
+		r = append(r, &client.Mac)
+		fmt.Printf(" %x", client.Mac)
+		o.iter.Next()
+	}
+	return r, nil
 }

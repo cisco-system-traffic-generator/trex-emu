@@ -60,9 +60,13 @@ type CThreadCtx struct {
 	Id        uint32
 	mapNs     MapNsT // map tunnel to namespace
 	nsHead    DList  // list of ns
-	epoc      uint32 // number of timer adding/removing ns used by RPC
 	PluginCtx *PluginCtx
 	stats     CThreadCtxStats
+
+	epoc      uint32 // number of timer adding/removing ns used by RPC
+	iterEpoc  uint32
+	iterReady bool
+	iter      DListIterHead
 }
 
 func NewThreadCtx(Id uint32) *CThreadCtx {
@@ -113,13 +117,45 @@ func (o *CThreadCtx) RemoveNs(key *CTunnelKey) error {
 }
 
 // IterReset save the rpc epoc and operate only if there wasn't a change
-func (o *CThreadCtx) IterReset() {
-	fmt.Printf("reset iterator ")
+func (o *CThreadCtx) IterReset() bool {
+	o.iterEpoc = o.epoc
+	o.iter.Init(&o.nsHead)
+	if o.nsHead.IsEmpty() {
+		o.iterReady = false
+		return false
+	}
+	o.iterReady = true
+	return true
+
 }
 
 // GetNext return error in case the epoc was changed, use
-func (o *CThreadCtx) GetNext(n uint16) {
-	fmt.Printf("next")
+func (o *CThreadCtx) GetNext(n uint16) ([]*CTunnelKey, error) {
+	r := make([]*CTunnelKey, 0)
+
+	if !o.iterReady {
+		return r, fmt.Errorf(" Iterator is not ready- reset the iterator")
+	}
+
+	if o.iterEpoc != o.epoc {
+		return r, fmt.Errorf(" iterator was interupted , reset and start again ")
+	}
+	cnt := 0
+	for {
+		if !o.iter.IsCont() {
+			o.iterReady = false // require a new reset
+			break
+		}
+		cnt++
+		if cnt > int(n) {
+			break
+		}
+		ns := castDlistNSCtx(o.iter.Val())
+		r = append(r, &ns.Key)
+		fmt.Printf(" %v", ns.Key)
+		o.iter.Next()
+	}
+	return r, nil
 }
 
 // TODO add RPC for counters,iterator, vport, tunnel

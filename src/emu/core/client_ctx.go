@@ -1,5 +1,7 @@
 package core
 
+import "unsafe"
+
 type CClientStats struct {
 	addClients    uint64
 	removeClients uint64
@@ -30,6 +32,10 @@ func NewClientStatsCounterDb(o *CClientStats) *CCounterDb {
 		DumpZero: false,
 		Info:     ScINFO})
 	return db
+}
+
+func castDlistClient(dlist *DList) *CClient {
+	return (*CClient)(unsafe.Pointer(uintptr(unsafe.Pointer(dlist))))
 }
 
 // CClient represent one client
