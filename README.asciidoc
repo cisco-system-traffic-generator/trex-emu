@@ -15,7 +15,7 @@ go install -v cmd/main.go
 
 .Run
 -----
-$root/bin/main 
+./$root/bin/main 
 -----
 
 
