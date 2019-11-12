@@ -6,7 +6,6 @@ import (
 	"net/http"
 
 	"github.com/intel-go/fastjson"
-	"github.com/osamingo/jsonrpc"
 )
 
 // Handler links a method of JSON-RPC request.
@@ -25,7 +24,7 @@ func (mr *MethodRepository) ServeBytes(req []byte) []byte {
 	if err != nil {
 		b, _ := GetResponseBytes([]*Response{
 			{
-				Version: jsonrpc.Version,
+				Version: Version,
 				Error:   err,
 			},
 		}, false)
