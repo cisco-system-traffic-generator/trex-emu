@@ -175,7 +175,7 @@ func (o *PluginCtx) addPlugins(pl string, initJson []byte) error {
 
 	_, ok = o.mapPlugins[pl]
 	if ok {
-		s := fmt.Sprintf(" plugin %s already exits %s", pl)
+		s := fmt.Sprintf(" plugin %s already exits ", pl)
 		panic(s)
 	}
 
