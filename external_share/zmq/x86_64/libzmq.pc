@@ -1,0 +1,13 @@
+prefix=/scratch/hhaim/zmq-x86_64/
+exec_prefix=${prefix}
+libdir=${exec_prefix}/
+includedir=${prefix}/include/
+
+Name: libzmq
+Description: ZMQC
+Version: 4.0.2
+Cflags: -I${includedir}/
+Libs: -L${libdir} -lzmq
+
+
+

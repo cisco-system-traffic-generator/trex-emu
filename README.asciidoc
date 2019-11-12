@@ -1,4 +1,23 @@
 
-== TRex Emulation 
 
- to do 
+== TRex Emulation service 
+
+first version
+
+=== How to build
+
+.Build
+-----
+source ./b
+cd src/
+go install -v cmd/main.go
+-----
+
+.Run
+-----
+$root/bin/main 
+-----
+
+
+NOTE: ZMQ was build to x86. you should add the share object to LDD path for installing the package. see how to build it
+
