@@ -109,7 +109,7 @@ func (mr *MethodRepository) InvokeMethod(c context.Context, r *Request) *Respons
 		}
 	}
 
-	res.Result, res.Error = h.ServeJSONRPC(WithRequestID(c, r.ID), r.Params)
+	res.Result, res.Error = h.ServeJSONRPC(mr.ctx, r.Params)
 	if res.Error != nil {
 		res.Result = nil
 	}

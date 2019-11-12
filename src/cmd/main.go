@@ -2,7 +2,6 @@ package main
 
 import (
 	"emu/core"
-	"emu/rpc"
 	"fmt"
 	"math/rand"
 	"reflect"
@@ -156,7 +155,7 @@ func TestNs1() {
 			if tctx.Ticks%100 == 0 {
 				fmt.Printf("\n %d \n", tctx.Ticks)
 			}
-			tctx.RestartTimer()
+			tctx.HandleTicks()
 		}
 	}
 
@@ -340,7 +339,16 @@ func (o MyMapEventBus) RemoveObj(msg string, a *A) {
 	o[msg] = v
 }
 
-func main() {
+func RunCoreZmq() {
+	fmt.Printf(" run zmq server ")
+	rand.Seed(time.Now().UnixNano())
+	tctx := core.NewThreadCtx(0, 4510)
+	tctx.StartRxThread()
+	defer tctx.Delete()
+	tctx.MainLoop()
+}
+
+func Test2() {
 	eb := CreateEventBus()
 	var a1 A
 	var a2 A
@@ -431,19 +439,8 @@ func main() {
 	//b := []byte{0, 1, 2, 3, 4, 5, 6, 7, 8, 9}
 	//fmt.Println(b)
 	//fmt.Println(b[0:1])
+}
 
-	return
-	rand.Seed(time.Now().UnixNano())
-	rpc.RcpCtx.Create(4510)
-	rpc.RcpCtx.StartRxThread()
-
-	for {
-		select {
-		case req := <-rpc.RcpCtx.GetC():
-			rpc.RcpCtx.HandleReqToChan(req)
-		}
-	}
-
-	rpc.RcpCtx.Delete()
-	return
+func main() {
+	RunCoreZmq()
 }

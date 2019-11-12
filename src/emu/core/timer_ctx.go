@@ -60,8 +60,8 @@ func (o *TimerCtx) Start(tmr *CHTimerObj, duration time.Duration) {
 	o.timerw.Start(tmr, ticks)
 }
 
-// RestartTimer should be called only by main loop
-func (o *TimerCtx) RestartTimer() {
+// HandleTicks should be called only by main loop
+func (o *TimerCtx) HandleTicks() {
 	o.Ticks++
 	o.timerw.OnTick(eTIMERW_SECOND_LEVEL_BURST)
 	o.Timer.Reset(o.TickDuration)

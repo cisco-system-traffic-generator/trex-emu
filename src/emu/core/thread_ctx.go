@@ -55,28 +55,52 @@ type CThreadCtxStats struct {
 
 // CThreadCtx network namespace context
 type CThreadCtx struct {
-	timerctx  *TimerCtx
-	portMap   MapPortT // valid port for this context
-	Id        uint32
-	mapNs     MapNsT // map tunnel to namespace
-	nsHead    DList  // list of ns
-	PluginCtx *PluginCtx
-	stats     CThreadCtxStats
-
-	epoc      uint32 // number of timer adding/removing ns used by RPC
-	iterEpoc  uint32
-	iterReady bool
-	iter      DListIterHead
+	timerctx   *TimerCtx
+	portMap    MapPortT // valid port for this cCZmqJsonRPC2t
+	Id         uint32
+	mapNs      MapNsT // map tunnel to namespaceCZmqJsonRPC2
+	nsHead     DList  // list of ns
+	PluginCtx  *PluginCtx
+	rpc        CZmqJsonRPC2
+	apiHandler string
+	stats      CThreadCtxStats
+	epoc       uint32 // number of timer adding/removing ns used by RPC
+	iterEpoc   uint32
+	iterReady  bool
+	iter       DListIterHead
 }
 
-func NewThreadCtx(Id uint32) *CThreadCtx {
+func NewThreadCtx(Id uint32, serverPort uint16) *CThreadCtx {
 	o := new(CThreadCtx)
 	o.timerctx = NewTimerCtx()
 	o.portMap = make(MapPortT)
 	o.mapNs = make(MapNsT)
+	o.rpc.NewZmqRpc(serverPort)
+	o.rpc.SetCtx(o) /* back pointer to interface this */
 	o.nsHead.SetSelf()
 	o.PluginCtx = NewPluginCtx(nil, nil, o, PLUGIN_LEVEL_THREAD)
 	return o
+}
+
+func (o *CThreadCtx) MainLoop() {
+
+	for {
+		select {
+		case req := <-o.rpc.GetC():
+			o.rpc.HandleReqToChan(req) // RPC command
+		case <-o.C():
+			o.timerctx.HandleTicks()
+		}
+	}
+
+}
+
+func (o *CThreadCtx) Delete() {
+	o.rpc.Delete()
+}
+
+func (o *CThreadCtx) StartRxThread() {
+	o.rpc.StartRxThread()
 }
 
 func (o *CThreadCtx) C() <-chan time.Time {
