@@ -1,6 +1,7 @@
 package core
 
 import (
+	"encoding/binary"
 	"unsafe"
 )
 
@@ -104,15 +105,17 @@ func (o *CClient) UpdateIPv6(NewIpv6 Ipv6Key) error {
 	return o.Ns.UpdateClientIpv6(o, NewIpv6)
 }
 
-func (o *CClient) GetL2Header(broadcast bool) []byte {
-	/*var tund CTunnelData
-	o.Ns.Key.Get((&tund)
+// GetL2Header get L2 header
+func (o *CClient) GetL2Header(broadcast bool, next uint16) []byte {
+	var tund CTunnelData
+	o.Ns.Key.Get(&tund)
 	b := []byte{}
-	if (broadcast){
-
+	if broadcast {
+		b = append(b, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff)
+	} else {
+		b = append(b, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0)
 	}
-	b = append(b, dst[:]...)
-	b = append(b, src[:]...)
+	b = append(b, o.Mac[:]...)
 	for _, val := range tund.Vlans {
 		if val != 0 {
 			b = append(b, 0, 0, 0, 0)
@@ -121,7 +124,5 @@ func (o *CClient) GetL2Header(broadcast bool) []byte {
 	}
 	b = append(b, 0, 0)
 	binary.BigEndian.PutUint16(b[len(b)-2:], uint16(next))
-	return b*/
-	return []byte{}
-
+	return b
 }

@@ -2,9 +2,6 @@ package plugins
 
 import (
 	"emu/core"
-	"encoding/binary"
-	"encoding/hex"
-	"external/google/gopacket/layers"
 	"fmt"
 	"time"
 )
@@ -210,35 +207,8 @@ func HandleRxArpPacket(tctx *core.CThreadCtx,
 
 }
 
-func ARPTest1(src core.MACKey,
-	dst core.MACKey,
-	next layers.EthernetType,
-	tun *core.CTunnelKey) []byte {
-	var tund core.CTunnelData
-	tun.Get(&tund)
-	b := []byte{}
-	b = append(b, dst[:]...)
-	b = append(b, src[:]...)
-	for _, val := range tund.Vlans {
-		if val != 0 {
-			b = append(b, 0, 0, 0, 0)
-			binary.BigEndian.PutUint32(b[len(b)-4:], val)
-		}
-	}
-	b = append(b, 0, 0)
-	binary.BigEndian.PutUint16(b[len(b)-2:], uint16(next))
-	return b
-}
-
 func ARPTest() {
-	var tun core.CTunnelKey
-	tun.Set(&core.CTunnelData{Vport: 1, Vlans: [2]uint32{0x81000011, 0x88a80022}})
-
-	b := ARPTest1(core.MACKey{0x1, 0x2, 0x3, 0x4, 0x5, 0x6},
-		core.MACKey{0x11, 0x12, 0x13, 0x14, 0x15, 0x16},
-		layers.EthernetTypeARP,
-		&tun)
-	fmt.Printf(hex.Dump(b))
+	fmt.Printf("hey \n")
 }
 
 // Tx side client get an event and decide to act !
