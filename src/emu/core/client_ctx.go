@@ -1,6 +1,8 @@
 package core
 
-import "unsafe"
+import (
+	"unsafe"
+)
 
 type CClientStats struct {
 	addClients    uint64
@@ -38,17 +40,40 @@ func castDlistClient(dlist *DList) *CClient {
 	return (*CClient)(unsafe.Pointer(uintptr(unsafe.Pointer(dlist))))
 }
 
+type CClientDgIPv4I interface {
+	OnDelete(o *CClientDgIPv4)
+}
+
+// CClientDgIPv4 default GW
+type CClientDgIPv4 struct {
+	Ipv4dgResolved bool   // bool in case it is resolved
+	Ipv4dgMac      MACKey // default
+	Refc           uint32
+	O              interface{}
+	CB             CClientDgIPv4I
+}
+
+func ReduceRef(o *CClientDgIPv4) {
+	o.Refc--
+	if o.Refc == 0 {
+		o.CB.OnDelete(o)
+	}
+}
+
 // CClient represent one client
 type CClient struct {
-	dlist          DList   // for adding into list
-	Ns             *CNSCtx // pointer to a namespace
-	Ipv6           Ipv6Key // set the self ipv6
-	DgIpv6         Ipv6Key // default gateway
-	Ipv4           Ipv4Key
-	DgIpv4         Ipv4Key // default gateway for ipv4
-	Mac            MACKey
-	Ipv4dgMac      MACKey // default
-	Ipv4dgResolved bool   // bool in case it is resolved
+	dlist  DList   // for adding into list
+	Ns     *CNSCtx // pointer to a namespace
+	Ipv6   Ipv6Key // set the self ipv6
+	DgIpv6 Ipv6Key // default gateway
+	Ipv4   Ipv4Key
+	DgIpv4 Ipv4Key // default gateway for ipv4
+	Mac    MACKey
+
+	DGW            *CClientDgIPv4 /* resolve by ARP */
+	ForceDGW       bool           /* true in case we want to enforce default gateway MAC */
+	Ipv4ForcedgMac MACKey
+
 	Ipv6dgMac      MACKey // default
 	Ipv6dgResolved bool   // bool in case it is resolved
 	stats          CClientStats
@@ -61,6 +86,8 @@ func NewClient(ns *CNSCtx,
 	Ipv4 Ipv4Key,
 	Ipv6 Ipv6Key) *CClient {
 	o := new(CClient)
+	o.DGW = nil
+	o.ForceDGW = false
 	o.Ns = ns
 	o.Mac = Mac
 	o.Ipv4 = Ipv4
@@ -75,4 +102,26 @@ func (o *CClient) UpdateIPv4(NewIpv4 Ipv4Key) error {
 
 func (o *CClient) UpdateIPv6(NewIpv6 Ipv6Key) error {
 	return o.Ns.UpdateClientIpv6(o, NewIpv6)
+}
+
+func (o *CClient) GetL2Header(broadcast bool) []byte {
+	/*var tund CTunnelData
+	o.Ns.Key.Get((&tund)
+	b := []byte{}
+	if (broadcast){
+
+	}
+	b = append(b, dst[:]...)
+	b = append(b, src[:]...)
+	for _, val := range tund.Vlans {
+		if val != 0 {
+			b = append(b, 0, 0, 0, 0)
+			binary.BigEndian.PutUint32(b[len(b)-4:], val)
+		}
+	}
+	b = append(b, 0, 0)
+	binary.BigEndian.PutUint16(b[len(b)-2:], uint16(next))
+	return b*/
+	return []byte{}
+
 }

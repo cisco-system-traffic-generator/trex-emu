@@ -31,6 +31,10 @@ func (key *Ipv4Key) IsZero() bool {
 	return false
 }
 
+func (key *MACKey) Clear() {
+	*key = [6]byte{0, 0, 0, 0, 0, 0}
+}
+
 func (key *MACKey) IsZero() bool {
 	if *key == [6]byte{0, 0, 0, 0, 0, 0} {
 		return true

@@ -12,6 +12,9 @@ import (
    2. instance of timerw for schedule events
 
 */
+const (
+	mBUFS_CACHE = 1024 /* number of mbuf cached per size */
+)
 
 type CTunnelData struct {
 	Vport uint16    // virtual port
@@ -56,6 +59,7 @@ type CThreadCtxStats struct {
 // CThreadCtx network namespace context
 type CThreadCtx struct {
 	timerctx   *TimerCtx
+	MPool      MbufPoll /* mbuf pool */
 	portMap    MapPortT // valid port for this cCZmqJsonRPC2t
 	Id         uint32
 	mapNs      MapNsT // map tunnel to namespaceCZmqJsonRPC2
@@ -75,6 +79,7 @@ func NewThreadCtx(Id uint32, serverPort uint16) *CThreadCtx {
 	o.timerctx = NewTimerCtx()
 	o.portMap = make(MapPortT)
 	o.mapNs = make(MapNsT)
+	o.MPool.Init(mBUFS_CACHE)
 	o.rpc.NewZmqRpc(serverPort)
 	o.rpc.SetCtx(o) /* back pointer to interface this */
 	o.nsHead.SetSelf()
