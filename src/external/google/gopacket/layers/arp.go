@@ -16,9 +16,51 @@ import (
 
 // Potential values for ARP.Operation.
 const (
-	ARPRequest = 1
-	ARPReply   = 2
+	ARPRequest    = 1
+	ARPReply      = 2
+	ARPHeaderSize = 28
 )
+
+// ArpHeader for inplace
+type ArpHeader []byte
+
+// SetDestAddr set the length
+func (o ArpHeader) SetDestAddress(d []byte) {
+	copy(o[18:24], d[:])
+}
+
+func (o ArpHeader) GetDstAddress() []byte {
+	return o[18:24]
+}
+
+func (o ArpHeader) GetSourceAddress() []byte {
+	return o[8:14]
+}
+
+// SetDstIpAddress set request addr
+func (o ArpHeader) SetDstIpAddress(addr uint32) {
+	binary.BigEndian.PutUint32(o[24:28], addr)
+}
+
+func (o ArpHeader) GetDstIpAddress() uint32 {
+	return binary.BigEndian.Uint32(o[24:28])
+}
+
+func (o ArpHeader) SetSrcIpAddress(addr uint32) {
+	binary.BigEndian.PutUint32(o[14:18], addr)
+}
+
+func (o ArpHeader) GetSrcIpAddress() uint32 {
+	return binary.BigEndian.Uint32(o[14:18])
+}
+
+func (o ArpHeader) SetOperation(operation uint16) {
+	binary.BigEndian.PutUint16(o[6:8], operation)
+}
+
+func (o ArpHeader) GetOperation() uint16 {
+	return binary.BigEndian.Uint16(o[6:8])
+}
 
 // ARP is a ARP packet header.
 type ARP struct {

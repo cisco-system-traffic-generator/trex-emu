@@ -8,15 +8,42 @@
 package layers
 
 import (
+	"bytes"
 	"encoding/binary"
 	"errors"
-	"fmt"
 	"external/google/gopacket"
+	"fmt"
 	"net"
 )
 
 // EthernetBroadcast is the broadcast MAC address used by Ethernet.
 var EthernetBroadcast = net.HardwareAddr{0xff, 0xff, 0xff, 0xff, 0xff, 0xff}
+
+type EthernetHeader []byte
+
+func (o EthernetHeader) SetDestAddress(d []byte) {
+	copy(o[0:6], d[:])
+}
+
+func (o EthernetHeader) SetBroadcast() {
+	copy(o[0:6], []byte{0xff, 0xff, 0xff, 0xff, 0xff, 0xff})
+}
+
+func (o EthernetHeader) IsBroadcast() bool {
+	if bytes.Compare(o[0:6], EthernetBroadcast[0:6]) == 0 {
+		return true
+	} else {
+		return false
+	}
+}
+
+func (o EthernetHeader) IsMcast() bool {
+	if o[0]&0x1 == 0x1 {
+		return true
+	} else {
+		return false
+	}
+}
 
 // Ethernet is the layer for Ethernet frame headers.
 type Ethernet struct {

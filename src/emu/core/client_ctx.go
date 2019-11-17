@@ -69,7 +69,7 @@ type CClient struct {
 	DgIpv6 Ipv6Key // default gateway
 	Ipv4   Ipv4Key
 	DgIpv4 Ipv4Key // default gateway for ipv4
-	Mac    MACKey
+	Mac    MACKey  // immutable over lifetime of client
 
 	DGW            *CClientDgIPv4 /* resolve by ARP */
 	ForceDGW       bool           /* true in case we want to enforce default gateway MAC */

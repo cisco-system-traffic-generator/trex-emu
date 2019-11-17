@@ -1,6 +1,7 @@
 package core
 
 import (
+	"encoding/binary"
 	"fmt"
 	"unsafe"
 )
@@ -29,6 +30,14 @@ func (key *Ipv4Key) IsZero() bool {
 		return true
 	}
 	return false
+}
+
+func (key *Ipv4Key) Uint32() uint32 {
+	return binary.BigEndian.Uint32(key[:])
+}
+
+func (key *Ipv4Key) SetUint32(v uint32) {
+	binary.BigEndian.PutUint32(key[:], v)
 }
 
 func (key *MACKey) Clear() {

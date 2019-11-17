@@ -72,6 +72,7 @@ type CThreadCtx struct {
 	iterEpoc   uint32
 	iterReady  bool
 	iter       DListIterHead
+	Veth       VethIF
 }
 
 func NewThreadCtx(Id uint32, serverPort uint16) *CThreadCtx {
