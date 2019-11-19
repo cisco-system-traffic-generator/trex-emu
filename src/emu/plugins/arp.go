@@ -58,8 +58,7 @@ func (o *ArpFlowTable) Create(timerw *core.TimerCtx) {
 }
 
 // OnDelete called when there is no ref to this object
-func (o *ArpFlowTable) OnDelete(action *core.CClientDgIPv4) {
-	flow := action.O.(*ArpFlow)
+func (o *ArpFlowTable) OnDelete(flow *ArpFlow) {
 	if flow.action.Refc != 0 {
 		panic(" ARP ref counter should be zero ")
 	}
@@ -105,7 +104,6 @@ func (o *ArpFlowTable) AddNew(ipv4 core.Ipv4Key,
 	flow.head.SetSelf()
 	flow.action = new(core.CClientDgIPv4)
 	flow.action.O = flow // back pointer
-	flow.action.CB = o
 	if Ipv4dgMac != nil {
 		flow.action.Ipv4dgResolved = true
 		flow.action.Ipv4dgMac = *Ipv4dgMac
@@ -134,6 +132,8 @@ func (o *ArpFlowTable) AddNew(ipv4 core.Ipv4Key,
 func (o *ArpFlowTable) MoveToLearn(flow *ArpFlow) {
 	if flow.timer.IsRunning() {
 		o.timerw.Stop(&flow.timer)
+	} else {
+		panic("MoveToLearn timer should always on")
 	}
 	flow.touch = false
 	o.timerw.StartTicks(&flow.timer, o.learnTimer)
@@ -143,6 +143,8 @@ func (o *ArpFlowTable) MoveToLearn(flow *ArpFlow) {
 func (o *ArpFlowTable) MoveToComplete(flow *ArpFlow) {
 	if flow.timer.IsRunning() {
 		o.timerw.Stop(&flow.timer)
+	} else {
+		panic("MoveToComplete timer should always on")
 	}
 	flow.touch = false
 	o.timerw.StartTicks(&flow.timer, o.completeTicks)
@@ -226,7 +228,7 @@ func (o *ArpFlowTable) OnEvent(a, b interface{}) {
 			flow.touch = false
 			o.timerw.StartTicks(&flow.timer, o.learnTimer)
 		} else {
-			// TBD remove
+			o.OnDelete(flow)
 		}
 	case stateIncomplete:
 		ticks := o.GetNextTicks(flow)
@@ -438,8 +440,8 @@ func (o *PluginArpNs) DisassociateClient(arpc *PluginArpClient,
 		panic("DisassociateClient old ipv4 is not valid")
 	}
 	flow := o.tbl.Lookup(oldDgIpv4)
-	if flow.action.Refc != 0 {
-		panic(" ref count is not zero")
+	if flow.action.Refc == 0 {
+		panic(" ref count can't be zero before remove")
 	}
 	flow.head.RemoveNode(&arpc.dlist)
 	flow.action.Refc--

@@ -41,24 +41,12 @@ func castDlistClient(dlist *DList) *CClient {
 	return (*CClient)(unsafe.Pointer(uintptr(unsafe.Pointer(dlist))))
 }
 
-type CClientDgIPv4I interface {
-	OnDelete(o *CClientDgIPv4)
-}
-
 // CClientDgIPv4 default GW
 type CClientDgIPv4 struct {
 	Ipv4dgResolved bool   // bool in case it is resolved
 	Ipv4dgMac      MACKey // default
 	Refc           uint32
 	O              interface{}
-	CB             CClientDgIPv4I
-}
-
-func ReduceRef(o *CClientDgIPv4) {
-	o.Refc--
-	if o.Refc == 0 {
-		o.CB.OnDelete(o)
-	}
 }
 
 // CClient represent one client
