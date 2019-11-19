@@ -32,7 +32,8 @@ type ArpFlow struct {
 	state  uint8
 	index  uint8
 	touch  bool
-	action *core.CClientDgIPv4
+	refc   uint32
+	action core.CClientDgIPv4
 }
 
 type MapArpTbl map[core.Ipv4Key]*ArpFlow
@@ -59,7 +60,7 @@ func (o *ArpFlowTable) Create(timerw *core.TimerCtx) {
 
 // OnDelete called when there is no ref to this object
 func (o *ArpFlowTable) OnDelete(flow *ArpFlow) {
-	if flow.action.Refc != 0 {
+	if flow.refc != 0 {
 		panic(" ARP ref counter should be zero ")
 	}
 	o.head.RemoveNode(&flow.dlist)
@@ -78,13 +79,13 @@ func (o *ArpFlowTable) OnDelete(flow *ArpFlow) {
 and return if this is the first and require to send GARP and Query*/
 func (o *ArpFlowTable) AssociateWithClient(flow *ArpFlow) bool {
 	if flow.state == stateLearned {
-		if flow.action.Refc != 0 {
+		if flow.refc != 0 {
 			panic("AssociateWithClient ref should be zero in learn mode")
 		}
-		flow.action.Refc = 1
+		flow.refc = 1
 		o.MoveToComplete(flow)
 	} else {
-		flow.action.Refc += 1
+		flow.refc += 1
 	}
 	return false
 }
@@ -102,8 +103,6 @@ func (o *ArpFlowTable) AddNew(ipv4 core.Ipv4Key,
 	flow.ipv4 = ipv4
 	flow.state = state
 	flow.head.SetSelf()
-	flow.action = new(core.CClientDgIPv4)
-	flow.action.O = flow // back pointer
 	if Ipv4dgMac != nil {
 		flow.action.Ipv4dgResolved = true
 		flow.action.Ipv4dgMac = *Ipv4dgMac
@@ -115,11 +114,11 @@ func (o *ArpFlowTable) AddNew(ipv4 core.Ipv4Key,
 	o.tbl[ipv4] = flow
 	o.head.AddLast(&flow.dlist)
 	if state == stateLearned {
-		flow.action.Refc = 0
+		flow.refc = 0
 		o.timerw.StartTicks(&flow.timer, o.learnTimer)
 	} else {
 		if state == stateIncomplete {
-			flow.action.Refc = 1
+			flow.refc = 1
 			ticks := o.GetNextTicks(flow)
 			o.timerw.StartTicks(&flow.timer, ticks)
 		} else {
@@ -440,12 +439,12 @@ func (o *PluginArpNs) DisassociateClient(arpc *PluginArpClient,
 		panic("DisassociateClient old ipv4 is not valid")
 	}
 	flow := o.tbl.Lookup(oldDgIpv4)
-	if flow.action.Refc == 0 {
+	if flow.refc == 0 {
 		panic(" ref count can't be zero before remove")
 	}
 	flow.head.RemoveNode(&arpc.dlist)
-	flow.action.Refc--
-	if flow.action.Refc == 0 {
+	flow.refc--
+	if flow.refc == 0 {
 		// move to Learn
 		if !flow.head.IsEmpty() {
 			panic(" head should be empty ")
@@ -484,7 +483,7 @@ func (o *PluginArpNs) AssociateClient(arpc *PluginArpClient) {
 		arpc.SendQuery()
 	}
 
-	arpc.Client.DGW = flow.action
+	arpc.Client.DGW = &flow.action
 }
 
 func (o *PluginArpNs) ArpLearn(arpHeader *layers.ArpHeader) {

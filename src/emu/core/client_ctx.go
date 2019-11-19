@@ -45,8 +45,6 @@ func castDlistClient(dlist *DList) *CClient {
 type CClientDgIPv4 struct {
 	Ipv4dgResolved bool   // bool in case it is resolved
 	Ipv4dgMac      MACKey // default
-	Refc           uint32
-	O              interface{}
 }
 
 // CClient represent one client
