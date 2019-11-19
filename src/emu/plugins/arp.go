@@ -295,19 +295,15 @@ func NewArpClient(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
 	arpc.Ext = arpc
 	arpc.I = arpc
 	arpc.preparePacketTemplate()
-	arpc.arpNsPlug = nil
-	/* TBD need to create in does not exits */
 	nsplg := arpc.Ns.PluginCtx.GetOrCreate(ARP_PLUG)
-	if nsplg == nil {
-		panic(" can't get ARP Ns plugin ")
-	}
 	arpc.arpNsPlug = nsplg.Ext.(*PluginArpNs)
 	/* register events */
 	ctx.RegisterEvents(&arpc.PluginBase, arpEvents)
+	arpc.OnCreate()
 	return &arpc.PluginBase
 }
 
-/* events */
+/*OnEvent support event change of IP  */
 func (o *PluginArpClient) OnEvent(msg string, a, b interface{}) {
 
 	switch msg {

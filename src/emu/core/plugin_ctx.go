@@ -198,10 +198,13 @@ func (o *PluginCtx) GetOrCreate(pl string) *PluginBase {
 	obj, ok := o.mapPlugins[pl]
 	if !ok {
 		o.addPlugins(pl, nil)
-		return o.Get(pl)
-	} else {
-		return obj
+		obj = o.Get(pl)
 	}
+
+	if obj == nil {
+		panic("GetOrCreate return nil ")
+	}
+	return obj
 }
 
 // Get return the dynamic pointer to a plugin
