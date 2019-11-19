@@ -67,7 +67,7 @@ type CClient struct {
 	Ns     *CNSCtx // pointer to a namespace
 	Ipv6   Ipv6Key // set the self ipv6
 	DgIpv6 Ipv6Key // default gateway
-	Ipv4   Ipv4Key
+	Ipv4   Ipv4Key // source ipv4
 	DgIpv4 Ipv4Key // default gateway for ipv4
 	Mac    MACKey  // immutable over lifetime of client
 

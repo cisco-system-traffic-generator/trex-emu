@@ -8,6 +8,7 @@ import (
 
 type IPluginIf interface {
 	OnEvent(msg string, a, b interface{})
+	OnDelete(o *PluginCtx) // call before delete
 }
 
 /* PluginBase plugin base that should be included in any plugin
@@ -28,19 +29,13 @@ type PluginBase struct {
 }
 
 type IPluginRegister interface {
-	OnCreate(initJson []byte) *PluginBase        // call to create a new plugin
-	OnDelete(*PluginBase, MapEventBus)           // call to delete, need to unregister events bus
-	OnEventBusRegister(*PluginBase, MapEventBus) // register to event bus
-}
-
-type PluginRegisterLevel struct {
-	I IPluginRegister
+	NewPlugin(c *PluginCtx, initJson []byte) *PluginBase // call to create a new plugin
 }
 
 type PluginRegisterData struct {
-	Client PluginRegisterLevel
-	Ns     PluginRegisterLevel
-	Thread PluginRegisterLevel
+	Client IPluginRegister
+	Ns     IPluginRegister
+	Thread IPluginRegister
 }
 
 type pluginRegister struct {
@@ -104,10 +99,10 @@ const (
 
 /* PluginCtx manage plugins */
 type PluginCtx struct {
-	client     *CClient
-	ns         *CNSCtx
-	tctx       *CThreadCtx
-	t          PluginLevelType
+	Client     *CClient
+	Ns         *CNSCtx
+	Tctx       *CThreadCtx
+	T          PluginLevelType
 	mapPlugins MapPlugins
 	eventBus   MapEventBus // event bus
 }
@@ -117,10 +112,10 @@ func NewPluginCtx(client *CClient,
 	tctx *CThreadCtx,
 	t PluginLevelType) *PluginCtx {
 	o := new(PluginCtx)
-	o.client = client
-	o.ns = ns
-	o.tctx = tctx
-	o.t = t
+	o.Client = client
+	o.Ns = ns
+	o.Tctx = tctx
+	o.T = t
 	o.mapPlugins = make(MapPlugins)
 	o.eventBus = make(MapEventBus)
 	return o
@@ -149,15 +144,15 @@ func (o *PluginCtx) CreatePlugins(plugins []string, initJson [][]byte) error {
 	return fmt.Errorf(strings.Join(errstrings, "\n"))
 }
 
-func (o *PluginCtx) getRegLevel(v *PluginRegisterData) *PluginRegisterLevel {
-	var p *PluginRegisterLevel
+func (o *PluginCtx) getRegLevel(v *PluginRegisterData) IPluginRegister {
+	var p IPluginRegister
 
-	if o.t == PLUGIN_LEVEL_CLIENT {
-		p = &v.Client
-	} else if o.t == PLUGIN_LEVEL_NS {
-		p = &v.Ns
+	if o.T == PLUGIN_LEVEL_CLIENT {
+		p = v.Client
+	} else if o.T == PLUGIN_LEVEL_NS {
+		p = v.Ns
 	} else {
-		p = &v.Thread
+		p = v.Thread
 	}
 	return p
 }
@@ -171,7 +166,7 @@ func (o *PluginCtx) addPlugins(pl string, initJson []byte) error {
 	}
 	p := o.getRegLevel(&v)
 
-	nobj := p.I.OnCreate(initJson)
+	nobj := p.NewPlugin(o, initJson)
 
 	_, ok = o.mapPlugins[pl]
 	if ok {
@@ -180,25 +175,33 @@ func (o *PluginCtx) addPlugins(pl string, initJson []byte) error {
 	}
 
 	o.mapPlugins[pl] = nobj
-	// register events
-	p.I.OnEventBusRegister(nobj, o.eventBus)
 	return nil
 }
 
 // RemovePlugins remove plugin
 func (o *PluginCtx) RemovePlugins(pl string) error {
-	v, ok := pluginregister.M[pl]
+	_, ok := pluginregister.M[pl]
 	if !ok {
 		return fmt.Errorf("plugins-remove %s does not exits ", pl)
 	}
-	p := o.getRegLevel(&v)
-
 	obj, ok1 := o.mapPlugins[pl]
 	if !ok1 {
 		return fmt.Errorf("plugins-remove %s does not exits ", pl)
 	}
-	p.I.OnDelete(obj, o.eventBus)
+	obj.I.OnDelete(o)
 	return nil
+}
+
+//GetOrCreate if it wasn't created by RPC with default json, try to create a default with nil JSON data
+//
+func (o *PluginCtx) GetOrCreate(pl string) *PluginBase {
+	obj, ok := o.mapPlugins[pl]
+	if !ok {
+		o.addPlugins(pl, nil)
+		return o.Get(pl)
+	} else {
+		return obj
+	}
 }
 
 // Get return the dynamic pointer to a plugin
@@ -215,6 +218,20 @@ func (o *PluginCtx) Get(pl string) *PluginBase {
 // BroadcastMsg send the event for all the plugins registers , skip this plugin provided in this (if not nil)
 func (o *PluginCtx) BroadcastMsg(ov *PluginBase, msg string, a, b interface{}) {
 	o.eventBus.BroadcastMsg(ov, msg, a, b)
+}
+
+/*RegisterEvents  register events, should be called in create callback */
+func (o *PluginCtx) RegisterEvents(ov *PluginBase, events []string) {
+	for _, obj := range events {
+		o.eventBus.Add(obj, ov)
+	}
+}
+
+/*UnregisterEvents  unregister events, should be called OnDelete */
+func (o *PluginCtx) UnregisterEvents(ov *PluginBase, events []string) {
+	for _, obj := range events {
+		o.eventBus.Remove(obj, ov)
+	}
 }
 
 ///////////////////////////////////////////////////

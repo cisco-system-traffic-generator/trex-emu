@@ -101,6 +101,10 @@ func (o *CThreadCtx) MainLoop() {
 
 }
 
+func (o *CThreadCtx) GetTimerCtx() *TimerCtx {
+	return o.timerctx
+}
+
 func (o *CThreadCtx) Delete() {
 	o.rpc.Delete()
 }

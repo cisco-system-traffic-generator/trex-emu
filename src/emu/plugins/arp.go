@@ -5,11 +5,13 @@ import (
 	"external/google/gopacket/layers"
 	"fmt"
 	"time"
+	"unsafe"
 )
 
 var defaultRetryTimerSec = [...]uint8{1, 1, 3, 5, 7, 17}
 
 const (
+	ARP_PLUG             = "arp"
 	defaultCompleteTimer = 10 * time.Minute
 	defaultLearnTimer    = 1 * time.Minute
 	stateLearned         = 16 /* valid timer in query */
@@ -24,6 +26,7 @@ const (
 
 type ArpFlow struct {
 	dlist  core.DList
+	head   core.DList /* pointer to PerClientARP object */
 	timer  core.CHTimerObj
 	ipv4   core.Ipv4Key // key
 	state  uint8
@@ -54,18 +57,6 @@ func (o *ArpFlowTable) Create(timerw *core.TimerCtx) {
 	o.second = timerw.DurationToTicks(time.Second)
 }
 
-func (o *ArpFlowTable) Update(ipv4 core.Ipv4Key,
-	Ipv4dgMac core.MACKey) {
-	v, ok := o.tbl[ipv4]
-	if ok {
-		v.action.Ipv4dgResolved = true
-		v.action.Ipv4dgMac = Ipv4dgMac
-		v.state = stateIncomplete // make sure the state is query
-	} else {
-		panic(" update flow does not exists")
-	}
-}
-
 // OnDelete called when there is no ref to this object
 func (o *ArpFlowTable) OnDelete(action *core.CClientDgIPv4) {
 	flow := action.O.(*ArpFlow)
@@ -84,10 +75,25 @@ func (o *ArpFlowTable) OnDelete(action *core.CClientDgIPv4) {
 	}
 }
 
+/*AssociateWithClient  associate the flow with a client
+and return if this is the first and require to send GARP and Query*/
+func (o *ArpFlowTable) AssociateWithClient(flow *ArpFlow) bool {
+	if flow.state == stateLearned {
+		if flow.action.Refc != 0 {
+			panic("AssociateWithClient ref should be zero in learn mode")
+		}
+		flow.action.Refc = 1
+		o.MoveToComplete(flow)
+	} else {
+		flow.action.Refc += 1
+	}
+	return false
+}
+
 // AddNew in case it does not found
 // state could be  stateLearnedor incomplete
 func (o *ArpFlowTable) AddNew(ipv4 core.Ipv4Key,
-	Ipv4dgMac *core.MACKey, state uint8) {
+	Ipv4dgMac *core.MACKey, state uint8) *ArpFlow {
 	_, ok := o.tbl[ipv4]
 	if ok {
 		panic(" arpflow  already exits   ")
@@ -96,11 +102,16 @@ func (o *ArpFlowTable) AddNew(ipv4 core.Ipv4Key,
 	flow := new(ArpFlow)
 	flow.ipv4 = ipv4
 	flow.state = state
+	flow.head.SetSelf()
 	flow.action = new(core.CClientDgIPv4)
 	flow.action.O = flow // back pointer
 	flow.action.CB = o
-	flow.action.Ipv4dgResolved = true
-	flow.action.Ipv4dgMac = *Ipv4dgMac
+	if Ipv4dgMac != nil {
+		flow.action.Ipv4dgResolved = true
+		flow.action.Ipv4dgMac = *Ipv4dgMac
+	} else {
+		flow.action.Ipv4dgResolved = false
+	}
 	flow.timer.SetCB(o, flow, 0)
 
 	o.tbl[ipv4] = flow
@@ -117,7 +128,16 @@ func (o *ArpFlowTable) AddNew(ipv4 core.Ipv4Key,
 			panic(" not valid state ")
 		}
 	}
-	return
+	return flow
+}
+
+func (o *ArpFlowTable) MoveToLearn(flow *ArpFlow) {
+	if flow.timer.IsRunning() {
+		o.timerw.Stop(&flow.timer)
+	}
+	flow.touch = false
+	o.timerw.StartTicks(&flow.timer, o.learnTimer)
+	flow.state = stateLearned
 }
 
 func (o *ArpFlowTable) MoveToComplete(flow *ArpFlow) {
@@ -126,7 +146,7 @@ func (o *ArpFlowTable) MoveToComplete(flow *ArpFlow) {
 	}
 	flow.touch = false
 	o.timerw.StartTicks(&flow.timer, o.completeTicks)
-	flow.state = stateIncomplete
+	flow.state = stateComplete
 }
 
 func (o *ArpFlowTable) ArpLearn(flow *ArpFlow, mac *core.MACKey) {
@@ -157,11 +177,18 @@ func (o *ArpFlowTable) Lookup(ipv4 core.Ipv4Key) *ArpFlow {
 	return nil
 }
 
+/*SendQuery on behalf of the first client */
 func (o *ArpFlowTable) SendQuery(flow *ArpFlow) {
-	// TBD - query
-	// need the first client in the link list
-	/* take the first client and run client->SendQuery */
-
+	if flow.state == stateRefresh || flow.state == stateIncomplete {
+		if flow.head.IsEmpty() {
+			panic("SendQuery no valid list  ")
+		}
+		/* take the first and query */
+		cplg := pluginArpClientCastfromDlist(flow.head.Next())
+		cplg.SendQuery()
+	} else {
+		panic("SendQuery in not valid state ")
+	}
 }
 
 func (o *ArpFlowTable) GetNextTicks(flow *ArpFlow) uint32 {
@@ -198,6 +225,8 @@ func (o *ArpFlowTable) OnEvent(a, b interface{}) {
 		if flow.touch {
 			flow.touch = false
 			o.timerw.StartTicks(&flow.timer, o.learnTimer)
+		} else {
+			// TBD remove
 		}
 	case stateIncomplete:
 		ticks := o.GetNextTicks(flow)
@@ -220,13 +249,20 @@ func (o *ArpFlowTable) OnEvent(a, b interface{}) {
 	}
 }
 
+func pluginArpClientCastfromDlist(o *core.DList) *PluginArpClient {
+	var s PluginArpClient
+	return (*PluginArpClient)(unsafe.Pointer(uintptr(unsafe.Pointer(o)) - unsafe.Offsetof(s.dlist)))
+}
+
 // PluginArpClient arp information per client
 type PluginArpClient struct {
 	core.PluginBase
+	dlist          core.DList /* to link to ArpFlow */
 	arpEnable      bool
 	arpPktTemplate []byte           // template packet with
 	arpHeader      layers.ArpHeader // point to template packet
 	pktOffset      uint16
+	arpNsPlug      *PluginArpNs
 }
 
 func (o *PluginArpClient) preparePacketTemplate() {
@@ -247,37 +283,98 @@ func (o *PluginArpClient) preparePacketTemplate() {
 	o.arpHeader = layers.ArpHeader(o.arpPktTemplate[arpOffset : arpOffset+28])
 }
 
-func (o *PluginArpClient) OnDelete() {
-	/*nsplg := o.Ns.PluginCtx.Get("arp")
-	if nsplg != nil {
-		arpNsPlug := nsplg.Ext.(*PluginArpNs)
-	}*/
+/*NewArpClient create plugin */
+func NewArpClient(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
+	arpc := new(PluginArpClient)
+	arpc.arpEnable = true
+	arpc.dlist.SetSelf()
+	arpc.Client = ctx.Client
+	arpc.Ns = arpc.Client.Ns
+	arpc.Tctx = arpc.Ns.ThreadCtx
+	arpc.Ext = arpc
+	arpc.I = arpc
+	arpc.preparePacketTemplate()
+	arpc.arpNsPlug = nil
+	/* TBD need to create in does not exits */
+	nsplg := arpc.Ns.PluginCtx.GetOrCreate(ARP_PLUG)
+	if nsplg == nil {
+		panic(" can't get ARP Ns plugin ")
+	}
+	arpc.arpNsPlug = nsplg.Ext.(*PluginArpNs)
+	/* register events */
+	ctx.RegisterEvents(&arpc.PluginBase, arpEvents)
+	return &arpc.PluginBase
+}
+
+/* events */
+func (o *PluginArpClient) OnEvent(msg string, a, b interface{}) {
+
+	switch msg {
+	case core.MSG_UPDATE_IPV4_ADDR:
+		oldIPv4 := a.(core.Ipv4Key)
+		newIPv4 := b.(core.Ipv4Key)
+		if newIPv4.IsZero() != oldIPv4.IsZero() {
+			/* there was a change in Source IPv4 */
+			o.OnChangeDGSrcIPv4(o.Client.DgIpv4,
+				o.Client.DgIpv4,
+				!oldIPv4.IsZero(),
+				!newIPv4.IsZero())
+		}
+
+	case core.MSG_UPDATE_DGIPV4_ADDR:
+		oldIPv4 := a.(core.Ipv4Key)
+		newIPv4 := b.(core.Ipv4Key)
+		if newIPv4 != oldIPv4 {
+			/* there was a change in Source IPv4 */
+			o.OnChangeDGSrcIPv4(oldIPv4,
+				newIPv4,
+				!o.Client.Ipv4.IsZero(),
+				!o.Client.Ipv4.IsZero())
+		}
+
+	}
+
+}
+
+var arpEvents = []string{core.MSG_UPDATE_IPV4_ADDR, core.MSG_UPDATE_DGIPV4_ADDR}
+
+/*OnChangeDGSrcIPv4 - called in case there is a change in DG or srcIPv4 */
+func (o *PluginArpClient) OnChangeDGSrcIPv4(oldDgIpv4 core.Ipv4Key,
+	newDgIpv4 core.Ipv4Key,
+	oldIsSrcIPv4 bool,
+	NewIsSrcIPv4 bool) {
+	if oldIsSrcIPv4 && !oldDgIpv4.IsZero() {
+		// remove
+		o.arpNsPlug.DisassociateClient(o, oldDgIpv4)
+	}
+	if NewIsSrcIPv4 && !newDgIpv4.IsZero() {
+		//there is a valid src IPv4 and valid new DG
+		o.arpNsPlug.AssociateClient(o)
+	}
+}
+
+func (o *PluginArpClient) OnDelete(ctx *core.PluginCtx) {
+	/* force removing the link to the client */
+	o.OnChangeDGSrcIPv4(o.Client.DgIpv4,
+		o.Client.DgIpv4,
+		!o.Client.Ipv4.IsZero(),
+		false)
+	ctx.UnregisterEvents(&o.PluginBase, arpEvents)
 }
 
 func (o *PluginArpClient) OnCreate() {
 	if o.Client.ForceDGW {
 		return
 	}
-	nsplg := o.Ns.PluginCtx.Get("arp")
-	if nsplg != nil {
-		arpNsPlug := nsplg.Ext.(*PluginArpNs)
-		/* need to resolve this */
-		if !o.Client.DgIpv4.IsZero() {
-			ipv4 := o.Client.DgIpv4
-			flow := arpNsPlug.tbl.Lookup(ipv4)
-			if flow != nil {
-				//flow // move from learn to complete
-				//flow.add.client to the list
-				// flow.ref++
-			} else {
-				//arpNsPlug.tbl.AddNew()
-				//
-			}
-		}
-	}
+	var oldDgIpv4 core.Ipv4Key
+	oldDgIpv4.SetUint32(0)
+	// TBD register the events
+	o.OnChangeDGSrcIPv4(oldDgIpv4,
+		o.Client.DgIpv4,
+		false,
+		!o.Client.Ipv4.IsZero())
 }
 
-// send GArp
 func (o *PluginArpClient) SendGArp() {
 	if !o.Client.Ipv4.IsZero() {
 		o.arpHeader.SetOperation(1)
@@ -286,7 +383,7 @@ func (o *PluginArpClient) SendGArp() {
 		o.arpHeader.SetDestAddress([]byte{0, 0, 0, 0, 0, 0})
 		o.Tctx.Veth.SendBuffer(false, o.Client, o.arpPktTemplate)
 	} else {
-		// TBD arp wasn't sent
+		panic("  SendGArp() arp wasn't sent ")
 	}
 }
 
@@ -298,7 +395,7 @@ func (o *PluginArpClient) SendQuery() {
 		o.arpHeader.SetDestAddress([]byte{0, 0, 0, 0, 0, 0})
 		o.Tctx.Veth.SendBuffer(false, o.Client, o.arpPktTemplate)
 	} else {
-		// TBD arp wasn't sent
+		panic("  SendQuery() arp wasn't sent ")
 	}
 }
 
@@ -321,6 +418,71 @@ type PluginArpNs struct {
 	core.PluginBase
 	arpEnable bool
 	tbl       ArpFlowTable
+}
+
+func NewArpNs(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
+	o := new(PluginArpNs)
+	o.arpEnable = true
+	o.tbl.Create(ctx.Tctx.GetTimerCtx())
+	return &o.PluginBase
+}
+
+/*DisassociateClient remove association from the client
+ */
+func (o *PluginArpNs) DisassociateClient(arpc *PluginArpClient,
+	oldDgIpv4 core.Ipv4Key) {
+	if arpc.Client.Ipv4.IsZero() && arpc.Client.DgIpv4.IsZero() {
+		panic("DisassociateClient should not have a valid source ipv4 and default gateway ")
+	}
+	if oldDgIpv4.IsZero() {
+		panic("DisassociateClient old ipv4 is not valid")
+	}
+	flow := o.tbl.Lookup(oldDgIpv4)
+	if flow.action.Refc != 0 {
+		panic(" ref count is not zero")
+	}
+	flow.head.RemoveNode(&arpc.dlist)
+	flow.action.Refc--
+	if flow.action.Refc == 0 {
+		// move to Learn
+		if !flow.head.IsEmpty() {
+			panic(" head should be empty ")
+		}
+		o.tbl.MoveToLearn(flow)
+	}
+	arpc.Client.DGW = nil
+}
+
+/*AssociateClient associate a new client object with a ArpFlow
+  client object should be with valid source ipv4 and valid default gateway
+  1. if object ArpFlow exists move it's state to complete and add ref counter
+  2. if object ArpFlow does not exsits create new with ref=1 and return it
+  3. if this is the first, generate GARP and
+*/
+func (o *PluginArpNs) AssociateClient(arpc *PluginArpClient) {
+	if arpc.Client.Ipv4.IsZero() || arpc.Client.DgIpv4.IsZero() {
+		panic("AssociateClient should have valid source ipv4 and default gateway ")
+	}
+	var firstUnresolve bool
+	firstUnresolve = false
+	ipv4 := arpc.Client.DgIpv4
+	flow := o.tbl.Lookup(ipv4)
+	if flow != nil {
+		firstUnresolve = o.tbl.AssociateWithClient(flow)
+	} else {
+		/* we don't have resolution, add new in state stateIncomplete */
+		flow = o.tbl.AddNew(ipv4, nil, stateIncomplete)
+		firstUnresolve = true
+	}
+
+	flow.head.AddLast(&arpc.dlist)
+
+	if firstUnresolve {
+		arpc.SendGArp()
+		arpc.SendQuery()
+	}
+
+	arpc.Client.DGW = flow.action
 }
 
 func (o *PluginArpNs) ArpLearn(arpHeader *layers.ArpHeader) {
@@ -365,7 +527,7 @@ func (o *PluginArpNs) HandleRxArpPacket(m *core.Mbuf, l3 uint16) {
 		ipv4.SetUint32(arpHeader.GetDstIpAddress())
 		client := o.Ns.CLookupByIPv4(&ipv4)
 		if client != nil {
-			cplg := client.PluginCtx.Get("arp")
+			cplg := client.PluginCtx.Get(ARP_PLUG)
 			if cplg != nil {
 				arpCPlug := cplg.Ext.(*PluginArpClient)
 				arpCPlug.Respond(&arpHeader)
@@ -406,6 +568,8 @@ func HandleRxArpPacket(tctx *core.CThreadCtx,
 }
 
 func ARPTest() {
+
+	return
 	tctx := core.NewThreadCtx(0, 4510)
 	var key core.CTunnelKey
 	key.Set(&core.CTunnelData{Vport: 1, Vlans: [2]uint32{0x81000001, 0x81000002}})
@@ -437,6 +601,22 @@ func ARPTest() {
 // Tx side client get an event and decide to act !
 // let's see how it works and add some tests
 
+type PluginArpCReg struct{}
+type PluginArpNsReg struct{}
+
+func (o PluginArpCReg) NewPlugin(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
+	return NewArpClient(ctx, initJson)
+}
+
+func (o PluginArpNsReg) NewPlugin(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
+	return NewArpNs(ctx, initJson)
+}
+
 func init() {
+
+	core.PluginRegister(ARP_PLUG,
+		core.PluginRegisterData{Client: PluginArpCReg{},
+			Ns:     PluginArpNsReg{},
+			Thread: nil}) /* no need for thread context for now */
 
 }
