@@ -365,7 +365,6 @@ func (o *PluginArpClient) OnCreate() {
 	}
 	var oldDgIpv4 core.Ipv4Key
 	oldDgIpv4.SetUint32(0)
-	// TBD register the events
 	o.OnChangeDGSrcIPv4(oldDgIpv4,
 		o.Client.DgIpv4,
 		false,
@@ -424,13 +423,11 @@ func NewArpNs(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
 	return &o.PluginBase
 }
 
-/*DisassociateClient remove association from the client
+/*DisassociateClient remove association from the client. client now have the new data
  */
 func (o *PluginArpNs) DisassociateClient(arpc *PluginArpClient,
 	oldDgIpv4 core.Ipv4Key) {
-	if arpc.Client.Ipv4.IsZero() && arpc.Client.DgIpv4.IsZero() {
-		panic("DisassociateClient should not have a valid source ipv4 and default gateway ")
-	}
+
 	if oldDgIpv4.IsZero() {
 		panic("DisassociateClient old ipv4 is not valid")
 	}
@@ -446,6 +443,10 @@ func (o *PluginArpNs) DisassociateClient(arpc *PluginArpClient,
 			panic(" head should be empty ")
 		}
 		o.tbl.MoveToLearn(flow)
+	} else {
+		if flow.head.IsEmpty() {
+			panic(" head should not be empty ")
+		}
 	}
 	arpc.Client.DGW = nil
 }
@@ -546,9 +547,9 @@ func (o *PluginArpNs) HandleRxArpPacket(m *core.Mbuf, l3 uint16) {
 }
 
 // PluginArpThread  per thread
-type PluginArpThread struct {
+/*type PluginArpThread struct {
 	core.PluginBase
-}
+}*/
 
 // HandleRxArpPacket Parser call this function with mbuf from the pool
 // Either by register functions -- maybe it would be better to register the function
