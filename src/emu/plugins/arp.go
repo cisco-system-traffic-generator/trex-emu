@@ -3,9 +3,13 @@ package plugins
 import (
 	"emu/core"
 	"external/google/gopacket/layers"
+	"external/osamingo/jsonrpc"
 	"fmt"
 	"time"
 	"unsafe"
+
+	"github.com/go-playground/validator"
+	"github.com/intel-go/fastjson"
 )
 
 var defaultRetryTimerSec = [...]uint8{1, 1, 3, 5, 7, 17}
@@ -38,6 +42,221 @@ type ArpFlow struct {
 
 type MapArpTbl map[core.Ipv4Key]*ArpFlow
 
+type ArpNsStats struct {
+	eventsChangeSrc      uint64
+	eventsChangeDgIPv4   uint64
+	timerEventLearn      uint64
+	timerEventIncomplete uint64
+	timerEventComplete   uint64
+	timerEventRefresh    uint64
+
+	addLearn                   uint64
+	addIncomplete              uint64
+	moveIncompleteAfterRefresh uint64
+	moveComplete               uint64
+	moveLearned                uint64
+
+	pktRxErrTooShort    uint64
+	pktRxErrNoBroadcast uint64
+	pktRxErrWrongOp     uint64
+
+	pktRxArpQuery         uint64
+	pktRxArpQueryNotForUs uint64
+	pktRxArpReply         uint64
+	pktTxArpQuery         uint64
+	pktTxGArp             uint64
+	pktTxReply            uint64
+	tblActive             uint64
+	tblAdd                uint64
+	tblRemove             uint64
+	associateWithClient   uint64
+	disasociateWithClient uint64
+}
+
+func NewArpNsStatsDb(o *ArpNsStats) *core.CCounterDb {
+	db := core.NewCCounterDb("arp")
+	db.Add(&core.CCounterRec{
+		Counter:  &o.eventsChangeSrc,
+		Name:     "eventsChangeSrc",
+		Help:     "change src ipv4 events",
+		Unit:     "ops",
+		DumpZero: false,
+		Info:     core.ScINFO})
+	db.Add(&core.CCounterRec{
+		Counter:  &o.eventsChangeDgIPv4,
+		Name:     "eventsChangeDgIPv4",
+		Help:     "change dgw ipv4 events",
+		Unit:     "ops",
+		DumpZero: false,
+		Info:     core.ScINFO})
+	db.Add(&core.CCounterRec{
+		Counter:  &o.timerEventLearn,
+		Name:     "timerEventLearn",
+		Help:     "timer events learn",
+		Unit:     "ops",
+		DumpZero: false,
+		Info:     core.ScINFO})
+	db.Add(&core.CCounterRec{
+		Counter:  &o.timerEventIncomplete,
+		Name:     "timerEventIncomplete",
+		Help:     "timer events incomplete",
+		Unit:     "ops",
+		DumpZero: false,
+		Info:     core.ScINFO})
+	db.Add(&core.CCounterRec{
+		Counter:  &o.timerEventComplete,
+		Name:     "timerEventIComplete",
+		Help:     "timer events complete",
+		Unit:     "ops",
+		DumpZero: false,
+		Info:     core.ScINFO})
+	db.Add(&core.CCounterRec{
+		Counter:  &o.timerEventRefresh,
+		Name:     "timerEventRefresh",
+		Help:     "timer events refresh",
+		Unit:     "ops",
+		DumpZero: false,
+		Info:     core.ScINFO})
+	db.Add(&core.CCounterRec{
+		Counter:  &o.addLearn,
+		Name:     "addLearn",
+		Help:     "add learn to table ",
+		Unit:     "ops",
+		DumpZero: false,
+		Info:     core.ScINFO})
+	db.Add(&core.CCounterRec{
+		Counter:  &o.addIncomplete,
+		Name:     "addIncomplete",
+		Help:     "add incomplete to table ",
+		Unit:     "ops",
+		DumpZero: false,
+		Info:     core.ScINFO})
+	db.Add(&core.CCounterRec{
+		Counter:  &o.moveIncompleteAfterRefresh,
+		Name:     "moveIncompleteAfterRefresh",
+		Help:     "move incomplete after refresh  ",
+		Unit:     "ops",
+		DumpZero: false,
+		Info:     core.ScINFO})
+	db.Add(&core.CCounterRec{
+		Counter:  &o.moveComplete,
+		Name:     "moveComplete",
+		Help:     "move complete ",
+		Unit:     "ops",
+		DumpZero: false,
+		Info:     core.ScINFO})
+	db.Add(&core.CCounterRec{
+		Counter:  &o.moveLearned,
+		Name:     "moveLearned",
+		Help:     "move learn ",
+		Unit:     "ops",
+		DumpZero: false,
+		Info:     core.ScINFO})
+	db.Add(&core.CCounterRec{
+		Counter:  &o.pktRxErrTooShort,
+		Name:     "pktRxErrTooShort",
+		Help:     "rx error packet is too short",
+		Unit:     "pkts",
+		DumpZero: false,
+		Info:     core.ScERROR})
+	db.Add(&core.CCounterRec{
+		Counter:  &o.pktRxErrNoBroadcast,
+		Name:     "pktRxErrNoBroadcast",
+		Help:     "rx error packet is no broadcast",
+		Unit:     "pkts",
+		DumpZero: false,
+		Info:     core.ScERROR})
+	db.Add(&core.CCounterRec{
+		Counter:  &o.pktRxErrWrongOp,
+		Name:     "pktRxErrWrongOp",
+		Help:     "rx error packet with wrong opcode",
+		Unit:     "pkts",
+		DumpZero: false,
+		Info:     core.ScERROR})
+
+	db.Add(&core.CCounterRec{
+		Counter:  &o.pktRxArpQuery,
+		Name:     "pktRxArpQuery",
+		Help:     "rx arp query ",
+		Unit:     "pkts",
+		DumpZero: false,
+		Info:     core.ScINFO})
+	db.Add(&core.CCounterRec{
+		Counter:  &o.pktRxArpQueryNotForUs,
+		Name:     "pktRxArpQueryNotForUs",
+		Help:     "rx arp query not for our clients",
+		Unit:     "pkts",
+		DumpZero: false,
+		Info:     core.ScINFO})
+	db.Add(&core.CCounterRec{
+		Counter:  &o.pktRxArpReply,
+		Name:     "pktRxArpReply",
+		Help:     "rx arp reply",
+		Unit:     "pkts",
+		DumpZero: false,
+		Info:     core.ScINFO})
+
+	db.Add(&core.CCounterRec{
+		Counter:  &o.pktTxArpQuery,
+		Name:     "pktTxArpQuery",
+		Help:     "tx arp query",
+		Unit:     "pkts",
+		DumpZero: false,
+		Info:     core.ScINFO})
+	db.Add(&core.CCounterRec{
+		Counter:  &o.pktTxGArp,
+		Name:     "pktTxGArp",
+		Help:     "tx arp garp",
+		Unit:     "pkts",
+		DumpZero: false,
+		Info:     core.ScINFO})
+
+	db.Add(&core.CCounterRec{
+		Counter:  &o.pktTxReply,
+		Name:     "pktTxReply",
+		Help:     "tx arp reply",
+		Unit:     "pkts",
+		DumpZero: false,
+		Info:     core.ScINFO})
+	db.Add(&core.CCounterRec{
+		Counter:  &o.tblActive,
+		Name:     "tblActive",
+		Help:     "arp table active",
+		Unit:     "entries",
+		DumpZero: false,
+		Info:     core.ScINFO})
+	db.Add(&core.CCounterRec{
+		Counter:  &o.tblAdd,
+		Name:     "tblAdd",
+		Help:     "arp table add",
+		Unit:     "ops",
+		DumpZero: false,
+		Info:     core.ScINFO})
+	db.Add(&core.CCounterRec{
+		Counter:  &o.tblRemove,
+		Name:     "tblRemove",
+		Help:     "arp table remove",
+		Unit:     "ops",
+		DumpZero: false,
+		Info:     core.ScINFO})
+	db.Add(&core.CCounterRec{
+		Counter:  &o.associateWithClient,
+		Name:     "associateWithClient",
+		Help:     "associate with client",
+		Unit:     "ops",
+		DumpZero: false,
+		Info:     core.ScINFO})
+
+	db.Add(&core.CCounterRec{
+		Counter:  &o.disasociateWithClient,
+		Name:     "disasociateWithClient",
+		Help:     "disassociate with client",
+		Unit:     "ops",
+		DumpZero: false,
+		Info:     core.ScINFO})
+	return db
+}
+
 // ArpFlowTable manage the ipv4-> mac with timeout for outside case
 // inside are resolved
 type ArpFlowTable struct {
@@ -47,6 +266,7 @@ type ArpFlowTable struct {
 	completeTicks uint32 /* timer to send query */
 	learnTimer    uint32
 	second        uint32 /* timer to remove */
+	stats         *ArpNsStats
 }
 
 func (o *ArpFlowTable) Create(timerw *core.TimerCtx) {
@@ -69,6 +289,8 @@ func (o *ArpFlowTable) OnDelete(flow *ArpFlow) {
 	_, ok := o.tbl[flow.ipv4]
 	if ok {
 		delete(o.tbl, flow.ipv4)
+		o.stats.tblRemove++
+		o.stats.tblActive--
 	} else {
 		// somthing is wrong here, can't find the flow
 		panic(" arp can't find the flow for removing ")
@@ -99,6 +321,8 @@ func (o *ArpFlowTable) AddNew(ipv4 core.Ipv4Key,
 		panic(" arpflow  already exits   ")
 	}
 
+	o.stats.tblAdd++
+	o.stats.tblActive++
 	flow := new(ArpFlow)
 	flow.ipv4 = ipv4
 	flow.state = state
@@ -114,11 +338,13 @@ func (o *ArpFlowTable) AddNew(ipv4 core.Ipv4Key,
 	o.tbl[ipv4] = flow
 	o.head.AddLast(&flow.dlist)
 	if state == stateLearned {
+		o.stats.addLearn++
 		flow.refc = 0
 		o.timerw.StartTicks(&flow.timer, o.learnTimer)
 	} else {
 		if state == stateIncomplete {
 			flow.refc = 1
+			o.stats.addIncomplete++
 			ticks := o.GetNextTicks(flow)
 			o.timerw.StartTicks(&flow.timer, ticks)
 		} else {
@@ -137,6 +363,7 @@ func (o *ArpFlowTable) MoveToLearn(flow *ArpFlow) {
 	flow.touch = false
 	o.timerw.StartTicks(&flow.timer, o.learnTimer)
 	flow.state = stateLearned
+	o.stats.moveLearned++
 }
 
 func (o *ArpFlowTable) MoveToComplete(flow *ArpFlow) {
@@ -148,6 +375,7 @@ func (o *ArpFlowTable) MoveToComplete(flow *ArpFlow) {
 	flow.touch = false
 	o.timerw.StartTicks(&flow.timer, o.completeTicks)
 	flow.state = stateComplete
+	o.stats.moveComplete++
 }
 
 func (o *ArpFlowTable) ArpLearn(flow *ArpFlow, mac *core.MACKey) {
@@ -213,6 +441,7 @@ func (o *ArpFlowTable) handleRefreshState(flow *ArpFlow) {
 	if flow.index > 2 {
 		/* don't use the old data */
 		flow.state = stateIncomplete
+		o.stats.moveIncompleteAfterRefresh++
 		flow.action.Ipv4dgResolved = false
 		flow.action.Ipv4dgMac.Clear()
 	}
@@ -223,6 +452,7 @@ func (o *ArpFlowTable) OnEvent(a, b interface{}) {
 	flow := a.(*ArpFlow)
 	switch flow.state {
 	case stateLearned:
+		o.stats.timerEventLearn++
 		if flow.touch {
 			flow.touch = false
 			o.timerw.StartTicks(&flow.timer, o.learnTimer)
@@ -230,10 +460,12 @@ func (o *ArpFlowTable) OnEvent(a, b interface{}) {
 			o.OnDelete(flow)
 		}
 	case stateIncomplete:
+		o.stats.timerEventIncomplete++
 		ticks := o.GetNextTicks(flow)
 		o.timerw.StartTicks(&flow.timer, ticks)
 		o.SendQuery(flow)
 	case stateComplete:
+		o.stats.timerEventComplete++
 		if flow.touch {
 			flow.touch = false
 			o.timerw.StartTicks(&flow.timer, o.completeTicks)
@@ -243,6 +475,7 @@ func (o *ArpFlowTable) OnEvent(a, b interface{}) {
 			o.handleRefreshState(flow)
 		}
 	case stateRefresh:
+		o.stats.timerEventRefresh++
 		o.handleRefreshState(flow)
 
 	default:
@@ -312,6 +545,7 @@ func (o *PluginArpClient) OnEvent(msg string, a, b interface{}) {
 		newIPv4 := b.(core.Ipv4Key)
 		if newIPv4.IsZero() != oldIPv4.IsZero() {
 			/* there was a change in Source IPv4 */
+			o.arpNsPlug.stats.eventsChangeSrc++
 			o.OnChangeDGSrcIPv4(o.Client.DgIpv4,
 				o.Client.DgIpv4,
 				!oldIPv4.IsZero(),
@@ -323,6 +557,7 @@ func (o *PluginArpClient) OnEvent(msg string, a, b interface{}) {
 		newIPv4 := b.(core.Ipv4Key)
 		if newIPv4 != oldIPv4 {
 			/* there was a change in Source IPv4 */
+			o.arpNsPlug.stats.eventsChangeDgIPv4++
 			o.OnChangeDGSrcIPv4(oldIPv4,
 				newIPv4,
 				!o.Client.Ipv4.IsZero(),
@@ -373,6 +608,7 @@ func (o *PluginArpClient) OnCreate() {
 
 func (o *PluginArpClient) SendGArp() {
 	if !o.Client.Ipv4.IsZero() {
+		o.arpNsPlug.stats.pktTxGArp++
 		o.arpHeader.SetOperation(1)
 		o.arpHeader.SetSrcIpAddress(o.Client.Ipv4.Uint32())
 		o.arpHeader.SetDstIpAddress(o.Client.Ipv4.Uint32())
@@ -385,6 +621,7 @@ func (o *PluginArpClient) SendGArp() {
 
 func (o *PluginArpClient) SendQuery() {
 	if !o.Client.DgIpv4.IsZero() {
+		o.arpNsPlug.stats.pktTxArpQuery++
 		o.arpHeader.SetOperation(1)
 		o.arpHeader.SetSrcIpAddress(o.Client.Ipv4.Uint32())
 		o.arpHeader.SetDstIpAddress(o.Client.DgIpv4.Uint32())
@@ -396,6 +633,8 @@ func (o *PluginArpClient) SendQuery() {
 }
 
 func (o *PluginArpClient) Respond(arpHeader *layers.ArpHeader) {
+
+	o.arpNsPlug.stats.pktTxReply++
 
 	o.arpHeader.SetOperation(2)
 	o.arpHeader.SetSrcIpAddress(o.Client.Ipv4.Uint32())
@@ -414,12 +653,16 @@ type PluginArpNs struct {
 	core.PluginBase
 	arpEnable bool
 	tbl       ArpFlowTable
+	stats     ArpNsStats
+	cdb       *core.CCounterDb
 }
 
 func NewArpNs(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
 	o := new(PluginArpNs)
 	o.arpEnable = true
 	o.tbl.Create(ctx.Tctx.GetTimerCtx())
+	o.tbl.stats = &o.stats
+	o.cdb = NewArpNsStatsDb(&o.stats)
 	return &o.PluginBase
 }
 
@@ -448,6 +691,7 @@ func (o *PluginArpNs) DisassociateClient(arpc *PluginArpClient,
 			panic(" head should not be empty ")
 		}
 	}
+	o.stats.disasociateWithClient++
 	arpc.Client.DGW = nil
 }
 
@@ -473,6 +717,7 @@ func (o *PluginArpNs) AssociateClient(arpc *PluginArpClient) {
 		firstUnresolve = true
 	}
 
+	o.stats.associateWithClient++
 	flow.head.AddLast(&arpc.dlist)
 
 	if firstUnresolve {
@@ -503,7 +748,7 @@ func (o *PluginArpNs) ArpLearn(arpHeader *layers.ArpHeader) {
 //HandleRxArpPacket there is no need to free  buffer
 func (o *PluginArpNs) HandleRxArpPacket(m *core.Mbuf, l3 uint16) {
 	if m.PktLen() < uint32(layers.ARPHeaderSize+l3) {
-		// TBD-counters
+		o.stats.pktRxErrTooShort++
 		return
 	}
 
@@ -514,9 +759,10 @@ func (o *PluginArpNs) HandleRxArpPacket(m *core.Mbuf, l3 uint16) {
 	switch arpHeader.GetOperation() {
 	case layers.ARPRequest:
 		if !ethHeader.IsBroadcast() {
-			// TBD-counter
+			o.stats.pktRxErrNoBroadcast++
 			return
 		}
+		o.stats.pktRxArpQuery++
 		// learn the request information
 		o.ArpLearn(&arpHeader)
 
@@ -531,18 +777,19 @@ func (o *PluginArpNs) HandleRxArpPacket(m *core.Mbuf, l3 uint16) {
 				arpCPlug.Respond(&arpHeader)
 			}
 		} else {
-			//TBD-counter request-not-for-us
+			o.stats.pktRxArpQueryNotForUs++
 		}
 
 	case layers.ARPReply:
 		if ethHeader.IsBroadcast() {
-			// TBD-counter
+			o.stats.pktRxErrNoBroadcast++
 			return
 		}
+		o.stats.pktRxArpReply++
 		o.ArpLearn(&arpHeader)
 
 	default:
-		// TBD-counter
+		o.stats.pktRxErrWrongOp++
 	}
 }
 
@@ -565,9 +812,65 @@ func HandleRxArpPacket(tctx *core.CThreadCtx,
 
 }
 
-func ARPTest() {
+/* need to put in core */
+func getRpcNs(ctx interface{}, params *fastjson.RawMessage) (*PluginArpNs, error) {
+	/*tctx := ctx.(*core.CThreadCtx)
+	var p ApiArpNsCfgParams
+	if err := jsonrpc.Unmarshal(params, &p); err != nil {
+		return nil, err
+	}*/
+	return nil, nil
+}
 
-	return
+/* 1. must have variables
+   2. default varibles (does not need to be there)
+   3. spare, what happen
+*/
+
+type TestTun struct {
+	Vport    uint16   `json:"vport" validate:"required"`
+	Tpid     []uint16 `json:"tpid"  validate:"required" `
+	Tci      []uint16 `json:"tci"   validate:"required" `
+	VOption1 string   `json:"ipv4"     validate:"required,ipv4"`
+}
+
+type TestObj struct {
+	Tun TestTun `json:"tun" validate:"required"`
+}
+
+func MyUnmarshalValidate(data []byte, v interface{}) error {
+	var validate *validator.Validate
+	validate = validator.New()
+
+	err := fastjson.Unmarshal(data, v)
+	if err != nil {
+		return err
+	}
+	err = validate.Struct(v)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func testRPC1() {
+	//"vport":1,
+	r := []byte(` {"a":1,"b":2,"tun":{"vport":1,"tpid":[1213,2],"tci":[8100,7],"a":12,"b":15,"ipv4":"10.0.0.1"}}`)
+	var q TestObj
+	fmt.Printf(" original %s \n", string(r))
+	fmt.Printf(" before marshal ==> %+v \n", q)
+	err := MyUnmarshalValidate(r, &q)
+	if err == nil {
+		fmt.Printf(" valid ==> %+v  \n", q)
+	} else {
+		fmt.Printf(" %s \n", err.Error())
+	}
+
+}
+
+func ARPTest() {
+	//testRPC1()
+	//return
 	tctx := core.NewThreadCtx(0, 4510)
 	var key core.CTunnelKey
 	key.Set(&core.CTunnelData{Vport: 1, Vlans: [2]uint32{0x81000001, 0x81000002}})
@@ -576,6 +879,7 @@ func ARPTest() {
 	client := core.NewClient(ns, core.MACKey{0, 0, 1, 0, 0, 0}, core.Ipv4Key{16, 0, 0, 1}, core.Ipv6Key{})
 	ns.AddClient(client)
 
+	
 	/* prepare client plugin */
 	var arpPlugin PluginArpClient
 
@@ -594,6 +898,7 @@ func ARPTest() {
 	core.PacketUtl("arp_src", arpPlugin.arpPktTemplate)
 
 	fmt.Printf("c: %+v \n", client)
+
 }
 
 // Tx side client get an event and decide to act !
@@ -610,8 +915,42 @@ func (o PluginArpNsReg) NewPlugin(ctx *core.PluginCtx, initJson []byte) *core.Pl
 	return NewArpNs(ctx, initJson)
 }
 
+/*******************************************/
+/* ARP RPC commands */
+type (
+	ApiArpNsCfgHandler struct{}
+	ApiArpNsCfgParams  struct {
+		vport uint16   `json:"vport"`
+		tpid  []uint16 `json:"tpid"`
+		tci   []uint16 `json:"tci"`
+	}
+
+	/* Get counters metadata */
+	ApiArpNsCntMetaHandler struct{}
+	ApiArpNsCntMetaParams  struct{}
+
+	/* Get counters  */
+	ApiArpNsCntHandler struct{}
+	ApiArpNsCntParams  struct{}
+
+	/* Clear counters  */
+	ApiArpNsCntClearHandler struct{}
+	ApiArpNsClearParams     struct{}
+)
+
+func (h ApiArpNsCfgHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
+
+	/*ns := getRpcNs(ctx, o*ApiArpNsCfgParams) * PluginArpNs
+
+	return ApiPingResult{
+		Timestamp: float64(time.Now().Second()),
+	}, nil*/
+	return nil, nil
+}
+
 func init() {
 
+	/* register of create callbacks */
 	core.PluginRegister(ARP_PLUG,
 		core.PluginRegisterData{Client: PluginArpCReg{},
 			Ns:     PluginArpNsReg{},

@@ -5,6 +5,9 @@ import (
 	"encoding/hex"
 	"fmt"
 	"time"
+
+	"github.com/go-playground/validator"
+	"github.com/intel-go/fastjson"
 )
 
 /* Thread Ctx includes
@@ -19,6 +22,17 @@ const (
 type CTunnelData struct {
 	Vport uint16    // virtual port
 	Vlans [2]uint32 // vlan tags include tpid
+}
+
+/* CTunnelDataJson json representation of tunnel data */
+type CTunnelDataJson struct {
+	Vport uint16   `json:"vport" validate:"required"`
+	Tpid  []uint16 `json:"tpid"  validate:"required" `
+	Tci   []uint16 `json:"tci"   validate:"required" `
+}
+
+type RpcCmdTunnel struct {
+	Tun CTunnelDataJson `json:"tun" validate:"required"`
 }
 
 type CTunnelKey [4 + 4 + 4]byte
@@ -73,6 +87,7 @@ type CThreadCtx struct {
 	iterReady  bool
 	iter       DListIterHead
 	Veth       VethIF
+	validate   *validator.Validate
 }
 
 func NewThreadCtx(Id uint32, serverPort uint16) *CThreadCtx {
@@ -85,6 +100,7 @@ func NewThreadCtx(Id uint32, serverPort uint16) *CThreadCtx {
 	o.rpc.SetCtx(o) /* back pointer to interface this */
 	o.nsHead.SetSelf()
 	o.PluginCtx = NewPluginCtx(nil, nil, o, PLUGIN_LEVEL_THREAD)
+	o.validate = validator.New()
 	return o
 }
 
@@ -99,6 +115,67 @@ func (o *CThreadCtx) MainLoop() {
 		}
 	}
 
+}
+
+func (o *CThreadCtx) UnmarshalTunnel(data []byte, key *CTunnelKey) error {
+	var tun RpcCmdTunnel
+	err := o.UnmarshalValidate(data, &tun)
+	if err != nil {
+		return err
+	}
+	var t CTunnelData
+	t.Vport = tun.Tun.Vport
+
+	if len(tun.Tun.Tci) > 0 {
+		tpid := uint16(0x8100)
+		if len(tun.Tun.Tpid) > 0 {
+			tpid = tun.Tun.Tpid[0]
+		}
+		t.Vlans[0] = (uint32(tpid) << 16) + uint32((tun.Tun.Tci[0] & 0xfff))
+	}
+
+	if len(tun.Tun.Tci) > 1 {
+		tpid := uint16(0x8100)
+		if len(tun.Tun.Tpid) > 1 {
+			tpid = tun.Tun.Tpid[1]
+		}
+		t.Vlans[0] = (uint32(tpid) << 16) + uint32((tun.Tun.Tci[0] & 0xfff))
+	}
+
+	key.Set(&t)
+	return nil
+}
+
+func (o *CThreadCtx) getNsPlugin(params *fastjson.RawMessage, plugin string) (*PluginBase, error) {
+	var key CTunnelKey
+	err := o.UnmarshalTunnel(*params, &key)
+	if err != nil {
+		return nil, err
+	}
+	ns := o.GetNs(&key)
+	if ns == nil {
+		err = fmt.Errorf(" error there is valid namespace for this tunnel ")
+		return nil, err
+	}
+	plug := ns.PluginCtx.Get(plugin)
+	if plug == nil {
+		err = fmt.Errorf(" error there is valid plugin %s for this tunnel ", plugin)
+		return nil, err
+	}
+
+	return plug, nil
+}
+
+func (o *CThreadCtx) UnmarshalValidate(data []byte, v interface{}) error {
+	err := fastjson.Unmarshal(data, v)
+	if err != nil {
+		return err
+	}
+	err = o.validate.Struct(v)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func (o *CThreadCtx) GetTimerCtx() *TimerCtx {
@@ -123,8 +200,12 @@ func (o *CThreadCtx) HasNs(key *CTunnelKey) bool {
 }
 
 func (o *CThreadCtx) GetNs(key *CTunnelKey) *CNSCtx {
-	r, _ := o.mapNs[*key]
-	return r
+	if o.HasNs(key) {
+		r, _ := o.mapNs[*key]
+		return r
+	} else {
+		return nil
+	}
 }
 
 func (o *CThreadCtx) AddNs(key *CTunnelKey, ns *CNSCtx) error {
