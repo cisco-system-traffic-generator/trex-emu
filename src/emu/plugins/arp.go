@@ -8,7 +8,6 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/go-playground/validator"
 	"github.com/intel-go/fastjson"
 )
 
@@ -519,6 +518,7 @@ func (o *PluginArpClient) preparePacketTemplate() {
 
 /*NewArpClient create plugin */
 func NewArpClient(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
+	fmt.Printf("On NewArpClient \n")
 	arpc := new(PluginArpClient)
 	arpc.arpEnable = true
 	arpc.dlist.SetSelf()
@@ -658,11 +658,13 @@ type PluginArpNs struct {
 }
 
 func NewArpNs(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
+	fmt.Printf("On NewArpNs \n")
 	o := new(PluginArpNs)
 	o.arpEnable = true
 	o.tbl.Create(ctx.Tctx.GetTimerCtx())
 	o.tbl.stats = &o.stats
 	o.cdb = NewArpNsStatsDb(&o.stats)
+	o.Ext = o
 	return &o.PluginBase
 }
 
@@ -812,62 +814,6 @@ func HandleRxArpPacket(tctx *core.CThreadCtx,
 
 }
 
-/* need to put in core */
-func getRpcNs(ctx interface{}, params *fastjson.RawMessage) (*PluginArpNs, error) {
-	/*tctx := ctx.(*core.CThreadCtx)
-	var p ApiArpNsCfgParams
-	if err := jsonrpc.Unmarshal(params, &p); err != nil {
-		return nil, err
-	}*/
-	return nil, nil
-}
-
-/* 1. must have variables
-   2. default varibles (does not need to be there)
-   3. spare, what happen
-*/
-
-type TestTun struct {
-	Vport    uint16   `json:"vport" validate:"required"`
-	Tpid     []uint16 `json:"tpid"  validate:"required" `
-	Tci      []uint16 `json:"tci"   validate:"required" `
-	VOption1 string   `json:"ipv4"     validate:"required,ipv4"`
-}
-
-type TestObj struct {
-	Tun TestTun `json:"tun" validate:"required"`
-}
-
-func MyUnmarshalValidate(data []byte, v interface{}) error {
-	var validate *validator.Validate
-	validate = validator.New()
-
-	err := fastjson.Unmarshal(data, v)
-	if err != nil {
-		return err
-	}
-	err = validate.Struct(v)
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
-func testRPC1() {
-	//"vport":1,
-	r := []byte(` {"a":1,"b":2,"tun":{"vport":1,"tpid":[1213,2],"tci":[8100,7],"a":12,"b":15,"ipv4":"10.0.0.1"}}`)
-	var q TestObj
-	fmt.Printf(" original %s \n", string(r))
-	fmt.Printf(" before marshal ==> %+v \n", q)
-	err := MyUnmarshalValidate(r, &q)
-	if err == nil {
-		fmt.Printf(" valid ==> %+v  \n", q)
-	} else {
-		fmt.Printf(" %s \n", err.Error())
-	}
-
-}
-
 func ARPTest() {
 	//testRPC1()
 	//return
@@ -879,9 +825,11 @@ func ARPTest() {
 	client := core.NewClient(ns, core.MACKey{0, 0, 1, 0, 0, 0}, core.Ipv4Key{16, 0, 0, 1}, core.Ipv6Key{})
 	ns.AddClient(client)
 
-	
+	fmt.Printf("CreatePlugins \n")
+	client.PluginCtx.CreatePlugins([]string{"arp"}, [][]byte{})
+
 	/* prepare client plugin */
-	var arpPlugin PluginArpClient
+	/*var arpPlugin PluginArpClient
 
 	arpPlugin.Client = client
 	arpPlugin.Ns = ns
@@ -897,7 +845,7 @@ func ARPTest() {
 	arpPlugin.arpHeader.SetDestAddress([]byte{1, 2, 3, 4, 5, 6})
 	core.PacketUtl("arp_src", arpPlugin.arpPktTemplate)
 
-	fmt.Printf("c: %+v \n", client)
+	fmt.Printf("c: %+v \n", client)*/
 
 }
 

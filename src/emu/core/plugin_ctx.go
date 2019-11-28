@@ -123,17 +123,20 @@ func NewPluginCtx(client *CClient,
 
 // CreatePlugins create plugins with default init value, called when a new object client/ns/thread is created
 func (o *PluginCtx) CreatePlugins(plugins []string, initJson [][]byte) error {
-	if len(plugins) != len(initJson) {
-		return fmt.Errorf("plugins len %d should be the same as initJson %d", len(plugins), len(initJson))
-	}
 	/* nothing to do */
 	if len(plugins) == 0 {
 		return nil
 	}
 
 	var errstrings []string
+	initlen := len(initJson)
 	for i, pl := range plugins {
-		l := o.addPlugins(pl, initJson[i])
+		var initobj []byte
+		initobj = nil
+		if i < initlen {
+			initobj = initJson[i]
+		}
+		l := o.addPlugins(pl, initobj)
 		if l != nil {
 			errstrings = append(errstrings, l.Error())
 		}
@@ -249,6 +252,7 @@ func PluginRegister(pi string, pr PluginRegisterData) {
 		s := fmt.Sprintf(" can't register the same plugin twice %s ", pi)
 		panic(s)
 	}
+	fmt.Sprintf(" register plugin %s ", pi)
 	pluginregister.M[pi] = pr
 }
 
