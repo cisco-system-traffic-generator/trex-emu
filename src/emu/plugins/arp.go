@@ -919,6 +919,22 @@ type (
 	ApiArpNsCntValueHandler struct{}
 )
 
+func getNs(ctx interface{}, params *fastjson.RawMessage) (*PluginArpNs, *jsonrpc.Error) {
+	tctx := ctx.(*core.CThreadCtx)
+	plug, err := tctx.GetNsPlugin(params, ARP_PLUG)
+
+	if err != nil {
+		return nil, &jsonrpc.Error{
+			Code:    jsonrpc.ErrorCodeInvalidRequest,
+			Message: err.Error(),
+		}
+	}
+
+	arpNs := plug.Ext.(*PluginArpNs)
+
+	return arpNs, nil
+}
+
 func (h ApiArpNsSetCfgHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
 
 	var arpobj ApiArpNsSetCfgParams
@@ -950,49 +966,28 @@ func (h ApiArpNsSetCfgHandler) ServeJSONRPC(ctx interface{}, params *fastjson.Ra
 
 func (h ApiArpNsGetCfgHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
 
-	tctx := ctx.(*core.CThreadCtx)
-	plug, err := tctx.GetNsPlugin(params, ARP_PLUG)
-
+	arpNs, err := getNs(ctx, params)
 	if err != nil {
-		return nil, &jsonrpc.Error{
-			Code:    jsonrpc.ErrorCodeInvalidRequest,
-			Message: err.Error(),
-		}
+		return nil, err
 	}
-	arpNs := plug.Ext.(*PluginArpNs)
-
 	return &ApiArpNsSetCfgParams{Enable: arpNs.arpEnable}, nil
 }
 
 func (h ApiArpNsCntMetaHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
 
-	tctx := ctx.(*core.CThreadCtx)
-	plug, err := tctx.GetNsPlugin(params, ARP_PLUG)
-
+	arpNs, err := getNs(ctx, params)
 	if err != nil {
-		return nil, &jsonrpc.Error{
-			Code:    jsonrpc.ErrorCodeInvalidRequest,
-			Message: err.Error(),
-		}
+		return nil, err
 	}
-	arpNs := plug.Ext.(*PluginArpNs)
-
 	return arpNs.cdb, nil
 }
 
 func (h ApiArpNsCntValueHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
 
-	tctx := ctx.(*core.CThreadCtx)
-	plug, err := tctx.GetNsPlugin(params, ARP_PLUG)
-
+	arpNs, err := getNs(ctx, params)
 	if err != nil {
-		return nil, &jsonrpc.Error{
-			Code:    jsonrpc.ErrorCodeInvalidRequest,
-			Message: err.Error(),
-		}
+		return nil, err
 	}
-	arpNs := plug.Ext.(*PluginArpNs)
-
 	return arpNs.cdb.MarshalValues, nil
 }
 
