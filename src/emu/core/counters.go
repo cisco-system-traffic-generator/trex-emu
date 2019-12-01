@@ -132,15 +132,14 @@ func (o *CCounterDb) Dump() {
 	}
 }
 
-func (o *CCounterDb) MarshalValues() []byte {
+func (o *CCounterDb) MarshalValues() map[string]interface{} {
 	m := make(map[string]interface{})
 	for _, obj := range o.Vec {
 		if obj.IsValid() {
 			m[obj.Name] = obj.Counter
 		}
 	}
-	r, _ := json.Marshal(m)
-	return (r)
+	return (m)
 }
 
 func (o *CCounterDb) MarshalMeta() []byte {

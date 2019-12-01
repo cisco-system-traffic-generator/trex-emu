@@ -27,7 +27,7 @@ type CTunnelData struct {
 /* CTunnelDataJson json representation of tunnel data */
 type CTunnelDataJson struct {
 	Vport uint16   `json:"vport" validate:"required"`
-	Tpid  []uint16 `json:"tpid"  validate:"required" `
+	Tpid  []uint16 `json:"tpid"`
 	Tci   []uint16 `json:"tci"   validate:"required" `
 }
 
@@ -44,7 +44,14 @@ func (o *CTunnelKey) DumpHex() {
 func (o CTunnelKey) String() string {
 	var d CTunnelData
 	o.Get(&d)
-	s := fmt.Sprintf("%+v", d)
+	s := fmt.Sprintf("%d,", d.Vport)
+	for i := 0; i < 2; i++ {
+		s += fmt.Sprintf("{%04x:%04x}", ((d.Vlans[i] & 0xffff0000) >> 16), (d.Vlans[i] & 0xffff))
+		if i < 1 {
+			s += fmt.Sprintf(",")
+		}
+	}
+	s += fmt.Sprintf("\n")
 	return s
 }
 
@@ -117,6 +124,58 @@ func (o *CThreadCtx) MainLoop() {
 
 }
 
+func (o *CThreadCtx) GetClientPlugin(params *fastjson.RawMessage, plugin string) (*PluginBase, error) {
+
+	var tun CTunnelKey
+	var key MACKey
+	err := o.UnmarshalClient(*params, &key, &tun)
+	if err != nil {
+		return nil, err
+	}
+
+	ns := o.GetNs(&tun)
+	if ns == nil {
+		err = fmt.Errorf(" error there is valid namespace for this tunnel ")
+		return nil, err
+	}
+
+	client := ns.CLookupByMac(&key)
+	if client == nil {
+		err = fmt.Errorf(" error there is valid client %v for this MAC ", key)
+		return nil, err
+	}
+
+	plug := client.PluginCtx.Get(plugin)
+	if plug == nil {
+		err = fmt.Errorf(" error there is valid plugin %s for this client ", plugin)
+		return nil, err
+	}
+	return plug, nil
+}
+
+func (o *CThreadCtx) UnmarshalClient(data []byte, key *MACKey,
+	tun *CTunnelKey) error {
+	err := o.UnmarshalMacKey(data, key)
+	if err != nil {
+		return err
+	}
+	err = o.UnmarshalTunnel(data, tun)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (o *CThreadCtx) UnmarshalMacKey(data []byte, key *MACKey) error {
+	var rkey RpcCmdMac
+	err := o.UnmarshalValidate(data, &rkey)
+	if err != nil {
+		return err
+	}
+	*key = rkey.MACKey
+	return nil
+}
+
 func (o *CThreadCtx) UnmarshalTunnel(data []byte, key *CTunnelKey) error {
 	var tun RpcCmdTunnel
 	err := o.UnmarshalValidate(data, &tun)
@@ -139,14 +198,14 @@ func (o *CThreadCtx) UnmarshalTunnel(data []byte, key *CTunnelKey) error {
 		if len(tun.Tun.Tpid) > 1 {
 			tpid = tun.Tun.Tpid[1]
 		}
-		t.Vlans[0] = (uint32(tpid) << 16) + uint32((tun.Tun.Tci[0] & 0xfff))
+		t.Vlans[1] = (uint32(tpid) << 16) + uint32((tun.Tun.Tci[1] & 0xfff))
 	}
 
 	key.Set(&t)
 	return nil
 }
 
-func (o *CThreadCtx) getNsPlugin(params *fastjson.RawMessage, plugin string) (*PluginBase, error) {
+func (o *CThreadCtx) GetNsPlugin(params *fastjson.RawMessage, plugin string) (*PluginBase, error) {
 	var key CTunnelKey
 	err := o.UnmarshalTunnel(*params, &key)
 	if err != nil {

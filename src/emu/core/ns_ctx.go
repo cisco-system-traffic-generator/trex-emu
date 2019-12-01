@@ -51,6 +51,10 @@ func (key *MACKey) IsZero() bool {
 	return false
 }
 
+type RpcCmdMac struct {
+	MACKey MACKey `json:"mac" validate:"required"`
+}
+
 type MapClientIPv6 map[Ipv6Key]*CClient
 type MapClientIPv4 map[Ipv4Key]*CClient
 type MapClientMAC map[MACKey]*CClient

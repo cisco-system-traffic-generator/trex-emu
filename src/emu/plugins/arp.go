@@ -815,20 +815,59 @@ func HandleRxArpPacket(tctx *core.CThreadCtx,
 }
 
 func ARPTest() {
+	fmt.Printf("hey \n")
 	//testRPC1()
 	//return
-	tctx := core.NewThreadCtx(0, 4510)
-	var key core.CTunnelKey
-	key.Set(&core.CTunnelData{Vport: 1, Vlans: [2]uint32{0x81000001, 0x81000002}})
-	ns := core.NewNSCtx(tctx, &key)
-	tctx.AddNs(&key, ns)
-	client := core.NewClient(ns, core.MACKey{0, 0, 1, 0, 0, 0}, core.Ipv4Key{16, 0, 0, 1}, core.Ipv6Key{})
-	ns.AddClient(client)
 
-	fmt.Printf("CreatePlugins \n")
-	client.PluginCtx.CreatePlugins([]string{"arp"}, [][]byte{})
+	/*
+		tctx := core.NewThreadCtx(0, 4510)
 
-	/* prepare client plugin */
+		var obj ApiArpNsCfgParamsTest1
+		r1 := []byte(`{"vport1":12, "tun": {"vport":1, "tci":[1,2]}}`)
+		var key2 core.CTunnelKey
+		err1 := tctx.UnmarshalTunnel(r1, &key2)
+		if err1 != nil {
+			fmt.Printf(" error tunnel : %s \n", err1.Error())
+			return
+		}
+		fmt.Printf(" %s \n", key2.String())
+		err1 = tctx.UnmarshalValidate(r1, &obj)
+		if err1 != nil {
+			fmt.Printf(" error object : %s \n", err1.Error())
+			return
+		}
+		fmt.Printf(" %v \n", obj)
+
+		return
+
+		var key core.CTunnelKey
+		key.Set(&core.CTunnelData{Vport: 1, Vlans: [2]uint32{0x81000001, 0x81000002}})
+		ns := core.NewNSCtx(tctx, &key)
+		tctx.AddNs(&key, ns)
+		client := core.NewClient(ns, core.MACKey{0, 0, 1, 0, 0, 0}, core.Ipv4Key{16, 0, 0, 1}, core.Ipv6Key{})
+		ns.AddClient(client)
+
+		fmt.Printf("CreatePlugins \n")
+		client.PluginCtx.CreatePlugins([]string{"arp"}, [][]byte{})
+
+		r := []byte(`{"tun": {"vport":1, "tci":[1,2]}}`)
+		var key1 core.CTunnelKey
+		err := tctx.UnmarshalTunnel(r, &key1)
+		if err != nil {
+			fmt.Printf(" error : %s \n", err.Error())
+		}
+		fmt.Printf(" %s \n", key1.String())
+		var arpp *core.PluginBase
+		arpp, err = tctx.GetNsPlugin((*fastjson.RawMessage)(&r), "arp")
+		if err != nil {
+			fmt.Printf(" error get plugin: %s \n", err.Error())
+		} else {
+			l := client.PluginCtx.Get("arp")
+			arpCPlug := l.Ext.(*PluginArpClient)
+			fmt.Printf(" %p %p \n", arpCPlug.arpNsPlug, arpp)
+		}
+
+		/* prepare client plugin */
 	/*var arpPlugin PluginArpClient
 
 	arpPlugin.Client = client
@@ -866,34 +905,95 @@ func (o PluginArpNsReg) NewPlugin(ctx *core.PluginCtx, initJson []byte) *core.Pl
 /*******************************************/
 /* ARP RPC commands */
 type (
-	ApiArpNsCfgHandler struct{}
-	ApiArpNsCfgParams  struct {
-		vport uint16   `json:"vport"`
-		tpid  []uint16 `json:"tpid"`
-		tci   []uint16 `json:"tci"`
+	ApiArpNsSetCfgHandler struct{}
+	ApiArpNsSetCfgParams  struct { /* +tunnel*/
+		Enable bool `json:"enable" validate:"required"`
 	}
+
+	ApiArpNsGetCfgHandler struct{}
 
 	/* Get counters metadata */
 	ApiArpNsCntMetaHandler struct{}
-	ApiArpNsCntMetaParams  struct{}
 
 	/* Get counters  */
-	ApiArpNsCntHandler struct{}
-	ApiArpNsCntParams  struct{}
-
-	/* Clear counters  */
-	ApiArpNsCntClearHandler struct{}
-	ApiArpNsClearParams     struct{}
+	ApiArpNsCntValueHandler struct{}
 )
 
-func (h ApiArpNsCfgHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
+func (h ApiArpNsSetCfgHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
 
-	/*ns := getRpcNs(ctx, o*ApiArpNsCfgParams) * PluginArpNs
+	var arpobj ApiArpNsSetCfgParams
+	tctx := ctx.(*core.CThreadCtx)
+	plug, err := tctx.GetNsPlugin(params, ARP_PLUG)
 
-	return ApiPingResult{
-		Timestamp: float64(time.Now().Second()),
-	}, nil*/
+	if err != nil {
+		return nil, &jsonrpc.Error{
+			Code:    jsonrpc.ErrorCodeInvalidRequest,
+			Message: err.Error(),
+		}
+	}
+
+	err = tctx.UnmarshalValidate(*params, &arpobj)
+
+	if err != nil {
+		return nil, &jsonrpc.Error{
+			Code:    jsonrpc.ErrorCodeInvalidRequest,
+			Message: err.Error(),
+		}
+	}
+
+	arpNs := plug.Ext.(*PluginArpNs)
+
+	arpNs.arpEnable = arpobj.Enable
+
 	return nil, nil
+}
+
+func (h ApiArpNsGetCfgHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
+
+	tctx := ctx.(*core.CThreadCtx)
+	plug, err := tctx.GetNsPlugin(params, ARP_PLUG)
+
+	if err != nil {
+		return nil, &jsonrpc.Error{
+			Code:    jsonrpc.ErrorCodeInvalidRequest,
+			Message: err.Error(),
+		}
+	}
+	arpNs := plug.Ext.(*PluginArpNs)
+
+	return &ApiArpNsSetCfgParams{Enable: arpNs.arpEnable}, nil
+}
+
+func (h ApiArpNsCntMetaHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
+
+	tctx := ctx.(*core.CThreadCtx)
+	plug, err := tctx.GetNsPlugin(params, ARP_PLUG)
+
+	if err != nil {
+		return nil, &jsonrpc.Error{
+			Code:    jsonrpc.ErrorCodeInvalidRequest,
+			Message: err.Error(),
+		}
+	}
+	arpNs := plug.Ext.(*PluginArpNs)
+
+	return arpNs.cdb, nil
+}
+
+func (h ApiArpNsCntValueHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
+
+	tctx := ctx.(*core.CThreadCtx)
+	plug, err := tctx.GetNsPlugin(params, ARP_PLUG)
+
+	if err != nil {
+		return nil, &jsonrpc.Error{
+			Code:    jsonrpc.ErrorCodeInvalidRequest,
+			Message: err.Error(),
+		}
+	}
+	arpNs := plug.Ext.(*PluginArpNs)
+
+	return arpNs.cdb.MarshalValues, nil
 }
 
 func init() {
@@ -904,4 +1004,8 @@ func init() {
 			Ns:     PluginArpNsReg{},
 			Thread: nil}) /* no need for thread context for now */
 
+	core.RegisterCB("arp_ns_set_cfg", ApiArpNsSetCfgHandler{}, true)
+	core.RegisterCB("arp_ns_get_cfg", ApiArpNsGetCfgHandler{}, true)
+	core.RegisterCB("arp_ns_get_cnt_meta", ApiArpNsCntMetaHandler{}, true)
+	core.RegisterCB("arp_ns_get_cnt_val", ApiArpNsCntValueHandler{}, true)
 }

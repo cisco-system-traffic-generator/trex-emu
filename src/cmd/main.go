@@ -71,7 +71,6 @@ func testCnt1() {
 	fmt.Println()
 	fmt.Printf(string(db.MarshalMeta()))
 	fmt.Println()
-	fmt.Printf(string(db.MarshalValues()))
 	fmt.Println()
 }
 
