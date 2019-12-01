@@ -11,6 +11,7 @@ import (
 /* ticks */
 const (
 	eTIMER_TICK                = 10 * time.Millisecond
+	eTIMER_TICK_SIM            = 100 * time.Millisecond
 	eTIMERW_SECOND_LEVEL_BURST = 32
 )
 
@@ -22,11 +23,21 @@ type TimerCtx struct {
 }
 
 // NewTimerCtx create a context
-func NewTimerCtx() *TimerCtx {
+func NewTimerCtx(simulation bool) *TimerCtx {
 	o := new(TimerCtx)
-	o.TickDuration = eTIMER_TICK
-	o.Timer = time.NewTimer(o.TickDuration)
-	timerw, rc := NewTimerW(1024, 16)
+	var timerw *CNATimerWheel
+	var rc RCtw
+	if simulation {
+		o.TickDuration = eTIMER_TICK_SIM
+		o.Timer = time.NewTimer(o.TickDuration)
+		timerw, rc = NewTimerW(128, 16)
+
+	} else {
+		o.TickDuration = eTIMER_TICK
+		o.Timer = time.NewTimer(o.TickDuration)
+		timerw, rc = NewTimerW(1024, 16)
+
+	}
 	if rc != RC_HTW_OK {
 		panic("can't init timew")
 	}

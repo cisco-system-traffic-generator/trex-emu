@@ -1,12 +1,11 @@
 package core
 
 type VethStats struct {
-	txPkts           uint64
-	txBytes          uint64
-	rxPkts           uint64
-	rxBytes          uint64
-	txDropNotResolve uint64 /* no resolved dg */
-
+	TxPkts           uint64
+	TxBytes          uint64
+	RxPkts           uint64
+	RxBytes          uint64
+	TxDropNotResolve uint64 /* no resolved dg */
 }
 
 /*VethIF represent a way to send and receive packet */
@@ -26,4 +25,6 @@ type VethIF interface {
 
 	/* get the veth stats */
 	GetStats() *VethStats
+
+	SimulatorCheckRxQueue()
 }

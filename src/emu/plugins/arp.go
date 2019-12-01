@@ -814,80 +814,6 @@ func HandleRxArpPacket(tctx *core.CThreadCtx,
 
 }
 
-func ARPTest() {
-	fmt.Printf("hey \n")
-	//testRPC1()
-	//return
-
-	/*
-		tctx := core.NewThreadCtx(0, 4510)
-
-		var obj ApiArpNsCfgParamsTest1
-		r1 := []byte(`{"vport1":12, "tun": {"vport":1, "tci":[1,2]}}`)
-		var key2 core.CTunnelKey
-		err1 := tctx.UnmarshalTunnel(r1, &key2)
-		if err1 != nil {
-			fmt.Printf(" error tunnel : %s \n", err1.Error())
-			return
-		}
-		fmt.Printf(" %s \n", key2.String())
-		err1 = tctx.UnmarshalValidate(r1, &obj)
-		if err1 != nil {
-			fmt.Printf(" error object : %s \n", err1.Error())
-			return
-		}
-		fmt.Printf(" %v \n", obj)
-
-		return
-
-		var key core.CTunnelKey
-		key.Set(&core.CTunnelData{Vport: 1, Vlans: [2]uint32{0x81000001, 0x81000002}})
-		ns := core.NewNSCtx(tctx, &key)
-		tctx.AddNs(&key, ns)
-		client := core.NewClient(ns, core.MACKey{0, 0, 1, 0, 0, 0}, core.Ipv4Key{16, 0, 0, 1}, core.Ipv6Key{})
-		ns.AddClient(client)
-
-		fmt.Printf("CreatePlugins \n")
-		client.PluginCtx.CreatePlugins([]string{"arp"}, [][]byte{})
-
-		r := []byte(`{"tun": {"vport":1, "tci":[1,2]}}`)
-		var key1 core.CTunnelKey
-		err := tctx.UnmarshalTunnel(r, &key1)
-		if err != nil {
-			fmt.Printf(" error : %s \n", err.Error())
-		}
-		fmt.Printf(" %s \n", key1.String())
-		var arpp *core.PluginBase
-		arpp, err = tctx.GetNsPlugin((*fastjson.RawMessage)(&r), "arp")
-		if err != nil {
-			fmt.Printf(" error get plugin: %s \n", err.Error())
-		} else {
-			l := client.PluginCtx.Get("arp")
-			arpCPlug := l.Ext.(*PluginArpClient)
-			fmt.Printf(" %p %p \n", arpCPlug.arpNsPlug, arpp)
-		}
-
-		/* prepare client plugin */
-	/*var arpPlugin PluginArpClient
-
-	arpPlugin.Client = client
-	arpPlugin.Ns = ns
-	arpPlugin.Tctx = tctx
-
-	arpPlugin.preparePacketTemplate()
-
-	core.PacketUtl("arp_t0", arpPlugin.arpPktTemplate)
-	arpPlugin.arpHeader.SetOperation(2)
-	core.PacketUtl("arp_op2", arpPlugin.arpPktTemplate)
-	arpPlugin.arpHeader.SetSrcIpAddress(0x22334455)
-	arpPlugin.arpHeader.SetDstIpAddress(0x99887766)
-	arpPlugin.arpHeader.SetDestAddress([]byte{1, 2, 3, 4, 5, 6})
-	core.PacketUtl("arp_src", arpPlugin.arpPktTemplate)
-
-	fmt.Printf("c: %+v \n", client)*/
-
-}
-
 // Tx side client get an event and decide to act !
 // let's see how it works and add some tests
 
@@ -1003,4 +929,158 @@ func init() {
 	core.RegisterCB("arp_ns_get_cfg", ApiArpNsGetCfgHandler{}, true)
 	core.RegisterCB("arp_ns_get_cnt_meta", ApiArpNsCntMetaHandler{}, true)
 	core.RegisterCB("arp_ns_get_cnt_val", ApiArpNsCntValueHandler{}, true)
+}
+
+type VethIFSimulator struct {
+	vec   []*core.Mbuf
+	stats core.VethStats
+	ctx   *core.CThreadCtx
+}
+
+func (o *VethIFSimulator) Create(ctx *core.CThreadCtx) {
+	o.vec = make([]*core.Mbuf, 0)
+	o.ctx = ctx
+}
+
+func (o *VethIFSimulator) FlushTx() {
+
+}
+
+func (o *VethIFSimulator) Send(m *core.Mbuf) {
+
+	o.stats.TxPkts++
+	o.stats.TxBytes += uint64(m.PktLen())
+	if !m.IsContiguous() {
+		m1 := m.GetContiguous(&o.ctx.MPool)
+		m.FreeMbuf()
+		o.vec = append(o.vec, m1)
+	} else {
+		o.vec = append(o.vec, m)
+	}
+}
+
+// SendBuffer get a buffer as input, should allocate mbuf and call send
+func (o *VethIFSimulator) SendBuffer(unicast bool, c *core.CClient, b []byte) {
+	m := o.ctx.MPool.Alloc(uint16(len(b)))
+	m.Append(b)
+	if unicast {
+		if c.DGW == nil {
+			m.FreeMbuf()
+			o.stats.TxDropNotResolve++
+			return
+		}
+		if !c.DGW.Ipv4dgResolved {
+			m.FreeMbuf()
+			o.stats.TxDropNotResolve++
+			return
+		}
+		p := m.GetData()
+		copy(p[6:12], c.Mac[:])
+	}
+	o.Send(m)
+}
+
+// get
+func (o *VethIFSimulator) OnRx(m *core.Mbuf) {
+
+}
+
+/* get the veth stats */
+func (o *VethIFSimulator) GetStats() *core.VethStats {
+	return &o.stats
+}
+
+func (o *VethIFSimulator) SimulatorCheckRxQueue() {
+
+	/*for _, m := range o.vec {
+
+
+	}*/
+
+}
+
+func ARPTest() {
+	fmt.Printf("hey \n")
+	tctx := core.NewThreadCtx(0, 4510, true)
+	var key core.CTunnelKey
+	key.Set(&core.CTunnelData{Vport: 1, Vlans: [2]uint32{0x81000001, 0x81000002}})
+	ns := core.NewNSCtx(tctx, &key)
+	tctx.AddNs(&key, ns)
+	client := core.NewClient(ns, core.MACKey{0, 0, 1, 0, 0, 0}, core.Ipv4Key{16, 0, 0, 1}, core.Ipv6Key{})
+	ns.AddClient(client)
+
+	fmt.Printf("CreatePlugins \n")
+	client.PluginCtx.CreatePlugins([]string{"arp"}, [][]byte{})
+	//tctx.MainLoopSim(60 * time.Minute)
+
+	//testRPC1()
+	//return
+
+	/*
+		tctx := core.NewThreadCtx(0, 4510)
+
+		var obj ApiArpNsCfgParamsTest1
+		r1 := []byte(`{"vport1":12, "tun": {"vport":1, "tci":[1,2]}}`)
+		var key2 core.CTunnelKey
+		err1 := tctx.UnmarshalTunnel(r1, &key2)
+		if err1 != nil {
+			fmt.Printf(" error tunnel : %s \n", err1.Error())
+			return
+		}
+		fmt.Printf(" %s \n", key2.String())
+		err1 = tctx.UnmarshalValidate(r1, &obj)
+		if err1 != nil {
+			fmt.Printf(" error object : %s \n", err1.Error())
+			return
+		}
+		fmt.Printf(" %v \n", obj)
+
+		return
+
+		var key core.CTunnelKey
+		key.Set(&core.CTunnelData{Vport: 1, Vlans: [2]uint32{0x81000001, 0x81000002}})
+		ns := core.NewNSCtx(tctx, &key)
+		tctx.AddNs(&key, ns)
+		client := core.NewClient(ns, core.MACKey{0, 0, 1, 0, 0, 0}, core.Ipv4Key{16, 0, 0, 1}, core.Ipv6Key{})
+		ns.AddClient(client)
+
+		fmt.Printf("CreatePlugins \n")
+		client.PluginCtx.CreatePlugins([]string{"arp"}, [][]byte{})
+
+		r := []byte(`{"tun": {"vport":1, "tci":[1,2]}}`)
+		var key1 core.CTunnelKey
+		err := tctx.UnmarshalTunnel(r, &key1)
+		if err != nil {
+			fmt.Printf(" error : %s \n", err.Error())
+		}
+		fmt.Printf(" %s \n", key1.String())
+		var arpp *core.PluginBase
+		arpp, err = tctx.GetNsPlugin((*fastjson.RawMessage)(&r), "arp")
+		if err != nil {
+			fmt.Printf(" error get plugin: %s \n", err.Error())
+		} else {
+			l := client.PluginCtx.Get("arp")
+			arpCPlug := l.Ext.(*PluginArpClient)
+			fmt.Printf(" %p %p \n", arpCPlug.arpNsPlug, arpp)
+		}
+
+		/* prepare client plugin */
+	/*var arpPlugin PluginArpClient
+
+	arpPlugin.Client = client
+	arpPlugin.Ns = ns
+	arpPlugin.Tctx = tctx
+
+	arpPlugin.preparePacketTemplate()
+
+	core.PacketUtl("arp_t0", arpPlugin.arpPktTemplate)
+	arpPlugin.arpHeader.SetOperation(2)
+	core.PacketUtl("arp_op2", arpPlugin.arpPktTemplate)
+	arpPlugin.arpHeader.SetSrcIpAddress(0x22334455)
+	arpPlugin.arpHeader.SetDstIpAddress(0x99887766)
+	arpPlugin.arpHeader.SetDestAddress([]byte{1, 2, 3, 4, 5, 6})
+	core.PacketUtl("arp_src", arpPlugin.arpPktTemplate)
+
+	fmt.Printf("c: %+v \n", client)*/
+
 }

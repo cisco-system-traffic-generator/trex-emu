@@ -450,3 +450,23 @@ func (o *Mbuf) String() string {
 func (o *Mbuf) Dump() {
 	fmt.Println(o)
 }
+
+func (o *Mbuf) GetContiguous(pool *MbufPoll) *Mbuf {
+
+	if o.IsContiguous() {
+		panic(" this mbuf is already Contiguous ")
+	}
+	var next *Mbuf
+	m := o
+	tom := pool.Alloc(uint16(o.PktLen()))
+	for {
+		next = m.Next()
+		tom.Append(m.GetData()[:])
+		if next == o {
+			break
+		}
+		m = next
+	}
+
+	return tom
+}

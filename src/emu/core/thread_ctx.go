@@ -97,9 +97,9 @@ type CThreadCtx struct {
 	validate   *validator.Validate
 }
 
-func NewThreadCtx(Id uint32, serverPort uint16) *CThreadCtx {
+func NewThreadCtx(Id uint32, serverPort uint16, simulation bool) *CThreadCtx {
 	o := new(CThreadCtx)
-	o.timerctx = NewTimerCtx()
+	o.timerctx = NewTimerCtx(simulation)
 	o.portMap = make(MapPortT)
 	o.mapNs = make(MapNsT)
 	o.MPool.Init(mBUFS_CACHE)
@@ -109,6 +109,20 @@ func NewThreadCtx(Id uint32, serverPort uint16) *CThreadCtx {
 	o.PluginCtx = NewPluginCtx(nil, nil, o, PLUGIN_LEVEL_THREAD)
 	o.validate = validator.New()
 	return o
+}
+
+func (o *CThreadCtx) MainLoopSim(duration time.Duration) {
+
+	var tick uint32
+	maxticks := o.timerctx.DurationToTicks(duration)
+	for {
+		o.timerctx.HandleTicks()
+		tick++
+		if tick > maxticks {
+			break
+		}
+		o.Veth.SimulatorCheckRxQueue()
+	}
 }
 
 func (o *CThreadCtx) MainLoop() {

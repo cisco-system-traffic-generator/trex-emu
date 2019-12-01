@@ -119,3 +119,23 @@ func TestMbuf2(t *testing.T) {
 	}
 	pool.DumpStats()
 }
+
+func TestMbuf3(t *testing.T) {
+
+	var pool MbufPoll
+	pool.Init(1024)
+	m1 := pool.Alloc(128)
+	m1.Append([]byte{1, 2, 3, 4, 5, 6})
+	m2 := pool.Alloc(128)
+	m2.Append([]byte{10, 11, 12, 13, 14, 15})
+	m1.AppendMbuf(m2)
+	if m1.IsContiguous() {
+		t.Fatalf(" m1 should not be Contiguous")
+	}
+	m1.Dump()
+	m3 := m1.GetContiguous(&pool)
+	m3.Dump()
+	m1.FreeMbuf()
+	m3.FreeMbuf()
+	pool.DumpStats()
+}

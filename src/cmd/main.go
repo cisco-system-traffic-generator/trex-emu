@@ -145,7 +145,7 @@ func (o *ArpExample) OnEvent(a, b interface{}) {
 
 func TestNs1() {
 	var arp ArpExample
-	tctx := core.NewTimerCtx()
+	tctx := core.NewTimerCtx(false)
 	arp.ctx = tctx
 	arp.StartTimers()
 	fmt.Printf("start  \n")
@@ -342,7 +342,7 @@ func (o MyMapEventBus) RemoveObj(msg string, a *A) {
 func RunCoreZmq() {
 	fmt.Printf(" run zmq server ")
 	rand.Seed(time.Now().UnixNano())
-	tctx := core.NewThreadCtx(0, 4510)
+	tctx := core.NewThreadCtx(0, 4510, false)
 	tctx.StartRxThread()
 	defer tctx.Delete()
 	tctx.MainLoop()
