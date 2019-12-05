@@ -917,7 +917,6 @@ func (h ApiArpNsCntValueHandler) ServeJSONRPC(ctx interface{}, params *fastjson.
 	return arpNs.cdb.MarshalValues, nil
 }
 
-
 func init() {
 
 	/* register of create callbacks */
@@ -1002,6 +1001,14 @@ func (o *VethIFSimulator) SimulatorCheckRxQueue() {
 		}
 	}
 }
+
+/*func HandleRxArpPacket(tctx *core.CThreadCtx,
+tun *core.CTunnelKey,
+m *core.Mbuf,
+l3 uint16, // 0 is not valid
+l4 uint16, // 0 is not valid
+l7 uint16) {
+*/
 
 func ARPTest() {
 	fmt.Printf("hey \n")

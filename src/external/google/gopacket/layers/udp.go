@@ -14,6 +14,24 @@ import (
 	"external/google/gopacket"
 )
 
+type UDPHeader []byte
+
+func (o UDPHeader) SrcPort() uint16 {
+	return binary.BigEndian.Uint16(o[0:2])
+}
+
+func (o UDPHeader) DstPort() uint16 {
+	return binary.BigEndian.Uint16(o[2:4])
+}
+
+func (o UDPHeader) Length() uint16 {
+	return binary.BigEndian.Uint16(o[4:6])
+}
+
+func (o UDPHeader) Checksum() uint16 {
+	return binary.BigEndian.Uint16(o[6:8])
+}
+
 // UDP is the layer for UDP headers.
 type UDP struct {
 	BaseLayer

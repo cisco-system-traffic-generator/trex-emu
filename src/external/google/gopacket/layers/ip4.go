@@ -46,6 +46,14 @@ func (f IPv4Flag) String() string {
 // ipv4.SetTOS(0x10)
 type IPv4Header []byte
 
+func (o IPv4Header) GetNextProtocol() uint8 {
+	return o[9]
+}
+
+func (o IPv4Header) GetHeaderLen() uint16 {
+	return uint16(((o[0] & 0xf) << 2))
+}
+
 // SetLength set the length
 func (o IPv4Header) SetLength(len uint16) {
 	binary.BigEndian.PutUint16(o[2:4], len)
@@ -91,6 +99,15 @@ func (o IPv4Header) UpdateChecksum() {
 	binary.BigEndian.PutUint16(o[10:12], 0x0000)
 	cs := tcpipChecksum(o, 0)
 	binary.BigEndian.PutUint16(o[10:12], cs)
+}
+
+func (o IPv4Header) IsValidHeaderChecksum() bool {
+	cs := tcpipChecksum(o, 0)
+	if cs == 0 {
+		return true
+	} else {
+		return false
+	}
 }
 
 // IPv4 is the header of an IP packet.

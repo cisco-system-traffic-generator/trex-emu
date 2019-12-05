@@ -55,6 +55,10 @@ func (o CTunnelKey) String() string {
 	return s
 }
 
+func (o *CTunnelKey) Clear() {
+	*o = CTunnelKey([12]byte{})
+}
+
 func (o *CTunnelKey) Set(d *CTunnelData) {
 	binary.LittleEndian.PutUint16(o[2:4], 0)
 	binary.LittleEndian.PutUint16(o[0:2], d.Vport)
@@ -347,7 +351,7 @@ func (o *CThreadCtx) GetNext(n uint16) ([]*CTunnelKey, error) {
 }
 
 func (o *CThreadCtx) processInternalRx(m *Mbuf) {
-	
+
 }
 
 /*ProcessRx handle the processing of incoming packet */
