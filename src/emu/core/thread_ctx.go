@@ -346,5 +346,18 @@ func (o *CThreadCtx) GetNext(n uint16) ([]*CTunnelKey, error) {
 	return r, nil
 }
 
-// TODO add RPC for counters,iterator, vport, tunnel
-//
+func (o *CThreadCtx) processInternalRx(m *Mbuf) {
+	
+}
+
+/*ProcessRx handle the processing of incoming packet */
+func (o *CThreadCtx) ProcessRx(m *Mbuf) {
+	/* for simplicity make sure the mbuf is contiguous in the rx side */
+	if !m.IsContiguous() {
+		m1 := m.GetContiguous(&o.MPool)
+		m.FreeMbuf()
+		o.processInternalRx(m1)
+	} else {
+		o.processInternalRx(m)
+	}
+}

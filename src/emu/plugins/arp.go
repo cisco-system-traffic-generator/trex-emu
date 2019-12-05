@@ -917,6 +917,7 @@ func (h ApiArpNsCntValueHandler) ServeJSONRPC(ctx interface{}, params *fastjson.
 	return arpNs.cdb.MarshalValues, nil
 }
 
+
 func init() {
 
 	/* register of create callbacks */
@@ -935,6 +936,7 @@ type VethIFSimulator struct {
 	vec   []*core.Mbuf
 	stats core.VethStats
 	ctx   *core.CThreadCtx
+	sim   core.VethIFSim
 }
 
 func (o *VethIFSimulator) Create(ctx *core.CThreadCtx) {
@@ -992,11 +994,13 @@ func (o *VethIFSimulator) GetStats() *core.VethStats {
 
 func (o *VethIFSimulator) SimulatorCheckRxQueue() {
 
-	/*for _, m := range o.vec {
-
-
-	}*/
-
+	for _, m := range o.vec {
+		mrx := o.sim.ProcessTxToRx(m)
+		m.FreeMbuf()
+		if mrx != nil {
+			o.OnRx(mrx)
+		}
+	}
 }
 
 func ARPTest() {

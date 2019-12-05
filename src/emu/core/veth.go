@@ -28,3 +28,9 @@ type VethIF interface {
 
 	SimulatorCheckRxQueue()
 }
+
+type VethIFSim interface {
+
+	/* Simulate a DUT that gets a mbuf and response with mbuf if needed or nil if there is no need to response */
+	ProcessTxToRx(m *Mbuf) *Mbuf
+}
