@@ -63,7 +63,7 @@ func (o *Parser) Init(tctx *CThreadCtx) {
 
 }
 
-func (o *Parser) ParsePacketL4(tun *CTunnelKey, l3, l4 uint16,
+func (o *Parser) parsePacketL4(tun *CTunnelKey, l3, l4 uint16,
 	m *Mbuf,
 	nextHdr uint8) int {
 	packetSize := m.PktLen()
@@ -170,7 +170,7 @@ func (o *Parser) ParsePacket(vport uint16, m *Mbuf) int {
 			l4 = offset + hdr
 			offset = l4
 			tun.Set(&d)
-			return o.ParsePacketL4(&tun, l3, l4, m, ipv4.GetNextProtocol())
+			return o.parsePacketL4(&tun, l3, l4, m, ipv4.GetNextProtocol())
 		case layers.EthernetTypeIPv6:
 			l3 = offset
 			if packetSize < uint32(offset+20) {
