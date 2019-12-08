@@ -27,6 +27,18 @@ type ParserStats struct {
 	errIPv4cs             uint64
 	errTCP                uint64
 	errUDP                uint64
+	arpPkts               uint64
+	arpBytes              uint64
+	icmpPkts              uint64
+	icmpBytes             uint64
+	igmpPkts              uint64
+	igmpBytes             uint64
+	dhcpPkts              uint64
+	dhcpBytes             uint64
+	tcpPkts               uint64
+	tcpBytes              uint64
+	udpPkts               uint64
+	udpBytes              uint64
 }
 
 /* counters */
@@ -75,15 +87,21 @@ func (o *Parser) parsePacketL4(tun *CTunnelKey, l3, l4 uint16,
 			o.stats.errIcmpv4TooShort++
 			return -1
 		}
+		o.stats.icmpPkts++
+		o.stats.icmpBytes += uint64(packetSize)
 		return o.icmp(o.tctx, tun, m, l3, l4, l4+8)
 	case layers.IPProtocolIGMP:
 		if packetSize < uint32(l4+8) {
 			o.stats.errIcmpv4TooShort++
 			return -1
 		}
+		o.stats.igmpPkts++
+		o.stats.igmpBytes += uint64(packetSize)
 		return o.igmp(o.tctx, tun, m, l3, l4, 0)
 	case layers.IPProtocolTCP:
 		o.stats.errTCP++
+		o.stats.tcpPkts++
+		o.stats.tcpBytes += uint64(packetSize)
 		return -1
 	case layers.IPProtocolUDP:
 		if packetSize < uint32(l4+8) {
@@ -91,7 +109,11 @@ func (o *Parser) parsePacketL4(tun *CTunnelKey, l3, l4 uint16,
 			return (-1)
 		}
 		udp := layers.UDPHeader(p[l4 : l4+8])
+		o.stats.udpPkts++
+		o.stats.udpBytes += uint64(packetSize)
 		if (udp.SrcPort() == 67) && (udp.DstPort() == 68) {
+			o.stats.dhcpPkts++
+			o.stats.dhcpBytes += uint64(packetSize)
 			return o.dhcp(o.tctx, tun, m, l3, l4, l4+8)
 		}
 		o.stats.errUDP++
@@ -127,6 +149,8 @@ func (o *Parser) ParsePacket(vport uint16, m *Mbuf) int {
 			}
 			l3 = offset
 			tun.Set(&d)
+			o.stats.arpPkts++
+			o.stats.arpBytes += uint64(packetSize)
 			return o.arp(o.tctx, &tun, m, l3, 0, 0)
 		case layers.EthernetTypeDot1Q, layers.EthernetTypeQinQ:
 			if packetSize < uint32(offset+4) {
@@ -137,7 +161,7 @@ func (o *Parser) ParsePacket(vport uint16, m *Mbuf) int {
 				o.stats.errToManyDot1q++
 				return -1
 			}
-			val := binary.BigEndian.Uint32(p[offset-2:offset+2]) & 0xffff3fff
+			val := binary.BigEndian.Uint32(p[offset-2:offset+2]) & 0xffff0fff
 			d.Vlans[valnIndex] = val
 			valnIndex++
 			nextHdr = layers.EthernetType(binary.BigEndian.Uint16(p[offset+2 : offset+4]))
@@ -148,7 +172,7 @@ func (o *Parser) ParsePacket(vport uint16, m *Mbuf) int {
 				o.stats.errIPv4TooShort++
 				return -1
 			}
-			ipv4 := layers.IPv4Header(p[offset:])
+			ipv4 := layers.IPv4Header(p[offset : offset+20])
 			hdr := ipv4.GetHeaderLen()
 			if hdr < 20 {
 				o.stats.errIPv4HeaderTooShort++
@@ -162,6 +186,10 @@ func (o *Parser) ParsePacket(vport uint16, m *Mbuf) int {
 				o.stats.errIPv4TooShort++
 				return -1
 			}
+			if hdr != 20 {
+				ipv4 = layers.IPv4Header(p[offset : offset+hdr])
+			}
+
 			if !ipv4.IsValidHeaderChecksum() {
 				o.stats.errIPv4cs++
 				return -1
