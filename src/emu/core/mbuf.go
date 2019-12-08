@@ -225,6 +225,10 @@ func (o *Mbuf) isDirect() bool {
 	}
 }
 
+func (o *Mbuf) SetVPort(vport uint16) {
+	o.port = vport
+}
+
 // PktLen return the packet len. Valid only for the header mbuf
 func (o *Mbuf) PktLen() uint32 {
 	return o.pktLen

@@ -16,7 +16,8 @@ type ParserCb func(tctx *CThreadCtx,
 	l7 uint16) int
 
 type ParserStats struct {
-	NotSupportedProtocol  uint64
+	errInternalHandler    uint64
+	errParser             uint64
 	errArpTooShort        uint64
 	errIcmpv4TooShort     uint64
 	errUdpTooShort        uint64
@@ -66,13 +67,12 @@ func parserNotSupported(tctx *CThreadCtx,
 
 func (o *Parser) Init(tctx *CThreadCtx) {
 	o.tctx = tctx
-	o.arp = getProto("arp")
+	o.arp = parserNotSupported
 	o.icmp = parserNotSupported
 	o.igmp = parserNotSupported
 	o.dhcp = parserNotSupported
 	o.tcp = parserNotSupported
 	o.udp = parserNotSupported
-
 }
 
 func (o *Parser) parsePacketL4(tun *CTunnelKey, l3, l4 uint16,
@@ -124,11 +124,19 @@ func (o *Parser) parsePacketL4(tun *CTunnelKey, l3, l4 uint16,
 	return (0)
 }
 
-func (o *Parser) ParsePacket(vport uint16, m *Mbuf) int {
+/*
+ParsePacket
+return values
+
+   0   process by the parser callback
+   -1  parser error
+   -2  internal parser error
+*/
+func (o *Parser) ParsePacket(m *Mbuf) int {
 	var tun CTunnelKey
 	var l3, l4 uint16
 	var d CTunnelData
-	d.Vport = vport
+	d.Vport = m.port
 	finished := false
 	valnIndex := 0
 	packetSize := m.PktLen()

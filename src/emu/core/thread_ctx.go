@@ -99,6 +99,7 @@ type CThreadCtx struct {
 	iter       DListIterHead
 	Veth       VethIF
 	validate   *validator.Validate
+	parser     Parser
 }
 
 func NewThreadCtx(Id uint32, serverPort uint16, simulation bool) *CThreadCtx {
@@ -112,7 +113,20 @@ func NewThreadCtx(Id uint32, serverPort uint16, simulation bool) *CThreadCtx {
 	o.nsHead.SetSelf()
 	o.PluginCtx = NewPluginCtx(nil, nil, o, PLUGIN_LEVEL_THREAD)
 	o.validate = validator.New()
+	o.parser.Init(o)
 	return o
+}
+
+func (o *CThreadCtx) HandleRxPacket(m *Mbuf) {
+	r := o.parser.ParsePacket(m)
+	if r < 0 {
+		if r == -1 {
+			o.parser.stats.errParser++
+		} else {
+			o.parser.stats.errInternalHandler++
+		}
+	}
+	m.FreeMbuf()
 }
 
 func (o *CThreadCtx) MainLoopSim(duration time.Duration) {

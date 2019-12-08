@@ -77,8 +77,9 @@ func TestParserArp(t *testing.T) {
 
 	data := buf.Bytes()
 	m1.Append(data)
+	m1.SetVPort(7)
 	m1.Dump()
-	parser.ParsePacket(7, m1)
+	parser.ParsePacket(m1)
 
 	if parser.stats.errToManyDot1q != 1 {
 		t.Fatalf(" errToManyDot1q should be 1")
@@ -129,8 +130,9 @@ func TestParserArp1(t *testing.T) {
 	data := buf.Bytes()
 	m1.Append(data)
 	//m1.Dump()
+	m1.SetVPort(7)
 	arp = 0
-	parser.ParsePacket(7, m1)
+	parser.ParsePacket(m1)
 	fmt.Printf(" %d", arp)
 	if arp != 1 {
 		t.Fatalf(" arp cb should be called ")
@@ -188,9 +190,11 @@ func TestParserIcmp(t *testing.T) {
 	data := buf.Bytes()
 	//PacketUtl("icmp1", data)
 	m1.Append(data)
+	m1.SetVPort(7)
+
 	//m1.Dump()
 	arp = 0
-	parser.ParsePacket(7, m1)
+	parser.ParsePacket(m1)
 	fmt.Printf(" %d", arp)
 	if arp != 1 {
 		t.Fatalf(" cb should be called ")
@@ -270,9 +274,11 @@ func TestParserDhcp1(t *testing.T) {
 	//PacketUtl("dhcp2", data)
 	//fmt.Printf(" %v \n", data)
 	m1.Append(data)
+	m1.SetVPort(7)
+
 	//m1.Dump()
 	arp = 0
-	parser.ParsePacket(7, m1)
+	parser.ParsePacket(m1)
 
 	if arp != 1 {
 		t.Fatalf(" cb should be called ")
@@ -351,9 +357,10 @@ func TestParserDhcpInvalidCs(t *testing.T) {
 	m1 := tctx.MPool.Alloc(uint16(len(data)))
 	//PacketUtl("dhcp2", data)
 	//fmt.Printf(" %v \n", data)
+	m1.SetVPort(7)
 	m1.Append(data)
 	arp = 0
-	parser.ParsePacket(7, m1)
+	parser.ParsePacket(m1)
 	//fmt.Printf("%+v \n", parser.stats)
 
 	if parser.stats.errIPv4cs != 1 {

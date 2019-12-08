@@ -105,6 +105,12 @@ func NewNSCtx(tctx *CThreadCtx,
 	return o
 }
 
+func (o *CNSCtx) GetVport() uint16 {
+	var d CTunnelData
+	o.Key.Get(&d)
+	return d.Vport
+}
+
 // Look for a client by MAC
 func (o *CNSCtx) CLookupByMac(mac *MACKey) *CClient {
 	if mac.IsZero() {
