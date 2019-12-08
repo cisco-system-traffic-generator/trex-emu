@@ -941,7 +941,7 @@ l7 uint16) {
 
 func ARPTest() {
 	fmt.Printf("hey \n")
-	tctx := core.NewThreadCtx(0, 4510, true)
+	tctx := core.NewThreadCtx(0, 4510, true, nil)
 	var key core.CTunnelKey
 	key.Set(&core.CTunnelData{Vport: 1, Vlans: [2]uint32{0x81000001, 0x81000002}})
 	ns := core.NewNSCtx(tctx, &key)

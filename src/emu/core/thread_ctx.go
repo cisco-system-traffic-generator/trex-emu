@@ -102,7 +102,7 @@ type CThreadCtx struct {
 	parser     Parser
 }
 
-func NewThreadCtx(Id uint32, serverPort uint16, simulation bool) *CThreadCtx {
+func NewThreadCtx(Id uint32, serverPort uint16, simulation bool, simRx *VethIFSim) *CThreadCtx {
 	o := new(CThreadCtx)
 	o.timerctx = NewTimerCtx(simulation)
 	o.portMap = make(MapPortT)
@@ -114,6 +114,15 @@ func NewThreadCtx(Id uint32, serverPort uint16, simulation bool) *CThreadCtx {
 	o.PluginCtx = NewPluginCtx(nil, nil, o, PLUGIN_LEVEL_THREAD)
 	o.validate = validator.New()
 	o.parser.Init(o)
+	if simulation {
+		var simv VethIFSimulator
+		simv.Create(o)
+		if simRx == nil {
+			panic(" ERROR in case of simulation mode VethIFSim should be provided ")
+		}
+		simv.Sim = *simRx
+		o.Veth = &simv
+	}
 	return o
 }
 

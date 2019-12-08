@@ -342,7 +342,7 @@ func (o MyMapEventBus) RemoveObj(msg string, a *A) {
 func RunCoreZmq() {
 	fmt.Printf(" run zmq server ")
 	rand.Seed(time.Now().UnixNano())
-	tctx := core.NewThreadCtx(0, 4510, false)
+	tctx := core.NewThreadCtx(0, 4510, false, nil)
 	tctx.StartRxThread()
 	defer tctx.Delete()
 	tctx.MainLoop()

@@ -90,6 +90,8 @@ func (o *VethIFSimulator) SendBuffer(unicast bool, c *CClient, b []byte) {
 
 // get the packet
 func (o *VethIFSimulator) OnRx(m *Mbuf) {
+	o.stats.RxPkts++
+	o.stats.RxBytes += uint64(m.PktLen())
 	o.tctx.HandleRxPacket(m)
 }
 
