@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"external/google/gopacket/layers"
 	"fmt"
+	"runtime"
 )
 
 /*ParserCb callback function for a protocol. In case the return value is zero, it means the protocol handle the packet
@@ -63,6 +64,12 @@ func parserNotSupported(tctx *CThreadCtx,
 	l4 uint16,
 	l7 uint16) int {
 	return -1
+}
+
+func (o *Parser) Register(protocol string) {
+	if protocol == "arp" {
+		o.arp = getProto("arp")
+	}
 }
 
 func (o *Parser) Init(tctx *CThreadCtx) {
@@ -242,4 +249,11 @@ func ParserRegister(proto string, cb ParserCb) {
 	}
 	fmt.Sprintf(" register protocol %s ", proto)
 	parserDb.M[proto] = cb
+}
+
+func init() {
+	if runtime.NumGoroutine() != 1 {
+		panic(" NumGoroutine() should be 1 on init time, require lock  ")
+	}
+	parserDb.M = make(map[string]ParserCb)
 }

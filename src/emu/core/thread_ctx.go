@@ -126,6 +126,10 @@ func NewThreadCtx(Id uint32, serverPort uint16, simulation bool, simRx *VethIFSi
 	return o
 }
 
+func (o *CThreadCtx) RegisterParserCb(protocol string) {
+	o.parser.Register(protocol)
+}
+
 func (o *CThreadCtx) HandleRxPacket(m *Mbuf) {
 	r := o.parser.ParsePacket(m)
 	if r < 0 {

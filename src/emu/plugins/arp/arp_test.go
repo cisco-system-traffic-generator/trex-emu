@@ -15,6 +15,7 @@ func createSimulationEnv(simRx *core.VethIFSim) (*core.CThreadCtx, *core.CClient
 	client := core.NewClient(ns, core.MACKey{0, 0, 1, 0, 0, 0}, core.Ipv4Key{16, 0, 0, 1}, core.Ipv6Key{})
 	ns.AddClient(client)
 	client.PluginCtx.CreatePlugins([]string{"arp"}, [][]byte{})
+	tctx.RegisterParserCb("arp")
 	return tctx, client
 }
 

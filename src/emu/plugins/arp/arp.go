@@ -808,10 +808,19 @@ func HandleRxArpPacket(tctx *core.CThreadCtx,
 	m *core.Mbuf,
 	l3 uint16, // 0 is not valid
 	l4 uint16, // 0 is not valid
-	l7 uint16) {
+	l7 uint16) int {
 
-	defer m.FreeMbuf()
-
+	ns := tctx.GetNs(tun)
+	if ns == nil {
+		return -2
+	}
+	nsplg := ns.PluginCtx.Get(ARP_PLUG)
+	if nsplg == nil {
+		return -2
+	}
+	arpnPlug := nsplg.Ext.(*PluginArpNs)
+	arpnPlug.HandleRxArpPacket(m, l3)
+	return 0
 }
 
 // Tx side client get an event and decide to act !
@@ -929,6 +938,8 @@ func init() {
 	core.RegisterCB("arp_ns_get_cfg", ApiArpNsGetCfgHandler{}, true)
 	core.RegisterCB("arp_ns_get_cnt_meta", ApiArpNsCntMetaHandler{}, true)
 	core.RegisterCB("arp_ns_get_cnt_val", ApiArpNsCntValueHandler{}, true)
+	core.ParserRegister("arp", HandleRxArpPacket)
+
 }
 
 /*func HandleRxArpPacket(tctx *core.CThreadCtx,
