@@ -1,7 +1,5 @@
 package core
 
-import "fmt"
-
 type VethStats struct {
 	TxPkts           uint64
 	TxBytes          uint64
@@ -105,11 +103,10 @@ func (o *VethIFSimulator) GetStats() *VethStats {
 func (o *VethIFSimulator) SimulatorCheckRxQueue() {
 
 	for _, m := range o.vec {
-		fmt.Printf(" TX \n")
 		m.DumpK12(o.tctx.GetTickSimInSec())
 		mrx := o.Sim.ProcessTxToRx(m)
 		if mrx != nil {
-			fmt.Printf(" RX \n")
+			//fmt.Printf(" RX \n")
 			m.DumpK12(o.tctx.GetTickSimInSec())
 			o.OnRx(mrx)
 		}

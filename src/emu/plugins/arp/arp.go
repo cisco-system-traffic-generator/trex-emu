@@ -11,7 +11,7 @@ import (
 	"github.com/intel-go/fastjson"
 )
 
-var defaultRetryTimerSec = [...]uint8{1, 1, 3, 5, 7, 17}
+var defaultRetryTimerSec = [...]uint8{1, 1, 1, 1, 3, 5, 7, 17}
 
 const (
 	ARP_PLUG             = "arp"

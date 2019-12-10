@@ -475,11 +475,20 @@ func (o *Mbuf) GetContiguous(pool *MbufPoll) *Mbuf {
 	return tom
 }
 
+func reminder(a float64) float64 {
+	return (a - float64(uint64(a)))
+}
+
 //DumpK12  dump in k12 format
 func (o *Mbuf) DumpK12(timeSec float64) {
+
 	fmt.Printf("\n")
 	fmt.Printf("+---------+---------------+----------+\n")
-	fmt.Printf("00:%02d:%02d,000,000   ETHER \n", uint64((timeSec)), uint64((timeSec*1000.0))%1000)
+	mt := uint64(timeSec/60) % 60
+	s := uint64(timeSec) % 60
+	sm := uint64(reminder(timeSec) * 1000.0)
+	su := uint64(reminder(timeSec*1000.0) * 1000.0)
+	fmt.Printf("00:%02d:%02d,%03d,%03d   ETHER \n", mt, s, sm, su)
 	fmt.Printf("|0   |")
 	var next *Mbuf
 	m := o
