@@ -435,7 +435,7 @@ func (o *Mbuf) String() string {
 		}
 		s += fmt.Sprintf(" buflen  : %d ", m.bufLen)
 		s += fmt.Sprintf(" dataLen : %d ", m.dataLen)
-		if o.dataLen > 0 {
+		if m.dataLen > 0 {
 			s += fmt.Sprintf("\n%s\n", hex.Dump(m.GetData()))
 		} else {
 			s += fmt.Sprintf("\n Empty\n")
@@ -473,4 +473,27 @@ func (o *Mbuf) GetContiguous(pool *MbufPoll) *Mbuf {
 	}
 
 	return tom
+}
+
+//DumpK12  dump in k12 format
+func (o *Mbuf) DumpK12(timeSec int) {
+	fmt.Printf("\n")
+	fmt.Printf("+---------+---------------+----------+\n")
+	fmt.Printf("00:%02d:%02d,000,000   ETHER \n", uint64((timeSec / 60)), uint64(timeSec%60))
+	fmt.Printf("|0   |")
+	var next *Mbuf
+	m := o
+	for {
+		next = m.Next()
+		if m.dataLen > 0 {
+			for _, c := range m.GetData() {
+				fmt.Printf("%02x|", c)
+			}
+		}
+		if next == o {
+			break
+		}
+		m = next
+	}
+	fmt.Printf("\n")
 }

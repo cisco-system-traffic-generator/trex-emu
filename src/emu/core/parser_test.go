@@ -31,7 +31,7 @@ func arpSupported(tctx *CThreadCtx,
 }
 
 func TestParserArp(t *testing.T) {
-	tctx := NewThreadCtx(0, 4510, true)
+	tctx := NewThreadCtx(0, 4510, false, nil)
 	var parser Parser
 	parser.tctx = tctx
 	parser.arp = arpSupported
@@ -90,7 +90,7 @@ func TestParserArp(t *testing.T) {
 }
 
 func TestParserArp1(t *testing.T) {
-	tctx := NewThreadCtx(0, 4510, true)
+	tctx := NewThreadCtx(0, 4510, false, nil)
 	var parser Parser
 	parser.tctx = tctx
 	parser.arp = arpSupported
@@ -152,7 +152,7 @@ func TestParserArp1(t *testing.T) {
 }
 
 func TestParserIcmp(t *testing.T) {
-	tctx := NewThreadCtx(0, 4510, true)
+	tctx := NewThreadCtx(0, 4510, false, nil)
 	var parser Parser
 	parser.tctx = tctx
 	parser.icmp = arpSupported
@@ -192,7 +192,7 @@ func TestParserIcmp(t *testing.T) {
 	m1.Append(data)
 	m1.SetVPort(7)
 
-	//m1.Dump()
+	//m1.DumpK12(1)
 	arp = 0
 	parser.ParsePacket(m1)
 	fmt.Printf(" %d", arp)
@@ -220,7 +220,7 @@ func TestParserIcmp(t *testing.T) {
 }
 
 func TestParserDhcp1(t *testing.T) {
-	tctx := NewThreadCtx(0, 4510, true)
+	tctx := NewThreadCtx(0, 4510, false, nil)
 	var parser Parser
 	parser.tctx = tctx
 	parser.dhcp = arpSupported
@@ -304,7 +304,7 @@ func TestParserDhcp1(t *testing.T) {
 }
 
 func TestParserDhcpInvalidCs(t *testing.T) {
-	tctx := NewThreadCtx(0, 4510, true)
+	tctx := NewThreadCtx(0, 4510, false, nil)
 	var parser Parser
 	parser.tctx = tctx
 	parser.dhcp = arpSupported
