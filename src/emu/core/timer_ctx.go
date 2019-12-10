@@ -54,6 +54,10 @@ func (o *TimerCtx) Stop(tmr *CHTimerObj) {
 	o.timerw.Stop(tmr)
 }
 
+func (o *TimerCtx) TicksInSec() float64 {
+	return float64(time.Duration(o.Ticks)*o.TickDuration) / 1e9
+}
+
 // DurationToTicks convert to ticks for better performance
 func (o *TimerCtx) DurationToTicks(duration time.Duration) uint32 {
 	ticks := uint32(duration / o.TickDuration)

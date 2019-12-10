@@ -71,7 +71,9 @@ type CClient struct {
 func NewClient(ns *CNSCtx,
 	Mac MACKey,
 	Ipv4 Ipv4Key,
-	Ipv6 Ipv6Key) *CClient {
+	Ipv6 Ipv6Key,
+	DgIpv4 Ipv4Key,
+) *CClient {
 	o := new(CClient)
 	o.DGW = nil
 	o.ForceDGW = false
@@ -79,8 +81,16 @@ func NewClient(ns *CNSCtx,
 	o.Mac = Mac
 	o.Ipv4 = Ipv4
 	o.Ipv6 = Ipv6
+	o.DgIpv4 = DgIpv4
 	o.PluginCtx = NewPluginCtx(o, ns, ns.ThreadCtx, PLUGIN_LEVEL_CLIENT)
 	return o
+}
+
+func (o *CClient) UpdateDgIPv4(NewDgIpv4 Ipv4Key) error {
+	old := o.DgIpv4
+	o.DgIpv4 = NewDgIpv4
+	o.PluginCtx.BroadcastMsg(nil, MSG_UPDATE_DGIPV4_ADDR, old, NewDgIpv4)
+	return nil
 }
 
 func (o *CClient) UpdateIPv4(NewIpv4 Ipv4Key) error {

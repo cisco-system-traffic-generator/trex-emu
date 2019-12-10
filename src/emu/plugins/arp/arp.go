@@ -957,7 +957,7 @@ func ARPTest() {
 	key.Set(&core.CTunnelData{Vport: 1, Vlans: [2]uint32{0x81000001, 0x81000002}})
 	ns := core.NewNSCtx(tctx, &key)
 	tctx.AddNs(&key, ns)
-	client := core.NewClient(ns, core.MACKey{0, 0, 1, 0, 0, 0}, core.Ipv4Key{16, 0, 0, 1}, core.Ipv6Key{})
+	client := core.NewClient(ns, core.MACKey{0, 0, 1, 0, 0, 0}, core.Ipv4Key{16, 0, 0, 1}, core.Ipv6Key{}, core.Ipv4Key{16, 0, 0, 2})
 	ns.AddClient(client)
 
 	fmt.Printf("CreatePlugins \n")

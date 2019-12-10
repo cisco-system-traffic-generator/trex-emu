@@ -476,10 +476,10 @@ func (o *Mbuf) GetContiguous(pool *MbufPoll) *Mbuf {
 }
 
 //DumpK12  dump in k12 format
-func (o *Mbuf) DumpK12(timeSec int) {
+func (o *Mbuf) DumpK12(timeSec float64) {
 	fmt.Printf("\n")
 	fmt.Printf("+---------+---------------+----------+\n")
-	fmt.Printf("00:%02d:%02d,000,000   ETHER \n", uint64((timeSec / 60)), uint64(timeSec%60))
+	fmt.Printf("00:%02d:%02d,000,000   ETHER \n", uint64((timeSec)), uint64((timeSec*1000.0))%1000)
 	fmt.Printf("|0   |")
 	var next *Mbuf
 	m := o

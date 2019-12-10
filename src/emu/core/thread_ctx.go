@@ -392,3 +392,11 @@ func (o *CThreadCtx) ProcessRx(m *Mbuf) {
 		o.processInternalRx(m)
 	}
 }
+
+func (o *CThreadCtx) GetTickSim() uint64 {
+	return o.timerctx.Ticks
+}
+
+func (o *CThreadCtx) GetTickSimInSec() float64 {
+	return o.timerctx.TicksInSec()
+}

@@ -108,8 +108,10 @@ func (o *CCounterRec) GetValAsString() string {
 }
 
 func (o *CCounterRec) Dump() {
-	s := o.GetValAsString()
-	fmt.Printf("%s : %s \n", o.Name, s)
+	if !o.IsZero() {
+		s := o.GetValAsString()
+		fmt.Printf("%-20s : %20s \n", o.Name, s)
+	}
 }
 
 type CCounterDb struct {
@@ -126,10 +128,11 @@ func (o *CCounterDb) Add(cnt *CCounterRec) {
 }
 
 func (o *CCounterDb) Dump() {
-	fmt.Println(o.Name + " db")
+	fmt.Println(" counters " + o.Name + " db")
 	for _, obj := range o.Vec {
 		obj.Dump()
 	}
+	fmt.Println(" ===")
 }
 
 func (o *CCounterDb) MarshalValues() map[string]interface{} {
