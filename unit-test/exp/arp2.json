@@ -121,7 +121,7 @@
 		"mbufFreeCache": 17
 	},
 	{
-		"RxBytes": 301,
+		"RxBytes": 300,
 		"RxPkts": 6,
 		"TxBytes": 550,
 		"TxPkts": 11

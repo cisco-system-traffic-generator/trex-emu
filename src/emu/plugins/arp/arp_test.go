@@ -59,7 +59,6 @@ func (o *VethArpSim) ProcessTxToRx(m *core.Mbuf) *core.Mbuf {
 			}
 
 		}
-		fmt.Printf(" match  ")
 		m1 := o.tctx.MPool.Alloc(uint16(m.PktLen()))
 		m1.SetVPort(m.VPort())
 		m1.Append(m.GetData())
@@ -75,7 +74,6 @@ func (o *VethArpSim) ProcessTxToRx(m *core.Mbuf) *core.Mbuf {
 		m.FreeMbuf()
 		return m1
 	}
-
 	m.FreeMbuf()
 	return nil
 }
@@ -92,7 +90,6 @@ func TestPluginArp1(t *testing.T) {
 	var key core.CTunnelKey
 	key.Set(&core.CTunnelData{Vport: 1, Vlans: [2]uint32{0x81000001, 0x81000002}})
 
-	t.Log("OK \n")
 	ns := tctx.GetNs(&key)
 	if ns == nil {
 		t.Fatalf(" can't find ns")
@@ -122,7 +119,6 @@ func TestPluginArp2(t *testing.T) {
 	var key core.CTunnelKey
 	key.Set(&core.CTunnelData{Vport: 1, Vlans: [2]uint32{0x81000001, 0x81000002}})
 
-	t.Log("OK \n")
 	ns := tctx.GetNs(&key)
 	if ns == nil {
 		t.Fatalf(" can't find ns")
@@ -158,7 +154,6 @@ func TestPluginArp3(t *testing.T) {
 	var key core.CTunnelKey
 	key.Set(&core.CTunnelData{Vport: 1, Vlans: [2]uint32{0x81000001, 0x81000002}})
 
-	t.Log("OK \n")
 	ns := tctx.GetNs(&key)
 	if ns == nil {
 		t.Fatalf(" can't find ns")
