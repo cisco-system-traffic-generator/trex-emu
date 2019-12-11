@@ -4,6 +4,8 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
+	"io/ioutil"
+	"os"
 	"time"
 
 	"github.com/go-playground/validator"
@@ -83,23 +85,24 @@ type CThreadCtxStats struct {
 
 // CThreadCtx network namespace context
 type CThreadCtx struct {
-	timerctx   *TimerCtx
-	MPool      MbufPoll /* mbuf pool */
-	portMap    MapPortT // valid port for this cCZmqJsonRPC2t
-	Id         uint32
-	mapNs      MapNsT // map tunnel to namespaceCZmqJsonRPC2
-	nsHead     DList  // list of ns
-	PluginCtx  *PluginCtx
-	rpc        CZmqJsonRPC2
-	apiHandler string
-	stats      CThreadCtxStats
-	epoc       uint32 // number of timer adding/removing ns used by RPC
-	iterEpoc   uint32
-	iterReady  bool
-	iter       DListIterHead
-	Veth       VethIF
-	validate   *validator.Validate
-	parser     Parser
+	timerctx    *TimerCtx
+	MPool       MbufPoll /* mbuf pool */
+	portMap     MapPortT // valid port for this cCZmqJsonRPC2t
+	Id          uint32
+	mapNs       MapNsT // map tunnel to namespaceCZmqJsonRPC2
+	nsHead      DList  // list of ns
+	PluginCtx   *PluginCtx
+	rpc         CZmqJsonRPC2
+	apiHandler  string
+	stats       CThreadCtxStats
+	epoc        uint32 // number of timer adding/removing ns used by RPC
+	iterEpoc    uint32
+	iterReady   bool
+	iter        DListIterHead
+	Veth        VethIF
+	validate    *validator.Validate
+	parser      Parser
+	simRecorder []interface{} // record event for simulation
 }
 
 func NewThreadCtx(Id uint32, serverPort uint16, simulation bool, simRx *VethIFSim) *CThreadCtx {
@@ -122,8 +125,35 @@ func NewThreadCtx(Id uint32, serverPort uint16, simulation bool, simRx *VethIFSi
 		}
 		simv.Sim = *simRx
 		o.Veth = &simv
+		o.simRecorder = make([]interface{}, 0)
 	}
 	return o
+}
+
+func (o *CThreadCtx) SimRecordExport(filename string) {
+	if o.simRecorder == nil {
+		return
+	}
+	o.SimRecordAppend(o.MPool.GetCdb().MarshalValues())
+	o.SimRecordAppend(o.Veth.GetCdb().MarshalValues())
+	buf, err := fastjson.MarshalIndent(o.simRecorder, "", "\t")
+	if err == nil {
+		ioutil.WriteFile(os.Getenv("GOPATH")+"/unit-test/generated/"+filename+".json", buf, 0644)
+	}
+}
+
+func (o *CThreadCtx) SimRecordClear() {
+	if o.simRecorder == nil {
+		return
+	}
+	o.simRecorder = o.simRecorder[:0]
+}
+
+func (o *CThreadCtx) SimRecordAppend(obj interface{}) {
+	if o.simRecorder == nil {
+		return
+	}
+	o.simRecorder = append(o.simRecorder, obj)
 }
 
 func (o *CThreadCtx) RegisterParserCb(protocol string) {

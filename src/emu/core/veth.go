@@ -1,11 +1,57 @@
 package core
 
+import "fmt"
+
 type VethStats struct {
 	TxPkts           uint64
 	TxBytes          uint64
 	RxPkts           uint64
 	RxBytes          uint64
 	TxDropNotResolve uint64 /* no resolved dg */
+}
+
+func NewVethStatsDb(o *VethStats) *CCounterDb {
+	db := NewCCounterDb("veth")
+	db.Add(&CCounterRec{
+		Counter:  &o.TxPkts,
+		Name:     "TxPkts",
+		Help:     "TxPkts",
+		Unit:     "pkts",
+		DumpZero: false,
+		Info:     ScINFO})
+
+	db.Add(&CCounterRec{
+		Counter:  &o.TxBytes,
+		Name:     "TxBytes",
+		Help:     "TxBytes",
+		Unit:     "bytes",
+		DumpZero: false,
+		Info:     ScINFO})
+
+	db.Add(&CCounterRec{
+		Counter:  &o.RxPkts,
+		Name:     "RxPkts",
+		Help:     "RxPkts",
+		Unit:     "pkts",
+		DumpZero: false,
+		Info:     ScINFO})
+
+	db.Add(&CCounterRec{
+		Counter:  &o.RxBytes,
+		Name:     "RxBytes",
+		Help:     "RxBytes",
+		Unit:     "bytes",
+		DumpZero: false,
+		Info:     ScINFO})
+
+	db.Add(&CCounterRec{
+		Counter:  &o.TxDropNotResolve,
+		Name:     "TxDropNotResolve",
+		Help:     "TxDropNotResolve",
+		Unit:     "pkts",
+		DumpZero: false,
+		Info:     ScINFO})
+	return db
 }
 
 /*VethIF represent a way to send and receive packet */
@@ -27,6 +73,10 @@ type VethIF interface {
 	GetStats() *VethStats
 
 	SimulatorCheckRxQueue()
+
+	SetDebug(monitor bool, capture bool)
+
+	GetCdb() *CCounterDb
 }
 
 type VethIFSim interface {
@@ -36,15 +86,19 @@ type VethIFSim interface {
 }
 
 type VethIFSimulator struct {
-	vec   []*Mbuf
-	stats VethStats
-	tctx  *CThreadCtx
-	Sim   VethIFSim /* interface per test to simulate DUT */
+	vec        []*Mbuf
+	stats      VethStats
+	tctx       *CThreadCtx
+	Sim        VethIFSim /* interface per test to simulate DUT */
+	Record     bool      /* to a buffer */
+	K12Monitor bool      /* to standard ouput*/
+	cdb        *CCounterDb
 }
 
 func (o *VethIFSimulator) Create(ctx *CThreadCtx) {
 	o.vec = make([]*Mbuf, 0)
 	o.tctx = ctx
+	o.cdb = NewVethStatsDb(&o.stats)
 }
 
 func (o *VethIFSimulator) FlushTx() {
@@ -103,13 +157,33 @@ func (o *VethIFSimulator) GetStats() *VethStats {
 func (o *VethIFSimulator) SimulatorCheckRxQueue() {
 
 	for _, m := range o.vec {
-		//m.DumpK12(o.tctx.GetTickSimInSec())
+		if o.K12Monitor {
+			m.DumpK12(o.tctx.GetTickSimInSec())
+		}
+		if o.Record {
+			o.tctx.SimRecordAppend(m.GetRecord(o.tctx.GetTickSimInSec(), "tx"))
+		}
+
 		mrx := o.Sim.ProcessTxToRx(m)
 		if mrx != nil {
-			//fmt.Printf(" RX \n")
-			//mrx.DumpK12(o.tctx.GetTickSimInSec())
+			if o.K12Monitor {
+				fmt.Printf("\n ->RX<- \n")
+				mrx.DumpK12(o.tctx.GetTickSimInSec())
+			}
+			if o.Record {
+				o.tctx.SimRecordAppend(mrx.GetRecord(o.tctx.GetTickSimInSec(), "rx"))
+			}
 			o.OnRx(mrx)
 		}
 	}
 	o.vec = o.vec[:0]
+}
+
+func (o *VethIFSimulator) SetDebug(monitor bool, capture bool) {
+	o.K12Monitor = monitor
+	o.Record = capture
+}
+
+func (o *VethIFSimulator) GetCdb() *CCounterDb {
+	return o.cdb
 }

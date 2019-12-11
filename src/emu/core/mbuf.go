@@ -40,6 +40,8 @@ const MAX_PACKET_SIZE uint16 = 9 * 1024
 // MbufPoll cache of mbufs per packet size
 type MbufPoll struct {
 	pools []MbufPollSize
+	stats MbufPollStats
+	cdb   *CCounterDb
 }
 
 var poolSizes = [...]uint16{128, 256, 512, 1024, 2048, 4096, MAX_PACKET_SIZE}
@@ -57,6 +59,7 @@ func (o *MbufPoll) Init(maxCacheSize uint32) {
 	for i, s := range poolSizes {
 		o.pools[i].Init(maxCacheSize, s)
 	}
+	o.cdb = NewMbufStatsDb(&o.stats)
 }
 
 // Alloc new mbuf from the right pool
@@ -70,14 +73,19 @@ func (o *MbufPoll) Alloc(size uint16) *Mbuf {
 	panic(s)
 }
 
+func (o *MbufPoll) GetCdb() *CCounterDb {
+	_ = o.GetStats()
+	return o.cdb
+}
+
 // GetStats return accumulated statistics for all pools
 func (o *MbufPoll) GetStats() *MbufPollStats {
-	var stats MbufPollStats
+	o.stats.Clear()
 
 	for i := range poolSizes {
-		stats.Add(&o.pools[i].stats)
+		o.stats.Add(&o.pools[i].stats)
 	}
-	return &stats
+	return &o.stats
 }
 
 // DumpStats dump statistics
@@ -97,6 +105,50 @@ type MbufPollStats struct {
 	CntFree       uint64
 	CntCacheAlloc uint64
 	CntCacheFree  uint64
+}
+
+func NewMbufStatsDb(o *MbufPollStats) *CCounterDb {
+	db := NewCCounterDb("mbuf")
+	db.Add(&CCounterRec{
+		Counter:  &o.CntAlloc,
+		Name:     "mbufAlloc",
+		Help:     "allocation of mbufs",
+		Unit:     "ops",
+		DumpZero: false,
+		Info:     ScINFO})
+
+	db.Add(&CCounterRec{
+		Counter:  &o.CntFree,
+		Name:     "mbufFree",
+		Help:     "deallocation of mbufs",
+		Unit:     "ops",
+		DumpZero: false,
+		Info:     ScINFO})
+
+	db.Add(&CCounterRec{
+		Counter:  &o.CntCacheAlloc,
+		Name:     "mbufAllocCache",
+		Help:     "allocation of mbufs from cache",
+		Unit:     "ops",
+		DumpZero: false,
+		Info:     ScINFO})
+
+	db.Add(&CCounterRec{
+		Counter:  &o.CntCacheFree,
+		Name:     "mbufFreeCache",
+		Help:     "deallocation of mbufs from cache",
+		Unit:     "ops",
+		DumpZero: false,
+		Info:     ScINFO})
+
+	return db
+}
+
+func (o *MbufPollStats) Clear() {
+	o.CntAlloc = 0
+	o.CntFree = 0
+	o.CntCacheAlloc = 0
+	o.CntCacheFree = 0
 }
 
 //HitRate return the hit rate in precent
@@ -174,6 +226,13 @@ func (o *MbufPollSize) FreeMbuf(obj *Mbuf) {
 
 func toMbuf(dlist *DList) *Mbuf {
 	return (*Mbuf)(unsafe.Pointer(dlist))
+}
+
+type MbufJson struct {
+	Time      float64 `json:"time"`
+	Meta      string  `json:"meta"`
+	K12PktLen uint32  `json:"len"`
+	K12data   string  `json:"data"`
 }
 
 // Mbuf represent a chunk of packet
@@ -483,6 +542,30 @@ func reminder(a float64) float64 {
 	return (a - float64(uint64(a)))
 }
 
+func (o *Mbuf) GetK12String() string {
+	var res string
+
+	var next *Mbuf
+	m := o
+	for {
+		next = m.Next()
+		if m.dataLen > 0 {
+			for _, c := range m.GetData() {
+				res += fmt.Sprintf("%02x|", c)
+			}
+		}
+		if next == o {
+			break
+		}
+		m = next
+	}
+	return res
+}
+
+func (o *Mbuf) GetRecord(timeSec float64, meta string) *MbufJson {
+	return &MbufJson{Time: timeSec, Meta: meta, K12data: o.GetK12String(), K12PktLen: o.PktLen()}
+}
+
 //DumpK12  dump in k12 format
 func (o *Mbuf) DumpK12(timeSec float64) {
 
@@ -493,20 +576,5 @@ func (o *Mbuf) DumpK12(timeSec float64) {
 	sm := uint64(reminder(timeSec) * 1000.0)
 	su := uint64(reminder(timeSec*1000.0) * 1000.0)
 	fmt.Printf("00:%02d:%02d,%03d,%03d   ETHER \n", mt, s, sm, su)
-	fmt.Printf("|0   |")
-	var next *Mbuf
-	m := o
-	for {
-		next = m.Next()
-		if m.dataLen > 0 {
-			for _, c := range m.GetData() {
-				fmt.Printf("%02x|", c)
-			}
-		}
-		if next == o {
-			break
-		}
-		m = next
-	}
-	fmt.Printf("\n\n")
+	fmt.Printf("|0   |%s\n\n", o.GetK12String())
 }

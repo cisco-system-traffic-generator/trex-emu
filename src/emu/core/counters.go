@@ -110,7 +110,7 @@ func (o *CCounterRec) GetValAsString() string {
 func (o *CCounterRec) Dump() {
 	if !o.IsZero() {
 		s := o.GetValAsString()
-		fmt.Printf("%-20s : %20s \n", o.Name, s)
+		fmt.Printf("%-30s : %10s \n", o.Name, s)
 	}
 }
 

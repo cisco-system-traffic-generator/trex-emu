@@ -2,10 +2,15 @@ package arp
 
 import (
 	"emu/core"
+	"encoding/json"
 	"external/google/gopacket/layers"
 	"fmt"
+	"os"
+	"reflect"
 	"testing"
 	"time"
+
+	"github.com/intel-go/fastjson"
 )
 
 func createSimulationEnv(simRx *core.VethIFSim, num int) (*core.CThreadCtx, *core.CClient) {
@@ -36,6 +41,8 @@ func createSimulationEnv(simRx *core.VethIFSim, num int) (*core.CThreadCtx, *cor
 
 type VethArpSim struct {
 	DropAll bool
+	cnt     uint8
+	match   uint8
 	tctx    *core.CThreadCtx
 }
 
@@ -49,6 +56,14 @@ func (o *VethArpSim) ProcessTxToRx(m *core.Mbuf) *core.Mbuf {
 	var arpHeader1 layers.ArpHeader
 	arpHeader = m.GetData()[22:]
 	if arpHeader.GetOperation() == 1 && (arpHeader.GetDstIpAddress() == 0x10000002) {
+		o.cnt++
+		if o.cnt != 0 {
+			if o.cnt > o.match && o.cnt < (o.match+5) {
+				m.FreeMbuf()
+				return nil
+			}
+
+		}
 		fmt.Printf(" match  ")
 		m1 := o.tctx.MPool.Alloc(uint16(m.PktLen()))
 		m1.SetVPort(m.VPort())
@@ -101,7 +116,9 @@ func TestPluginArp2(t *testing.T) {
 	simVeth.DropAll = false
 	var simrx core.VethIFSim
 	simrx = &simVeth
+	simVeth.match = 2
 	tctx, _ := createSimulationEnv(&simrx, 1)
+	tctx.Veth.SetDebug(true, true)
 	simVeth.tctx = tctx
 	tctx.MainLoopSim(60 * time.Minute)
 	var key core.CTunnelKey
@@ -119,6 +136,8 @@ func TestPluginArp2(t *testing.T) {
 	}
 	arpnPlug := nsplg.Ext.(*PluginArpNs)
 	arpnPlug.cdb.Dump()
+	tctx.SimRecordAppend(arpnPlug.cdb.MarshalValues())
+	tctx.SimRecordExport("arp2")
 	/* TBD compare the counters and pcap files */
 }
 
@@ -154,4 +173,50 @@ func TestPluginArp3(t *testing.T) {
 	arpnPlug := nsplg.Ext.(*PluginArpNs)
 	arpnPlug.cdb.Dump()
 	/* TBD compare the counters and pcap files */
+}
+
+type Test1 struct {
+	Time float64 `json:"time"`
+	B    string  `json:"meta"`
+	A    string  `json:"packet"`
+}
+
+type Test2 struct {
+	Time float64 `json:"time"`
+	G    string  `json:"meta"`
+}
+
+func JSONBytesEqual(a, b []byte) (bool, error) {
+	var j, j2 interface{}
+	if err := json.Unmarshal(a, &j); err != nil {
+		return false, err
+	}
+	if err := json.Unmarshal(b, &j2); err != nil {
+		return false, err
+	}
+	return reflect.DeepEqual(j2, j), nil
+}
+
+func TestPluginArp4(t *testing.T) {
+	//var vec []interface{}
+	a := []byte(`{"x": ["y",42]}`)
+	b := []byte(`{"x":                  ["y",  42]}`)
+	//c := []byte(`{"z": ["y", "42"]}`)
+
+	fmt.Printf("" )
+	eq, err := JSONBytesEqual(a, b)
+
+	fmt.Printf("hey1 \n")
+	fmt.Printf("%s\n", os.Getenv("GOPATH"))
+	return
+	var vec []interface{}
+	vec = make([]interface{}, 0)
+	vec = append(vec, &Test1{Time: 1.0, B: "a", A: "c"})
+	vec = append(vec, &Test1{Time: 2.0, B: "b", A: "d"})
+	vec = append(vec, &Test2{Time: 2.0, G: "d"})
+	buf, err := fastjson.MarshalIndent(vec, "", "\t")
+	if err == nil {
+		fmt.Printf(" %s \n", string(buf))
+	}
+
 }
