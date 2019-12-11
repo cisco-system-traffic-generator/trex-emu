@@ -33,6 +33,10 @@ func (o ArpHeader) GetDstAddress() []byte {
 	return o[18:24]
 }
 
+func (o ArpHeader) SetSourceAddress(d []byte) {
+	copy(o[8:14], d[:])
+}
+
 func (o ArpHeader) GetSourceAddress() []byte {
 	return o[8:14]
 }

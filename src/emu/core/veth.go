@@ -103,11 +103,11 @@ func (o *VethIFSimulator) GetStats() *VethStats {
 func (o *VethIFSimulator) SimulatorCheckRxQueue() {
 
 	for _, m := range o.vec {
-		m.DumpK12(o.tctx.GetTickSimInSec())
+		//m.DumpK12(o.tctx.GetTickSimInSec())
 		mrx := o.Sim.ProcessTxToRx(m)
 		if mrx != nil {
 			//fmt.Printf(" RX \n")
-			m.DumpK12(o.tctx.GetTickSimInSec())
+			//mrx.DumpK12(o.tctx.GetTickSimInSec())
 			o.OnRx(mrx)
 		}
 	}

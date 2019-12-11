@@ -104,7 +104,7 @@ func NewArpNsStatsDb(o *ArpNsStats) *core.CCounterDb {
 		Info:     core.ScINFO})
 	db.Add(&core.CCounterRec{
 		Counter:  &o.timerEventComplete,
-		Name:     "timerEventIComplete",
+		Name:     "timerEventComplete",
 		Help:     "timer events complete",
 		Unit:     "ops",
 		DumpZero: false,
@@ -518,7 +518,6 @@ func (o *PluginArpClient) preparePacketTemplate() {
 
 /*NewArpClient create plugin */
 func NewArpClient(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
-	fmt.Printf("On NewArpClient \n")
 	arpc := new(PluginArpClient)
 	arpc.arpEnable = true
 	arpc.dlist.SetSelf()
@@ -658,7 +657,6 @@ type PluginArpNs struct {
 }
 
 func NewArpNs(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
-	fmt.Printf("On NewArpNs \n")
 	o := new(PluginArpNs)
 	o.arpEnable = true
 	o.tbl.Create(ctx.Tctx.GetTimerCtx())
@@ -734,7 +732,7 @@ func (o *PluginArpNs) ArpLearn(arpHeader *layers.ArpHeader) {
 
 	var ipv4 core.Ipv4Key
 	var mkey core.MACKey
-	ipv4.SetUint32(arpHeader.GetDstIpAddress())
+	ipv4.SetUint32(arpHeader.GetSrcIpAddress())
 	copy(mkey[0:6], arpHeader.GetSourceAddress())
 
 	flow := o.tbl.Lookup(ipv4)

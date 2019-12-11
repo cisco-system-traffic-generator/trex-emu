@@ -225,6 +225,10 @@ func (o *Mbuf) isDirect() bool {
 	}
 }
 
+func (o *Mbuf) VPort() uint16 {
+	return o.port
+}
+
 func (o *Mbuf) SetVPort(vport uint16) {
 	o.port = vport
 }
@@ -504,5 +508,5 @@ func (o *Mbuf) DumpK12(timeSec float64) {
 		}
 		m = next
 	}
-	fmt.Printf("\n")
+	fmt.Printf("\n\n")
 }
