@@ -93,5 +93,5 @@ func JsonDeepEqualInc(a, b []byte) bool {
 	if err := json.Unmarshal(b, &j2); err != nil {
 		return false
 	}
-	return DeepEqualInc(j2, j2)
+	return DeepEqualInc(j1, j2)
 }

@@ -7,7 +7,7 @@ import (
 	"io/ioutil"
 	"os"
 	"time"
-
+	"testing"
 	"github.com/go-playground/validator"
 	"github.com/intel-go/fastjson"
 )
@@ -129,6 +129,25 @@ func NewThreadCtx(Id uint32, serverPort uint16, simulation bool, simRx *VethIFSi
 	}
 	return o
 }
+
+func (o *CThreadCtx) SimRecordCompare(filename string,t *testing.T) {
+	o.SimRecordExport(filename)
+	expFilename := os.Getenv("GOPATH")+"/unit-test/exp/"+filename+".json"
+	genFilename := os.Getenv("GOPATH")+"/unit-test/generated/"+filename+".json"
+	buf,err := ioutil.ReadFile(expFilename) 
+	buf1,err1 := ioutil.ReadFile(genFilename) 
+
+	if err != nil  {
+		t.Fatalf("Error reading golden file %s %s \n",expFilename,err.Error())
+	}
+	if err1 != nil  {
+		t.Fatalf("Error reading generated files %s %s \n",genFilename,err.Error())
+	}
+	if JsonDeepEqualInc(buf, buf1) == false  {
+		t.Fatalf("Golden file :%s is not equal to generated file:%s \n",expFilename,genFilename)
+	}
+}
+
 
 func (o *CThreadCtx) SimRecordExport(filename string) {
 	if o.simRecorder == nil {

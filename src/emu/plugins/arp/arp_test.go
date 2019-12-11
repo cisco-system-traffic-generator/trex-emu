@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"testing"
 	"time"
-	"github.com/intel-go/fastjson"
 )
 
 func createSimulationEnv(simRx *core.VethIFSim, num int) (*core.CThreadCtx, *core.CClient) {
@@ -88,6 +87,7 @@ func TestPluginArp1(t *testing.T) {
 	var simrx core.VethIFSim
 	simrx = &simVeth
 	tctx, _ := createSimulationEnv(&simrx, 1)
+	tctx.Veth.SetDebug(false, true)
 	tctx.MainLoopSim(1 * time.Minute)
 	var key core.CTunnelKey
 	key.Set(&core.CTunnelData{Vport: 1, Vlans: [2]uint32{0x81000001, 0x81000002}})
@@ -104,6 +104,8 @@ func TestPluginArp1(t *testing.T) {
 	}
 	arpnPlug := nsplg.Ext.(*PluginArpNs)
 	arpnPlug.cdb.Dump()
+	tctx.SimRecordAppend(arpnPlug.cdb.MarshalValues())
+	tctx.SimRecordCompare("arp1", t)
 	/* TBD compare the counters and pcap files */
 }
 
@@ -114,7 +116,7 @@ func TestPluginArp2(t *testing.T) {
 	simrx = &simVeth
 	simVeth.match = 2
 	tctx, _ := createSimulationEnv(&simrx, 1)
-	tctx.Veth.SetDebug(true, true)
+	tctx.Veth.SetDebug(false, true)
 	simVeth.tctx = tctx
 	tctx.MainLoopSim(60 * time.Minute)
 	var key core.CTunnelKey
@@ -133,7 +135,7 @@ func TestPluginArp2(t *testing.T) {
 	arpnPlug := nsplg.Ext.(*PluginArpNs)
 	arpnPlug.cdb.Dump()
 	tctx.SimRecordAppend(arpnPlug.cdb.MarshalValues())
-	tctx.SimRecordExport("arp2")
+	tctx.SimRecordCompare("arp2", t)
 	/* TBD compare the counters and pcap files */
 }
 
@@ -145,8 +147,8 @@ func TestPluginArp3(t *testing.T) {
 	var now time.Time
 	var d time.Duration
 
-	tctx, _ := createSimulationEnv(&simrx, 100)
-
+	tctx, _ := createSimulationEnv(&simrx, 10)
+	tctx.Veth.SetDebug(false, true)
 	simVeth.tctx = tctx
 	now = time.Now()
 	tctx.MainLoopSim(10 * time.Minute)
@@ -168,39 +170,6 @@ func TestPluginArp3(t *testing.T) {
 	}
 	arpnPlug := nsplg.Ext.(*PluginArpNs)
 	arpnPlug.cdb.Dump()
-	/* TBD compare the counters and pcap files */
-}
-
-type Test1 struct {
-	Time float64 `json:"time"`
-	B    string  `json:"meta"`
-	A    string  `json:"packet"`
-}
-
-type Test2 struct {
-	Time float64 `json:"time"`
-	G    string  `json:"meta"`
-}
-
-func TestPluginArp4(t *testing.T) {
-	//var vec []interface{}
-
-	a := []byte(`[{"a":1},{"a":12,"b":13}] `)
-	b := []byte(`[{"a":1,"b":2},{"a":12,"b":13}]`)
-	//c := []byte(`{"z": ["y", "42"]}`)
-
-	r := core.JsonDeepEqualInc(a, b)
-	fmt.Printf(" RESULT ==>%v \n", r)
-
-	return
-	var vec []interface{}
-	vec = make([]interface{}, 0)
-	vec = append(vec, &Test1{Time: 1.0, B: "a", A: "c"})
-	vec = append(vec, &Test1{Time: 2.0, B: "b", A: "d"})
-	vec = append(vec, &Test2{Time: 2.0, G: "d"})
-	buf, err := fastjson.MarshalIndent(vec, "", "\t")
-	if err == nil {
-		fmt.Printf(" %s \n", string(buf))
-	}
-
+	tctx.SimRecordAppend(arpnPlug.cdb.MarshalValues())
+	tctx.SimRecordCompare("arp3", t)
 }
