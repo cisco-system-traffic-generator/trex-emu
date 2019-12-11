@@ -2,14 +2,10 @@ package arp
 
 import (
 	"emu/core"
-	"encoding/json"
 	"external/google/gopacket/layers"
 	"fmt"
-	"os"
-	"reflect"
 	"testing"
 	"time"
-
 	"github.com/intel-go/fastjson"
 )
 
@@ -186,28 +182,16 @@ type Test2 struct {
 	G    string  `json:"meta"`
 }
 
-func JSONBytesEqual(a, b []byte) (bool, error) {
-	var j, j2 interface{}
-	if err := json.Unmarshal(a, &j); err != nil {
-		return false, err
-	}
-	if err := json.Unmarshal(b, &j2); err != nil {
-		return false, err
-	}
-	return reflect.DeepEqual(j2, j), nil
-}
-
 func TestPluginArp4(t *testing.T) {
 	//var vec []interface{}
-	a := []byte(`{"x": ["y",42]}`)
-	b := []byte(`{"x":                  ["y",  42]}`)
+
+	a := []byte(`[{"a":1},{"a":12,"b":13}] `)
+	b := []byte(`[{"a":1,"b":2},{"a":12,"b":13}]`)
 	//c := []byte(`{"z": ["y", "42"]}`)
 
-	fmt.Printf("" )
-	eq, err := JSONBytesEqual(a, b)
+	r := core.JsonDeepEqualInc(a, b)
+	fmt.Printf(" RESULT ==>%v \n", r)
 
-	fmt.Printf("hey1 \n")
-	fmt.Printf("%s\n", os.Getenv("GOPATH"))
 	return
 	var vec []interface{}
 	vec = make([]interface{}, 0)
