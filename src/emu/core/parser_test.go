@@ -14,19 +14,14 @@ var lastL3 uint16
 var lastL4 uint16
 var lastL7 uint16
 
-func arpSupported(tctx *CThreadCtx,
-	tun *CTunnelKey,
-	m *Mbuf,
-	l3 uint16,
-	l4 uint16,
-	l7 uint16) int {
+func arpSupported(ps *ParserPacketState) int {
 	arp++
-	lastL3 = l3
-	lastL4 = l4
-	lastL7 = l7
+	lastL3 = ps.L3
+	lastL4 = ps.L4
+	lastL7 = ps.L7
 
-	lastTun = *tun
-	fmt.Printf("call arp %s\n", tun.String())
+	lastTun = *ps.Tun
+	fmt.Printf("call arp %s\n", ps.Tun.String())
 	return -1
 }
 
