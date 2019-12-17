@@ -28,6 +28,13 @@ type PluginBase struct {
 	Ext    interface{} // extention
 }
 
+func (o *PluginBase) InitPluginBase(ctx *PluginCtx, ext interface{}) {
+	o.Tctx = ctx.Tctx
+	o.Ns = ctx.Ns
+	o.Client = ctx.Client
+	o.Ext = ext
+}
+
 type IPluginRegister interface {
 	NewPlugin(c *PluginCtx, initJson []byte) *PluginBase // call to create a new plugin
 }

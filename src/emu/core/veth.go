@@ -146,6 +146,14 @@ func (o *VethIFSimulator) SendBuffer(unicast bool, c *CClient, b []byte) {
 func (o *VethIFSimulator) OnRx(m *Mbuf) {
 	o.stats.RxPkts++
 	o.stats.RxBytes += uint64(m.PktLen())
+	if o.K12Monitor {
+		fmt.Printf("\n ->RX<- \n")
+		m.DumpK12(o.tctx.GetTickSimInSec())
+	}
+	if o.Record {
+		o.tctx.SimRecordAppend(m.GetRecord(o.tctx.GetTickSimInSec(), "rx"))
+	}
+
 	o.tctx.HandleRxPacket(m)
 }
 
@@ -166,13 +174,6 @@ func (o *VethIFSimulator) SimulatorCheckRxQueue() {
 
 		mrx := o.Sim.ProcessTxToRx(m)
 		if mrx != nil {
-			if o.K12Monitor {
-				fmt.Printf("\n ->RX<- \n")
-				mrx.DumpK12(o.tctx.GetTickSimInSec())
-			}
-			if o.Record {
-				o.tctx.SimRecordAppend(mrx.GetRecord(o.tctx.GetTickSimInSec(), "rx"))
-			}
 			o.OnRx(mrx)
 		}
 	}

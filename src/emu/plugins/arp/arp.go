@@ -521,10 +521,8 @@ func NewArpClient(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
 	arpc := new(PluginArpClient)
 	arpc.arpEnable = true
 	arpc.dlist.SetSelf()
-	arpc.Client = ctx.Client
-	arpc.Ns = arpc.Client.Ns
-	arpc.Tctx = arpc.Ns.ThreadCtx
-	arpc.Ext = arpc
+	arpc.InitPluginBase(ctx, arpc)
+
 	arpc.I = arpc
 	arpc.preparePacketTemplate()
 	nsplg := arpc.Ns.PluginCtx.GetOrCreate(ARP_PLUG)
@@ -658,11 +656,11 @@ type PluginArpNs struct {
 
 func NewArpNs(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
 	o := new(PluginArpNs)
+	o.InitPluginBase(ctx, o)
 	o.arpEnable = true
 	o.tbl.Create(ctx.Tctx.GetTimerCtx())
 	o.tbl.stats = &o.stats
 	o.cdb = NewArpNsStatsDb(&o.stats)
-	o.Ext = o
 	return &o.PluginBase
 }
 
@@ -769,6 +767,7 @@ func (o *PluginArpNs) HandleRxArpPacket(m *core.Mbuf, l3 uint16) {
 		var ipv4 core.Ipv4Key
 
 		ipv4.SetUint32(arpHeader.GetDstIpAddress())
+
 		client := o.Ns.CLookupByIPv4(&ipv4)
 		if client != nil {
 			cplg := client.PluginCtx.Get(ARP_PLUG)
