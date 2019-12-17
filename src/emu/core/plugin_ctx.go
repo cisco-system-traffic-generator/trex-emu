@@ -35,6 +35,11 @@ func (o *PluginBase) InitPluginBase(ctx *PluginCtx, ext interface{}) {
 	o.Ext = ext
 }
 
+func (o *PluginBase) RegisterEvents(ctx *PluginCtx, events []string, i IPluginIf) {
+	o.I = i
+	ctx.RegisterEvents(o, events)
+}
+
 type IPluginRegister interface {
 	NewPlugin(c *PluginCtx, initJson []byte) *PluginBase // call to create a new plugin
 }

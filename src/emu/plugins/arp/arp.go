@@ -520,14 +520,11 @@ func NewArpClient(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
 	arpc := new(PluginArpClient)
 	arpc.arpEnable = true
 	arpc.dlist.SetSelf()
-	arpc.InitPluginBase(ctx, arpc)
-
-	arpc.I = arpc
+	arpc.InitPluginBase(ctx, arpc)            /* init base object*/
+	arpc.RegisterEvents(ctx, arpEvents, arpc) /* register events, only if exits*/
 	arpc.preparePacketTemplate()
 	nsplg := arpc.Ns.PluginCtx.GetOrCreate(ARP_PLUG)
 	arpc.arpNsPlug = nsplg.Ext.(*PluginArpNs)
-	/* register events */
-	ctx.RegisterEvents(&arpc.PluginBase, arpEvents)
 	arpc.OnCreate()
 	return &arpc.PluginBase
 }
