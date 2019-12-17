@@ -251,6 +251,13 @@ type Mbuf struct {
 	data      []byte
 }
 
+func (o *Mbuf) DeepClone() *Mbuf {
+	m := o.pool.NewMbuf()
+	m.SetVPort(o.port)
+	m.Append(o.GetData())
+	return m
+}
+
 func (o *Mbuf) getRefCnt() uint16 {
 	return o.refcnt
 }

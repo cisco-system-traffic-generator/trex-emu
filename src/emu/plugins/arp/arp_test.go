@@ -61,9 +61,7 @@ func (o *VethArpSim) ProcessTxToRx(m *core.Mbuf) *core.Mbuf {
 			}
 
 		}
-		m1 := o.tctx.MPool.Alloc(uint16(m.PktLen()))
-		m1.SetVPort(m.VPort())
-		m1.Append(m.GetData())
+		m1 := m.DeepClone()
 		eth := layers.EthernetHeader(m1.GetData()[0:12])
 		eth.SetDestAddress(arpHeader.GetSourceAddress())
 		eth.SetSrcAddress([]byte{0, 0, 2, 0, 0, 0})
