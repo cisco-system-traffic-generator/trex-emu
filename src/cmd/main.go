@@ -2,7 +2,6 @@ package main
 
 import (
 	"emu/core"
-	"emu/plugins/arp"
 	"fmt"
 	"math/rand"
 	"reflect"
@@ -442,7 +441,8 @@ func Test2() {
 }
 
 func main() {
-	arp.ARPTest()
+	//arp.ARPTest()
+	fmt.Printf("hey \n")
 	return
 	RunCoreZmq()
 }
