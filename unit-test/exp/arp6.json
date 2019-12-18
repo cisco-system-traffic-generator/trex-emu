@@ -1,0 +1,357 @@
+[
+	{
+		"time": 0.1,
+		"meta": "tx",
+		"len": 50,
+		"data": "ff|ff|ff|ff|ff|ff|00|00|01|00|00|00|81|00|00|01|81|00|00|02|08|06|00|01|08|00|06|04|00|01|00|00|01|00|00|00|10|00|00|00|00|00|00|00|00|00|10|00|00|00|"
+	},
+	{
+		"time": 0.1,
+		"meta": "tx",
+		"len": 50,
+		"data": "ff|ff|ff|ff|ff|ff|00|00|01|00|00|00|81|00|00|01|81|00|00|02|08|06|00|01|08|00|06|04|00|01|00|00|01|00|00|00|10|00|00|00|00|00|00|00|00|00|10|00|00|02|"
+	},
+	{
+		"time": 1.1,
+		"meta": "tx",
+		"len": 50,
+		"data": "ff|ff|ff|ff|ff|ff|00|00|01|00|00|00|81|00|00|01|81|00|00|02|08|06|00|01|08|00|06|04|00|01|00|00|01|00|00|00|10|00|00|00|00|00|00|00|00|00|10|00|00|02|"
+	},
+	{
+		"time": 2.1,
+		"meta": "tx",
+		"len": 50,
+		"data": "ff|ff|ff|ff|ff|ff|00|00|01|00|00|00|81|00|00|01|81|00|00|02|08|06|00|01|08|00|06|04|00|01|00|00|01|00|00|00|10|00|00|00|00|00|00|00|00|00|10|00|00|02|"
+	},
+	{
+		"time": 3.1,
+		"meta": "tx",
+		"len": 50,
+		"data": "ff|ff|ff|ff|ff|ff|00|00|01|00|00|00|81|00|00|01|81|00|00|02|08|06|00|01|08|00|06|04|00|01|00|00|01|00|00|00|10|00|00|00|00|00|00|00|00|00|10|00|00|02|"
+	},
+	{
+		"time": 6.1,
+		"meta": "tx",
+		"len": 50,
+		"data": "ff|ff|ff|ff|ff|ff|00|00|01|00|00|00|81|00|00|01|81|00|00|02|08|06|00|01|08|00|06|04|00|01|00|00|01|00|00|00|10|00|00|00|00|00|00|00|00|00|10|00|00|02|"
+	},
+	{
+		"time": 11.1,
+		"meta": "tx",
+		"len": 50,
+		"data": "ff|ff|ff|ff|ff|ff|00|00|01|00|00|00|81|00|00|01|81|00|00|02|08|06|00|01|08|00|06|04|00|01|00|00|01|00|00|00|10|00|00|00|00|00|00|00|00|00|10|00|00|02|"
+	},
+	{
+		"time": 18.1,
+		"meta": "tx",
+		"len": 50,
+		"data": "ff|ff|ff|ff|ff|ff|00|00|01|00|00|00|81|00|00|01|81|00|00|02|08|06|00|01|08|00|06|04|00|01|00|00|01|00|00|00|10|00|00|00|00|00|00|00|00|00|10|00|00|02|"
+	},
+	{
+		"time": 34.5,
+		"meta": "tx",
+		"len": 50,
+		"data": "ff|ff|ff|ff|ff|ff|00|00|01|00|00|00|81|00|00|01|81|00|00|02|08|06|00|01|08|00|06|04|00|01|00|00|01|00|00|00|10|00|00|00|00|00|00|00|00|00|10|00|00|02|"
+	},
+	{
+		"rpc-req": {
+			"id": 3,
+			"jsonrpc": "2.0",
+			"method": "arp_ns_get_cfg",
+			"params": {
+				"tun": {
+					"tci": [
+						1,
+						2
+					],
+					"vport": 1
+				}
+			}
+		}
+	},
+	{
+		"rpc-res": {
+			"id": 3,
+			"jsonrpc": "2.0",
+			"result": {
+				"enable": true
+			}
+		}
+	},
+	{
+		"rpc-req": {
+			"id": 3,
+			"jsonrpc": "2.0",
+			"method": "arp_ns_get_cnt_meta",
+			"params": {
+				"tun": {
+					"tci": [
+						1,
+						2
+					],
+					"vport": 1
+				}
+			}
+		}
+	},
+	{
+		"rpc-res": {
+			"id": 3,
+			"jsonrpc": "2.0",
+			"result": {
+				"meta": [
+					{
+						"help": "change src ipv4 events",
+						"info": 18,
+						"name": "eventsChangeSrc",
+						"unit": "ops",
+						"zero": false
+					},
+					{
+						"help": "change dgw ipv4 events",
+						"info": 18,
+						"name": "eventsChangeDgIPv4",
+						"unit": "ops",
+						"zero": false
+					},
+					{
+						"help": "timer events learn",
+						"info": 18,
+						"name": "timerEventLearn",
+						"unit": "ops",
+						"zero": false
+					},
+					{
+						"help": "timer events incomplete",
+						"info": 18,
+						"name": "timerEventIncomplete",
+						"unit": "ops",
+						"zero": false
+					},
+					{
+						"help": "timer events complete",
+						"info": 18,
+						"name": "timerEventComplete",
+						"unit": "ops",
+						"zero": false
+					},
+					{
+						"help": "timer events refresh",
+						"info": 18,
+						"name": "timerEventRefresh",
+						"unit": "ops",
+						"zero": false
+					},
+					{
+						"help": "add learn to table ",
+						"info": 18,
+						"name": "addLearn",
+						"unit": "ops",
+						"zero": false
+					},
+					{
+						"help": "add incomplete to table ",
+						"info": 18,
+						"name": "addIncomplete",
+						"unit": "ops",
+						"zero": false
+					},
+					{
+						"help": "move incomplete after refresh  ",
+						"info": 18,
+						"name": "moveIncompleteAfterRefresh",
+						"unit": "ops",
+						"zero": false
+					},
+					{
+						"help": "move complete ",
+						"info": 18,
+						"name": "moveComplete",
+						"unit": "ops",
+						"zero": false
+					},
+					{
+						"help": "move learn ",
+						"info": 18,
+						"name": "moveLearned",
+						"unit": "ops",
+						"zero": false
+					},
+					{
+						"help": "rx error packet is too short",
+						"info": 20,
+						"name": "pktRxErrTooShort",
+						"unit": "pkts",
+						"zero": false
+					},
+					{
+						"help": "rx error packet is no broadcast",
+						"info": 20,
+						"name": "pktRxErrNoBroadcast",
+						"unit": "pkts",
+						"zero": false
+					},
+					{
+						"help": "rx error packet with wrong opcode",
+						"info": 20,
+						"name": "pktRxErrWrongOp",
+						"unit": "pkts",
+						"zero": false
+					},
+					{
+						"help": "rx arp query ",
+						"info": 18,
+						"name": "pktRxArpQuery",
+						"unit": "pkts",
+						"zero": false
+					},
+					{
+						"help": "rx arp query not for our clients",
+						"info": 18,
+						"name": "pktRxArpQueryNotForUs",
+						"unit": "pkts",
+						"zero": false
+					},
+					{
+						"help": "rx arp reply",
+						"info": 18,
+						"name": "pktRxArpReply",
+						"unit": "pkts",
+						"zero": false
+					},
+					{
+						"help": "tx arp query",
+						"info": 18,
+						"name": "pktTxArpQuery",
+						"unit": "pkts",
+						"zero": false
+					},
+					{
+						"help": "tx arp garp",
+						"info": 18,
+						"name": "pktTxGArp",
+						"unit": "pkts",
+						"zero": false
+					},
+					{
+						"help": "tx arp reply",
+						"info": 18,
+						"name": "pktTxReply",
+						"unit": "pkts",
+						"zero": false
+					},
+					{
+						"help": "arp table active",
+						"info": 18,
+						"name": "tblActive",
+						"unit": "entries",
+						"zero": false
+					},
+					{
+						"help": "arp table add",
+						"info": 18,
+						"name": "tblAdd",
+						"unit": "ops",
+						"zero": false
+					},
+					{
+						"help": "arp table remove",
+						"info": 18,
+						"name": "tblRemove",
+						"unit": "ops",
+						"zero": false
+					},
+					{
+						"help": "associate with client",
+						"info": 18,
+						"name": "associateWithClient",
+						"unit": "ops",
+						"zero": false
+					},
+					{
+						"help": "disassociate with client",
+						"info": 18,
+						"name": "disasociateWithClient",
+						"unit": "ops",
+						"zero": false
+					}
+				],
+				"name": "arp"
+			}
+		}
+	},
+	{
+		"rpc-req": {
+			"id": 3,
+			"jsonrpc": "2.0",
+			"method": "arp_ns_get_cnt_val",
+			"params": {
+				"tun": {
+					"tci": [
+						1,
+						2
+					],
+					"vport": 1
+				},
+				"zero": true
+			}
+		}
+	},
+	{
+		"rpc-res": {
+			"id": 3,
+			"jsonrpc": "2.0",
+			"result": {
+				"addIncomplete": 1,
+				"addLearn": 0,
+				"associateWithClient": 1,
+				"disasociateWithClient": 0,
+				"eventsChangeDgIPv4": 0,
+				"eventsChangeSrc": 0,
+				"moveComplete": 0,
+				"moveIncompleteAfterRefresh": 0,
+				"moveLearned": 0,
+				"pktRxArpQuery": 0,
+				"pktRxArpQueryNotForUs": 0,
+				"pktRxArpReply": 0,
+				"pktRxErrNoBroadcast": 0,
+				"pktRxErrTooShort": 0,
+				"pktRxErrWrongOp": 0,
+				"pktTxArpQuery": 8,
+				"pktTxGArp": 1,
+				"pktTxReply": 0,
+				"tblActive": 1,
+				"tblAdd": 1,
+				"tblRemove": 0,
+				"timerEventComplete": 0,
+				"timerEventIncomplete": 7,
+				"timerEventLearn": 0,
+				"timerEventRefresh": 0
+			}
+		}
+	},
+	{
+		"time": 51.3,
+		"meta": "tx",
+		"len": 50,
+		"data": "ff|ff|ff|ff|ff|ff|00|00|01|00|00|00|81|00|00|01|81|00|00|02|08|06|00|01|08|00|06|04|00|01|00|00|01|00|00|00|10|00|00|00|00|00|00|00|00|00|10|00|00|02|"
+	},
+	{
+		"addIncomplete": 1,
+		"associateWithClient": 1,
+		"pktTxArpQuery": 9,
+		"pktTxGArp": 1,
+		"tblActive": 1,
+		"tblAdd": 1,
+		"timerEventIncomplete": 8
+	},
+	{
+		"mbufAlloc": 2,
+		"mbufAllocCache": 8,
+		"mbufFreeCache": 10
+	},
+	{
+		"TxBytes": 500,
+		"TxPkts": 10
+	}
+]

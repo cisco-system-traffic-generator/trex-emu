@@ -839,7 +839,11 @@ type (
 	ApiArpNsCntMetaHandler struct{}
 
 	/* Get counters  */
-	ApiArpNsCntValueHandler struct{}
+	ApiArpNsCntValueHandler struct {
+	}
+	ApiArpNsCntValueParams struct { /* +tunnel*/
+		Zero bool `json:"zero"` /* dump zero too */
+	}
 )
 
 func getNs(ctx interface{}, params *fastjson.RawMessage) (*PluginArpNs, *jsonrpc.Error) {
@@ -907,11 +911,24 @@ func (h ApiArpNsCntMetaHandler) ServeJSONRPC(ctx interface{}, params *fastjson.R
 
 func (h ApiArpNsCntValueHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
 
+	var p ApiArpNsCntValueParams
+	tctx := ctx.(*core.CThreadCtx)
+
 	arpNs, err := getNs(ctx, params)
 	if err != nil {
 		return nil, err
 	}
-	return arpNs.cdb.MarshalValues, nil
+
+	err1 := tctx.UnmarshalValidate(*params, &p)
+
+	if err1 != nil {
+		return nil, &jsonrpc.Error{
+			Code:    jsonrpc.ErrorCodeInvalidRequest,
+			Message: err1.Error(),
+		}
+	}
+
+	return arpNs.cdb.MarshalValues(p.Zero), nil
 }
 
 func init() {

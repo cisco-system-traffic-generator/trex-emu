@@ -21,6 +21,7 @@ type CZmqJsonRPC2 struct {
 	serverPort uint16
 	mr         *jsonrpc.MethodRepository
 	cn         chan []byte
+	simulation bool
 }
 
 func RegisterCB(method string, h jsonrpc.Handler, noApi bool) {
@@ -32,8 +33,9 @@ func (o *CZmqJsonRPC2) SetCtx(i interface{}) {
 }
 
 // NewZmqRpc create a zmq server in port
-func (o *CZmqJsonRPC2) NewZmqRpc(serverPort uint16) {
+func (o *CZmqJsonRPC2) NewZmqRpc(serverPort uint16, simulation bool) {
 	context, err := zmq.NewContext()
+	o.simulation = simulation
 	socket, err := context.NewSocket(zmq.REP)
 	o.cn = make(chan []byte)
 
@@ -53,13 +55,18 @@ func (o *CZmqJsonRPC2) NewZmqRpc(serverPort uint16) {
 
 	mr := jsonrpc.NewMethodRepository()
 	o.mr = mr
-	o.mr.Verbose = true
+	o.mr.Verbose = false
 
 	for _, rec := range method_repo {
 		if o.mr.Verbose {
 			fmt.Printf("register %s \n", rec.method)
 		}
-		if err := mr.RegisterMethod(rec.method, rec.h, rec.noApi); err != nil {
+		var noApi bool
+		noApi = false
+		if o.simulation == false {
+			noApi = rec.noApi
+		}
+		if err := mr.RegisterMethod(rec.method, rec.h, noApi); err != nil {
 			log.Fatalln(err)
 		}
 	}
@@ -106,3 +113,4 @@ func (o *CZmqJsonRPC2) HandleReqRes() {
 	res := o.HandleReq(msg)
 	o.socket.SendBytes(res, 0)
 }
+

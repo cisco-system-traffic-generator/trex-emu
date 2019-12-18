@@ -6,8 +6,9 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
-	"time"
 	"testing"
+	"time"
+
 	"github.com/go-playground/validator"
 	"github.com/intel-go/fastjson"
 )
@@ -111,7 +112,7 @@ func NewThreadCtx(Id uint32, serverPort uint16, simulation bool, simRx *VethIFSi
 	o.portMap = make(MapPortT)
 	o.mapNs = make(MapNsT)
 	o.MPool.Init(mBUFS_CACHE)
-	o.rpc.NewZmqRpc(serverPort)
+	o.rpc.NewZmqRpc(serverPort, simulation)
 	o.rpc.SetCtx(o) /* back pointer to interface this */
 	o.nsHead.SetSelf()
 	o.PluginCtx = NewPluginCtx(nil, nil, o, PLUGIN_LEVEL_THREAD)
@@ -130,31 +131,30 @@ func NewThreadCtx(Id uint32, serverPort uint16, simulation bool, simRx *VethIFSi
 	return o
 }
 
-func (o *CThreadCtx) SimRecordCompare(filename string,t *testing.T) {
+func (o *CThreadCtx) SimRecordCompare(filename string, t *testing.T) {
 	o.SimRecordExport(filename)
-	expFilename := os.Getenv("GOPATH")+"/unit-test/exp/"+filename+".json"
-	genFilename := os.Getenv("GOPATH")+"/unit-test/generated/"+filename+".json"
-	buf,err := ioutil.ReadFile(expFilename) 
-	buf1,err1 := ioutil.ReadFile(genFilename) 
+	expFilename := os.Getenv("GOPATH") + "/unit-test/exp/" + filename + ".json"
+	genFilename := os.Getenv("GOPATH") + "/unit-test/generated/" + filename + ".json"
+	buf, err := ioutil.ReadFile(expFilename)
+	buf1, err1 := ioutil.ReadFile(genFilename)
 
-	if err != nil  {
-		t.Fatalf("Error reading golden file %s %s \n",expFilename,err.Error())
+	if err != nil {
+		t.Fatalf("Error reading golden file %s %s \n", expFilename, err.Error())
 	}
-	if err1 != nil  {
-		t.Fatalf("Error reading generated files %s %s \n",genFilename,err.Error())
+	if err1 != nil {
+		t.Fatalf("Error reading generated files %s %s \n", genFilename, err.Error())
 	}
-	if JsonDeepEqualInc(buf, buf1) == false  {
-		t.Fatalf("Golden file :%s is not equal to generated file:%s \n",expFilename,genFilename)
+	if JsonDeepEqualInc(buf, buf1) == false {
+		t.Fatalf("Golden file :%s is not equal to generated file:%s \n", expFilename, genFilename)
 	}
 }
-
 
 func (o *CThreadCtx) SimRecordExport(filename string) {
 	if o.simRecorder == nil {
 		return
 	}
-	o.SimRecordAppend(o.MPool.GetCdb().MarshalValues())
-	o.SimRecordAppend(o.Veth.GetCdb().MarshalValues())
+	o.SimRecordAppend(o.MPool.GetCdb().MarshalValues(false))
+	o.SimRecordAppend(o.Veth.GetCdb().MarshalValues(false))
 	buf, err := fastjson.MarshalIndent(o.simRecorder, "", "\t")
 	if err == nil {
 		ioutil.WriteFile(os.Getenv("GOPATH")+"/unit-test/generated/"+filename+".json", buf, 0644)

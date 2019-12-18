@@ -1,6 +1,9 @@
 package core
 
-import "fmt"
+import (
+	"encoding/json"
+	"fmt"
+)
 
 type VethStats struct {
 	TxPkts           uint64
@@ -77,6 +80,8 @@ type VethIF interface {
 	SetDebug(monitor bool, capture bool)
 
 	GetCdb() *CCounterDb
+
+	AppendSimuationRPC(request []byte)
 }
 
 type VethIFSim interface {
@@ -87,6 +92,7 @@ type VethIFSim interface {
 
 type VethIFSimulator struct {
 	vec        []*Mbuf
+	rpcQue     [][]byte
 	stats      VethStats
 	tctx       *CThreadCtx
 	Sim        VethIFSim /* interface per test to simulate DUT */
@@ -97,12 +103,17 @@ type VethIFSimulator struct {
 
 func (o *VethIFSimulator) Create(ctx *CThreadCtx) {
 	o.vec = make([]*Mbuf, 0)
+	o.rpcQue = make([][]byte, 0)
 	o.tctx = ctx
 	o.cdb = NewVethStatsDb(&o.stats)
 }
 
 func (o *VethIFSimulator) FlushTx() {
 
+}
+
+func (o *VethIFSimulator) AppendSimuationRPC(request []byte) {
+	o.rpcQue = append(o.rpcQue, request)
 }
 
 func (o *VethIFSimulator) Send(m *Mbuf) {
@@ -162,8 +173,38 @@ func (o *VethIFSimulator) GetStats() *VethStats {
 	return &o.stats
 }
 
+func jsonInterface(d []byte) interface{} {
+
+	var v interface{}
+	err := json.Unmarshal(d, &v)
+	if err != nil {
+		return err
+	}
+	return v
+}
+
+func (o *VethIFSimulator) handleRpcQueue() {
+
+	for _, req := range o.rpcQue {
+		if o.Record {
+			obj := make(map[string]interface{}, 0)
+			obj["rpc-req"] = jsonInterface(req)
+			o.tctx.SimRecordAppend(obj)
+
+		}
+		res := o.tctx.rpc.HandleReq(req)
+		if o.Record {
+			objres := make(map[string]interface{}, 0)
+			objres["rpc-res"] = jsonInterface(res)
+			o.tctx.SimRecordAppend(objres)
+		}
+	}
+	o.rpcQue = o.rpcQue[:0]
+}
+
 func (o *VethIFSimulator) SimulatorCheckRxQueue() {
 
+	o.handleRpcQueue()
 	for _, m := range o.vec {
 		if o.K12Monitor {
 			m.DumpK12(o.tctx.GetTickSimInSec())

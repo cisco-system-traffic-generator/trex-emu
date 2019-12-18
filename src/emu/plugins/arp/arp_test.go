@@ -4,10 +4,14 @@ import (
 	"emu/core"
 	"external/google/gopacket"
 	"external/google/gopacket/layers"
+	"flag"
+	"fmt"
 	"net"
 	"testing"
 	"time"
 )
+
+var monitor int
 
 type ArpTestBase struct {
 	testname     string
@@ -37,8 +41,13 @@ func (o *ArpTestBase) Run(t *testing.T) {
 	if o.cb != nil {
 		o.cb(tctx, o)
 	}
-	tctx.Veth.SetDebug(o.monitor, o.capture)
+	m := false
+	if monitor > 0 {
+		m = true
+	}
+	tctx.Veth.SetDebug(m, o.capture)
 	tctx.MainLoopSim(o.duration)
+	defer tctx.Delete()
 	var key core.CTunnelKey
 	key.Set(&core.CTunnelData{Vport: 1, Vlans: [2]uint32{0x81000001, 0x81000002}})
 
@@ -53,8 +62,9 @@ func (o *ArpTestBase) Run(t *testing.T) {
 	}
 	arpnPlug := nsplg.Ext.(*PluginArpNs)
 	arpnPlug.cdb.Dump()
-	tctx.SimRecordAppend(arpnPlug.cdb.MarshalValues())
+	tctx.SimRecordAppend(arpnPlug.cdb.MarshalValues(false))
 	tctx.SimRecordCompare(o.testname, t)
+
 }
 
 func createSimulationEnv(simRx *core.VethIFSim, num int) (*core.CThreadCtx, *core.CClient) {
@@ -261,4 +271,56 @@ func TestPluginArp5(t *testing.T) {
 	}
 	a.Run(t)
 
+}
+
+type ArpRpcCtx struct {
+	tctx  *core.CThreadCtx
+	timer core.CHTimerObj
+}
+
+func (o *ArpRpcCtx) OnEvent(a, b interface{}) {
+	fmt.Printf("add request \n")
+
+	o.tctx.Veth.AppendSimuationRPC([]byte(`{"jsonrpc": "2.0", 
+	"method":"arp_ns_get_cfg", 
+	"params": {"tun": {"vport":1,"tci":[1,2]} }, 
+	"id": 3 }`))
+
+	o.tctx.Veth.AppendSimuationRPC([]byte(`{"jsonrpc": "2.0", 
+	"method":"arp_ns_get_cnt_meta", 
+	"params": {"tun": {"vport":1,"tci":[1,2]} }, "id": 3 }`))
+
+	o.tctx.Veth.AppendSimuationRPC([]byte(`{"jsonrpc": "2.0", 
+	"method":"arp_ns_get_cnt_val", 
+	"params": {"tun": {"vport":1,"tci":[1,2]},"zero": true }, "id": 3 }`))
+}
+
+func rpcQueue1(tctx *core.CThreadCtx, test *ArpTestBase) int {
+	timerw := tctx.GetTimerCtx()
+	ticks := timerw.DurationToTicks(50 * time.Second)
+	var arpctx ArpRpcCtx
+	arpctx.timer.SetCB(&arpctx, test.cbArg1, test.cbArg2)
+	arpctx.tctx = tctx
+	timerw.StartTicks(&arpctx.timer, ticks)
+	return 0
+}
+
+func TestPluginArp6(t *testing.T) {
+	a := &ArpTestBase{
+		testname:     "arp6",
+		dropAll:      true,
+		monitor:      false,
+		match:        0,
+		capture:      true,
+		duration:     1 * time.Minute,
+		clientsToSim: 1,
+		cb:           rpcQueue1,
+		cbArg1:       1,
+	}
+	a.Run(t)
+
+}
+
+func init() {
+	flag.IntVar(&monitor, "monitor", 0, "monitor")
 }

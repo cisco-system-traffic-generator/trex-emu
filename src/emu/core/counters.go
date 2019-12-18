@@ -17,7 +17,7 @@ type cCounterVal struct {
 }
 
 type CCounterRec struct {
-	Counter  interface{} `json:"cnt"`
+	Counter  interface{} `json:"-"`
 	Name     string      `json:"name"`
 	Help     string      `json:"help"`
 	Unit     string      `json:"unit"`
@@ -115,8 +115,8 @@ func (o *CCounterRec) Dump() {
 }
 
 type CCounterDb struct {
-	Name string `json:"name"`
-	Vec  []*CCounterRec
+	Name string         `json:"name"`
+	Vec  []*CCounterRec `json:"meta"`
 }
 
 func NewCCounterDb(name string) *CCounterDb {
@@ -135,10 +135,10 @@ func (o *CCounterDb) Dump() {
 	fmt.Println(" ===")
 }
 
-func (o *CCounterDb) MarshalValues() map[string]interface{} {
+func (o *CCounterDb) MarshalValues(zero bool) map[string]interface{} {
 	m := make(map[string]interface{})
 	for _, obj := range o.Vec {
-		if obj.IsValid() {
+		if zero || obj.IsValid() {
 			m[obj.Name] = obj.Counter
 		}
 	}
