@@ -235,13 +235,13 @@ func (o *CThreadCtx) GetClientPlugin(params *fastjson.RawMessage, plugin string)
 
 	client := ns.CLookupByMac(&key)
 	if client == nil {
-		err = fmt.Errorf(" error there is valid client %v for this MAC ", key)
+		err = fmt.Errorf("Error there is no valid client %v for this MAC ", key)
 		return nil, err
 	}
 
 	plug := client.PluginCtx.Get(plugin)
 	if plug == nil {
-		err = fmt.Errorf(" error there is valid plugin %s for this client ", plugin)
+		err = fmt.Errorf("Error there is no valid plugin %s for this client ", plugin)
 		return nil, err
 	}
 	return plug, nil

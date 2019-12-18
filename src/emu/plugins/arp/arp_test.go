@@ -293,6 +293,15 @@ func (o *ArpRpcCtx) OnEvent(a, b interface{}) {
 	o.tctx.Veth.AppendSimuationRPC([]byte(`{"jsonrpc": "2.0", 
 	"method":"arp_ns_get_cnt_val", 
 	"params": {"tun": {"vport":1,"tci":[1,2]},"zero": true }, "id": 3 }`))
+
+	o.tctx.Veth.AppendSimuationRPC([]byte(`{"jsonrpc": "2.0", 
+	"method":"arp_c_cmd_query", 
+	"params": {"tun": {"vport":1,"tci":[1,2]}, "mac": [0,0,1,0,0,0], "garp": true }, "id": 3 }`))
+
+	o.tctx.Veth.AppendSimuationRPC([]byte(`{"jsonrpc": "2.0", 
+	"method":"arp_c_cmd_query", 
+	"params": {"tun": {"vport":1,"tci":[1,2]}, "mac": [0,0,1,0,0,0], "garp": false }, "id": 3 }`))
+
 }
 
 func rpcQueue1(tctx *core.CThreadCtx, test *ArpTestBase) int {

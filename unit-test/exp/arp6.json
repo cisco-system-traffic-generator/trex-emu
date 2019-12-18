@@ -331,6 +331,80 @@
 		}
 	},
 	{
+		"rpc-req": {
+			"id": 3,
+			"jsonrpc": "2.0",
+			"method": "arp_c_cmd_query",
+			"params": {
+				"garp": true,
+				"mac": [
+					0,
+					0,
+					1,
+					0,
+					0,
+					0
+				],
+				"tun": {
+					"tci": [
+						1,
+						2
+					],
+					"vport": 1
+				}
+			}
+		}
+	},
+	{
+		"rpc-res": {
+			"id": 3,
+			"jsonrpc": "2.0"
+		}
+	},
+	{
+		"rpc-req": {
+			"id": 3,
+			"jsonrpc": "2.0",
+			"method": "arp_c_cmd_query",
+			"params": {
+				"garp": false,
+				"mac": [
+					0,
+					0,
+					1,
+					0,
+					0,
+					0
+				],
+				"tun": {
+					"tci": [
+						1,
+						2
+					],
+					"vport": 1
+				}
+			}
+		}
+	},
+	{
+		"rpc-res": {
+			"id": 3,
+			"jsonrpc": "2.0"
+		}
+	},
+	{
+		"time": 49.7,
+		"meta": "tx",
+		"len": 50,
+		"data": "ff|ff|ff|ff|ff|ff|00|00|01|00|00|00|81|00|00|01|81|00|00|02|08|06|00|01|08|00|06|04|00|01|00|00|01|00|00|00|10|00|00|00|00|00|00|00|00|00|10|00|00|00|"
+	},
+	{
+		"time": 49.7,
+		"meta": "tx",
+		"len": 50,
+		"data": "ff|ff|ff|ff|ff|ff|00|00|01|00|00|00|81|00|00|01|81|00|00|02|08|06|00|01|08|00|06|04|00|01|00|00|01|00|00|00|10|00|00|00|00|00|00|00|00|00|10|00|00|02|"
+	},
+	{
 		"time": 51.3,
 		"meta": "tx",
 		"len": 50,
@@ -339,19 +413,19 @@
 	{
 		"addIncomplete": 1,
 		"associateWithClient": 1,
-		"pktTxArpQuery": 9,
-		"pktTxGArp": 1,
+		"pktTxArpQuery": 10,
+		"pktTxGArp": 2,
 		"tblActive": 1,
 		"tblAdd": 1,
 		"timerEventIncomplete": 8
 	},
 	{
 		"mbufAlloc": 2,
-		"mbufAllocCache": 8,
-		"mbufFreeCache": 10
+		"mbufAllocCache": 10,
+		"mbufFreeCache": 12
 	},
 	{
-		"TxBytes": 500,
-		"TxPkts": 10
+		"TxBytes": 600,
+		"TxPkts": 12
 	}
 ]

@@ -839,10 +839,14 @@ type (
 	ApiArpNsCntMetaHandler struct{}
 
 	/* Get counters  */
-	ApiArpNsCntValueHandler struct {
-	}
-	ApiArpNsCntValueParams struct { /* +tunnel*/
+	ApiArpNsCntValueHandler struct{}
+	ApiArpNsCntValueParams  struct { /* +tunnel*/
 		Zero bool `json:"zero"` /* dump zero too */
+	}
+
+	ApiArpCCmdQueryHandler struct{} /* +tunnel*/
+	ApiArpCCmdQueryParams  struct {
+		Garp bool `json:"garp"`
 	}
 )
 
@@ -860,6 +864,22 @@ func getNs(ctx interface{}, params *fastjson.RawMessage) (*PluginArpNs, *jsonrpc
 	arpNs := plug.Ext.(*PluginArpNs)
 
 	return arpNs, nil
+}
+
+func getClient(ctx interface{}, params *fastjson.RawMessage) (*PluginArpClient, *jsonrpc.Error) {
+	tctx := ctx.(*core.CThreadCtx)
+	plug, err := tctx.GetClientPlugin(params, ARP_PLUG)
+
+	if err != nil {
+		return nil, &jsonrpc.Error{
+			Code:    jsonrpc.ErrorCodeInvalidRequest,
+			Message: err.Error(),
+		}
+	}
+
+	arpClient := plug.Ext.(*PluginArpClient)
+
+	return arpClient, nil
 }
 
 func (h ApiArpNsSetCfgHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
@@ -931,6 +951,33 @@ func (h ApiArpNsCntValueHandler) ServeJSONRPC(ctx interface{}, params *fastjson.
 	return arpNs.cdb.MarshalValues(p.Zero), nil
 }
 
+func (h ApiArpCCmdQueryHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
+
+	var p ApiArpCCmdQueryParams
+	tctx := ctx.(*core.CThreadCtx)
+
+	arpC, err := getClient(ctx, params)
+	if err != nil {
+		return nil, err
+	}
+
+	err1 := tctx.UnmarshalValidate(*params, &p)
+
+	if err1 != nil {
+		return nil, &jsonrpc.Error{
+			Code:    jsonrpc.ErrorCodeInvalidRequest,
+			Message: err1.Error(),
+		}
+	}
+
+	if p.Garp {
+		arpC.SendGArp()
+	} else {
+		arpC.SendQuery()
+	}
+	return nil, nil
+}
+
 func init() {
 
 	/* register of create callbacks */
@@ -943,6 +990,8 @@ func init() {
 	core.RegisterCB("arp_ns_get_cfg", ApiArpNsGetCfgHandler{}, true)
 	core.RegisterCB("arp_ns_get_cnt_meta", ApiArpNsCntMetaHandler{}, true)
 	core.RegisterCB("arp_ns_get_cnt_val", ApiArpNsCntValueHandler{}, true)
+	core.RegisterCB("arp_c_cmd_query", ApiArpCCmdQueryHandler{}, true)
+
 	core.ParserRegister("arp", HandleRxArpPacket)
 
 }
