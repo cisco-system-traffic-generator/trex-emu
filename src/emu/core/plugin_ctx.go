@@ -8,7 +8,7 @@ import (
 
 type IPluginIf interface {
 	OnEvent(msg string, a, b interface{})
-	OnDelete(o *PluginCtx) // call before delete
+	OnRemove(o *PluginCtx) // call before delete
 }
 
 /* PluginBase plugin base that should be included in any plugin
@@ -159,6 +159,19 @@ func (o *PluginCtx) CreatePlugins(plugins []string, initJson [][]byte) error {
 	return fmt.Errorf(strings.Join(errstrings, "\n"))
 }
 
+func (o *PluginCtx) OnRemove() {
+
+	/* free all clients plugins */
+	for k := range o.mapPlugins {
+		o.RemovePlugins(k)
+	}
+
+	/* clean the event bus */
+	for k := range o.eventBus {
+		delete(o.eventBus, k)
+	}
+}
+
 func (o *PluginCtx) getRegLevel(v *PluginRegisterData) IPluginRegister {
 	var p IPluginRegister
 
@@ -203,7 +216,7 @@ func (o *PluginCtx) RemovePlugins(pl string) error {
 	if !ok1 {
 		return fmt.Errorf("plugins-remove %s does not exits ", pl)
 	}
-	obj.I.OnDelete(o)
+	obj.I.OnRemove(o)
 	return nil
 }
 
@@ -245,7 +258,7 @@ func (o *PluginCtx) RegisterEvents(ov *PluginBase, events []string) {
 	}
 }
 
-/*UnregisterEvents  unregister events, should be called OnDelete */
+/*UnregisterEvents  unregister events, should be called OnRemove */
 func (o *PluginCtx) UnregisterEvents(ov *PluginBase, events []string) {
 	for _, obj := range events {
 		o.eventBus.Remove(obj, ov)

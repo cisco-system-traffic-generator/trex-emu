@@ -378,6 +378,7 @@ func (o *CThreadCtx) RemoveNs(key *CTunnelKey) error {
 	}
 	o.stats.removeNs++
 	ns := o.GetNs(key)
+	ns.OnRemove()
 	o.epoc++
 	o.nsHead.RemoveNode(&ns.dlist)
 	delete(o.mapNs, *key)
@@ -420,7 +421,6 @@ func (o *CThreadCtx) GetNext(n uint16) ([]*CTunnelKey, error) {
 		}
 		ns := castDlistNSCtx(o.iter.Val())
 		r = append(r, &ns.Key)
-		fmt.Printf(" %v", ns.Key)
 		o.iter.Next()
 	}
 	return r, nil

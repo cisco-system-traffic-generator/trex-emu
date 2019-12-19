@@ -86,6 +86,11 @@ func NewClient(ns *CNSCtx,
 	return o
 }
 
+/*OnRemove called on before removing the client */
+func (o *CClient) OnRemove() {
+	o.PluginCtx.OnRemove()
+}
+
 func (o *CClient) UpdateDgIPv4(NewDgIpv4 Ipv4Key) error {
 	old := o.DgIpv4
 	o.DgIpv4 = NewDgIpv4

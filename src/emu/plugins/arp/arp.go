@@ -276,8 +276,22 @@ func (o *ArpFlowTable) Create(timerw *core.TimerCtx) {
 	o.second = timerw.DurationToTicks(time.Second)
 }
 
-// OnDelete called when there is no ref to this object
-func (o *ArpFlowTable) OnDelete(flow *ArpFlow) {
+func (o *ArpFlowTable) OnRemove() {
+	for k := range o.tbl {
+		flow := o.tbl[k]
+		o.OnRemoveFlow(flow)
+	}
+}
+
+func (o *ArpFlowTable) OnRemoveFlow(flow *ArpFlow) {
+	/* make sure the timer is stopped as it is linked to another resource */
+	if flow.timer.IsRunning() {
+		o.timerw.Stop(&flow.timer)
+	}
+}
+
+// OnRemove called when there is no ref to this object
+func (o *ArpFlowTable) OnDeleteFlow(flow *ArpFlow) {
 	if flow.refc != 0 {
 		panic(" ARP ref counter should be zero ")
 	}
@@ -455,7 +469,7 @@ func (o *ArpFlowTable) OnEvent(a, b interface{}) {
 			flow.touch = false
 			o.timerw.StartTicks(&flow.timer, o.learnTimer)
 		} else {
-			o.OnDelete(flow)
+			o.OnDeleteFlow(flow)
 		}
 	case stateIncomplete:
 		o.stats.timerEventIncomplete++
@@ -517,16 +531,16 @@ func (o *PluginArpClient) preparePacketTemplate() {
 
 /*NewArpClient create plugin */
 func NewArpClient(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
-	arpc := new(PluginArpClient)
-	arpc.arpEnable = true
-	arpc.dlist.SetSelf()
-	arpc.InitPluginBase(ctx, arpc)            /* init base object*/
-	arpc.RegisterEvents(ctx, arpEvents, arpc) /* register events, only if exits*/
-	arpc.preparePacketTemplate()
-	nsplg := arpc.Ns.PluginCtx.GetOrCreate(ARP_PLUG)
-	arpc.arpNsPlug = nsplg.Ext.(*PluginArpNs)
-	arpc.OnCreate()
-	return &arpc.PluginBase
+	o := new(PluginArpClient)
+	o.arpEnable = true
+	o.dlist.SetSelf()
+	o.InitPluginBase(ctx, o)            /* init base object*/
+	o.RegisterEvents(ctx, arpEvents, o) /* register events, only if exits*/
+	o.preparePacketTemplate()
+	nsplg := o.Ns.PluginCtx.GetOrCreate(ARP_PLUG)
+	o.arpNsPlug = nsplg.Ext.(*PluginArpNs)
+	o.OnCreate()
+	return &o.PluginBase
 }
 
 /*OnEvent support event change of IP  */
@@ -578,7 +592,7 @@ func (o *PluginArpClient) OnChangeDGSrcIPv4(oldDgIpv4 core.Ipv4Key,
 	}
 }
 
-func (o *PluginArpClient) OnDelete(ctx *core.PluginCtx) {
+func (o *PluginArpClient) OnRemove(ctx *core.PluginCtx) {
 	/* force removing the link to the client */
 	o.OnChangeDGSrcIPv4(o.Client.DgIpv4,
 		o.Client.DgIpv4,
@@ -653,11 +667,20 @@ type PluginArpNs struct {
 func NewArpNs(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
 	o := new(PluginArpNs)
 	o.InitPluginBase(ctx, o)
+	o.RegisterEvents(ctx, []string{}, o)
 	o.arpEnable = true
 	o.tbl.Create(ctx.Tctx.GetTimerCtx())
 	o.tbl.stats = &o.stats
 	o.cdb = NewArpNsStatsDb(&o.stats)
 	return &o.PluginBase
+}
+
+func (o *PluginArpNs) OnRemove(ctx *core.PluginCtx) {
+	o.tbl.OnRemove()
+}
+
+func (o *PluginArpNs) OnEvent(msg string, a, b interface{}) {
+
 }
 
 /*DisassociateClient remove association from the client. client now have the new data
@@ -980,18 +1003,32 @@ func (h ApiArpCCmdQueryHandler) ServeJSONRPC(ctx interface{}, params *fastjson.R
 
 func init() {
 
-	/* register of create callbacks */
+	/* register of plugins callbacks for ns,c level  */
 	core.PluginRegister(ARP_PLUG,
 		core.PluginRegisterData{Client: PluginArpCReg{},
 			Ns:     PluginArpNsReg{},
 			Thread: nil}) /* no need for thread context for now */
 
+	/* The format of the RPC commands xxx_yy_zz_aa
+
+	  xxx - the plugin name
+
+	  yy  - ns - namespace
+			c  - client
+			t   -thread
+
+	  zz  - cmd  command like ping etc
+			set  set configuration
+			get  get configuration/counters
+
+	  aa - misc
+	*/
 	core.RegisterCB("arp_ns_set_cfg", ApiArpNsSetCfgHandler{}, true)
 	core.RegisterCB("arp_ns_get_cfg", ApiArpNsGetCfgHandler{}, true)
 	core.RegisterCB("arp_ns_get_cnt_meta", ApiArpNsCntMetaHandler{}, true)
 	core.RegisterCB("arp_ns_get_cnt_val", ApiArpNsCntValueHandler{}, true)
 	core.RegisterCB("arp_c_cmd_query", ApiArpCCmdQueryHandler{}, true)
 
+	/* register callback for rx side*/
 	core.ParserRegister("arp", HandleRxArpPacket)
-
 }

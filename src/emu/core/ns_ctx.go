@@ -105,6 +105,11 @@ func NewNSCtx(tctx *CThreadCtx,
 	return o
 }
 
+//OnRemove called before remove
+func (o *CNSCtx) OnRemove() {
+	o.PluginCtx.OnRemove()
+}
+
 func (o *CNSCtx) GetVport() uint16 {
 	var d CTunnelData
 	o.Key.Get(&d)
@@ -208,6 +213,9 @@ func (o *CNSCtx) RemoveClient(client *CClient) error {
 		o.stats.errRemoveMactbl++
 		return fmt.Errorf(" client with the MAC %v does not exist", client.Mac)
 	}
+
+	/* callback to remove plugin*/
+	c.OnRemove()
 
 	delete(o.mapMAC, client.Mac)
 
