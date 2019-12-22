@@ -302,6 +302,10 @@ func (o *CNSCtx) IterReset() bool {
 	return true
 }
 
+func (o *CNSCtx) IterIsStopped() bool {
+	return !o.iterReady
+}
+
 // GetNext return error in case the epoc was changed, use
 func (o *CNSCtx) GetNext(n uint16) ([]*MACKey, error) {
 
@@ -326,8 +330,23 @@ func (o *CNSCtx) GetNext(n uint16) ([]*MACKey, error) {
 		}
 		client := castDlistClient(o.iter.Val())
 		r = append(r, &client.Mac)
-		fmt.Printf(" %x", client.Mac)
 		o.iter.Next()
 	}
 	return r, nil
+}
+
+func (o *CNSCtx) Dump() {
+	o.IterReset()
+	fmt.Printf(" clients : %v\n", o.Key)
+	for {
+		if o.IterIsStopped() {
+			break
+		}
+		obj, err := o.GetNext(1)
+		if err != nil {
+			fmt.Printf(" %s \n", err.Error())
+			break
+		}
+		fmt.Printf(" MAC : %v \n", obj[0])
+	}
 }

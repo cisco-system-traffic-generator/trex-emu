@@ -203,6 +203,8 @@ func (o *CThreadCtx) MainLoopSim(duration time.Duration) {
 		}
 		o.Veth.SimulatorCheckRxQueue()
 	}
+	o.Veth.SimulatorCleanup()
+	o.MPool.ClearCache() /* clear the cache for simulation */
 }
 
 func (o *CThreadCtx) MainLoop() {
@@ -424,6 +426,26 @@ func (o *CThreadCtx) GetNext(n uint16) ([]*CTunnelKey, error) {
 		o.iter.Next()
 	}
 	return r, nil
+}
+
+func (o *CThreadCtx) IterIsStopped() bool {
+	return !o.iterReady
+}
+
+func (o *CThreadCtx) Dump() {
+	o.IterReset()
+	fmt.Printf(" namespace  \n")
+	for {
+		if o.IterIsStopped() {
+			break
+		}
+		obj, err := o.GetNext(1)
+		if err != nil {
+			fmt.Printf(" %s \n", err.Error())
+			break
+		}
+		fmt.Printf(" KEY : %v \n", obj[0])
+	}
 }
 
 func (o *CThreadCtx) processInternalRx(m *Mbuf) {

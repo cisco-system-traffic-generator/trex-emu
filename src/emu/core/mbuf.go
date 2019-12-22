@@ -62,6 +62,16 @@ func (o *MbufPoll) Init(maxCacheSize uint32) {
 	o.cdb = NewMbufStatsDb(&o.stats)
 }
 
+func (o *MbufPoll) ClearCache() {
+	for i, _ := range poolSizes {
+		if o.pools[i].stats.InUsed() > 0 {
+			s := fmt.Sprintf(" mbuf leakage pool index %d", i)
+			panic(s)
+		}
+		o.pools[i].ClearCache()
+	}
+}
+
 // Alloc new mbuf from the right pool
 func (o *MbufPoll) Alloc(size uint16) *Mbuf {
 	for i, ps := range poolSizes {
@@ -94,7 +104,7 @@ func (o *MbufPoll) DumpStats() {
 	fmt.Println(" ----------------------")
 	for i, s := range poolSizes {
 		p := &o.pools[i].stats
-		fmt.Printf(" %-04d  | %3.0f%%  %+v  \n", s, p.HitRate(), *p)
+		fmt.Printf(" %-04d  | %3.0f%% (inused:%v)  %+v   \n", s, p.HitRate(), p.InUsed(), *p)
 	}
 
 }
@@ -151,12 +161,16 @@ func (o *MbufPollStats) Clear() {
 	o.CntCacheFree = 0
 }
 
+func (o *MbufPollStats) InUsed() uint64 {
+	return o.CntAlloc + o.CntCacheAlloc - (o.CntCacheFree + o.CntFree)
+}
+
 //HitRate return the hit rate in precent
 func (o *MbufPollStats) HitRate() float32 {
 	if o.CntCacheFree == 0 {
 		return 0.0
 	}
-	return float32(o.CntCacheAlloc) * 100.0 / float32(o.CntCacheFree)
+	return float32(o.CntCacheAlloc) * 100.0 / float32(o.CntCacheAlloc+o.CntAlloc)
 }
 
 // Add o = o + obj
@@ -188,6 +202,18 @@ func (o *MbufPollSize) getHead() *Mbuf {
 	h := o.mlist.RemoveLast()
 	o.cacheSize -= 1
 	return (toMbuf(h))
+}
+
+func (o *MbufPollSize) ClearCache() {
+
+	for {
+		if o.cacheSize > 0 {
+			_ = o.getHead()
+		} else {
+			break
+		}
+	}
+
 }
 
 // NewMbuf alloc new mbuf with the right size

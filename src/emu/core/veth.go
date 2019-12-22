@@ -77,6 +77,8 @@ type VethIF interface {
 
 	SimulatorCheckRxQueue()
 
+	SimulatorCleanup()
+
 	SetDebug(monitor bool, capture bool)
 
 	GetCdb() *CCounterDb
@@ -92,6 +94,7 @@ type VethIFSim interface {
 
 type VethIFSimulator struct {
 	vec        []*Mbuf
+	rxvec      []*Mbuf
 	rpcQue     [][]byte
 	stats      VethStats
 	tctx       *CThreadCtx
@@ -103,6 +106,7 @@ type VethIFSimulator struct {
 
 func (o *VethIFSimulator) Create(ctx *CThreadCtx) {
 	o.vec = make([]*Mbuf, 0)
+	o.rxvec = make([]*Mbuf, 0)
 	o.rpcQue = make([][]byte, 0)
 	o.tctx = ctx
 	o.cdb = NewVethStatsDb(&o.stats)
@@ -214,11 +218,26 @@ func (o *VethIFSimulator) SimulatorCheckRxQueue() {
 		}
 
 		mrx := o.Sim.ProcessTxToRx(m)
+
 		if mrx != nil {
-			o.OnRx(mrx)
+			o.rxvec = append(o.rxvec, mrx)
 		}
 	}
 	o.vec = o.vec[:0]
+
+	for _, m := range o.rxvec {
+		o.OnRx(m)
+	}
+	o.rxvec = o.rxvec[:0]
+}
+
+func (o *VethIFSimulator) SimulatorCleanup() {
+
+	for _, m := range o.vec {
+		m.FreeMbuf()
+	}
+	o.vec = nil
+	o.rxvec = nil
 }
 
 func (o *VethIFSimulator) SetDebug(monitor bool, capture bool) {
