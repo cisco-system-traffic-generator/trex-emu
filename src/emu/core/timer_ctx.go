@@ -45,6 +45,10 @@ func NewTimerCtx(simulation bool) *TimerCtx {
 	return o
 }
 
+func (o *TimerCtx) ActiveTimers() uint64 {
+	return o.timerw.ActiveTimers()
+}
+
 func (o *TimerCtx) IsRunning(tmr *CHTimerObj) bool {
 	return tmr.IsRunning()
 }

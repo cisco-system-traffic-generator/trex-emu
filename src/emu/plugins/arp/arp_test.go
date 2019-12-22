@@ -395,6 +395,8 @@ func test1() {
 	ns.Dump()
 	defer tctx.Delete()
 
+	fmt.Printf(" timers : %v \n", tctx.GetTimerCtx().ActiveTimers())
+
 	dumpMem("/tmp/t3")
 	tctx.Dump()
 	tctx.MPool.DumpStats()

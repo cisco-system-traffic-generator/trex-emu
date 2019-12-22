@@ -339,7 +339,7 @@ type CNATimerWheel struct {
 	wheelShift       uint32
 	wheelLevel1Shift uint32
 	wheelLevel1Err   uint32
-	totalEvents      uint64
+	totalEvents      uint64 /* active timers */
 	timerw           [hNA_TIMER_LEVELS]cHTimerOneWheel
 	state            naHtwStateNum
 	cntDiv           uint16 /*div of time for level1 */
@@ -361,7 +361,6 @@ func (o *CNATimerWheel) InitTW(size uint32, level1Div uint32) RCtw {
 	if !utlIslog2(level1Div) {
 		return RC_HTW_ERR_NO_LOG2
 	}
-
 	o.wheelShift = utllog2Shift(size)
 	o.wheelMask = size - 1
 	o.wheelSize = size
@@ -498,6 +497,9 @@ func (o *CNATimerWheel) Stop(tmr *CHTimerObj) RCtw {
 
 // Start schedule a timer event, the timer should not be running
 func (o *CNATimerWheel) Start(tmr *CHTimerObj, ticks uint32) RCtw {
+	if tmr.IsRunning() {
+		panic(" can't start a running timer ")
+	}
 	o.totalEvents++
 	if ticks < o.wheelSize {
 		tmr.ticksLeft = 0
@@ -512,4 +514,8 @@ func (o *CNATimerWheel) Start(tmr *CHTimerObj, ticks uint32) RCtw {
 // this logic could be done in upper layer
 func (o *CNATimerWheel) RefreshTimer(tmr *CHTimerObj, ticks uint32) RCtw {
 	panic(" not implemented yet ")
+}
+
+func (o *CNATimerWheel) ActiveTimers() uint64 {
+	return o.totalEvents
 }
