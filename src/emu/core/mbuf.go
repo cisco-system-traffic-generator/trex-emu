@@ -41,6 +41,7 @@ const MAX_PACKET_SIZE uint16 = 9 * 1024
 type MbufPoll struct {
 	pools []MbufPollSize
 	stats MbufPollStats
+	Cdbv  *CCounterDbVec
 	cdb   *CCounterDb
 }
 
@@ -56,8 +57,10 @@ func (o *MbufPoll) GetMaxPacketSize() uint16 {
 func (o *MbufPoll) Init(maxCacheSize uint32) {
 
 	o.pools = make([]MbufPollSize, len(poolSizes))
+	o.Cdbv = NewCCounterDbVec("mbuf_pool")
 	for i, s := range poolSizes {
 		o.pools[i].Init(maxCacheSize, s)
+		o.Cdbv.Add(o.pools[i].cdb)
 	}
 	o.cdb = NewMbufStatsDb(&o.stats)
 }
@@ -82,7 +85,6 @@ func (o *MbufPoll) Alloc(size uint16) *Mbuf {
 	s := fmt.Sprintf(" MbufPoll.Alloc size is too big %d ", size)
 	panic(s)
 }
-
 func (o *MbufPoll) GetCdb() *CCounterDb {
 	_ = o.GetStats()
 	return o.cdb
@@ -187,8 +189,8 @@ type MbufPollSize struct {
 	cacheSize    uint32 /*	the active cache size */
 	maxCacheSize uint32 /*	the maximum cache size */
 	mbufSize     uint16 /* buffer size without the lRTE_PKTMBUF_HEADROOM */
-
-	stats MbufPollStats
+	stats        MbufPollStats
+	cdb          *CCounterDb
 }
 
 // Init the pool
@@ -196,6 +198,7 @@ func (o *MbufPollSize) Init(maxCacheSize uint32, mbufSize uint16) {
 	o.mlist.SetSelf()
 	o.maxCacheSize = maxCacheSize
 	o.mbufSize = mbufSize
+	o.cdb = NewMbufStatsDb(&o.stats)
 }
 
 func (o *MbufPollSize) getHead() *Mbuf {

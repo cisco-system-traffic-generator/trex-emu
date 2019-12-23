@@ -20,6 +20,7 @@ type TimerCtx struct {
 	TickDuration time.Duration // the duration of the tick
 	timerw       *CNATimerWheel
 	Ticks        uint64
+	Cdb          *CCounterDb
 }
 
 // NewTimerCtx create a context
@@ -42,6 +43,22 @@ func NewTimerCtx(simulation bool) *TimerCtx {
 		panic("can't init timew")
 	}
 	o.timerw = timerw
+	o.Cdb = NewCCounterDb("timerw")
+	o.Cdb.Add(&CCounterRec{
+		Counter:  &o.timerw.totalEvents,
+		Name:     "activeTimer",
+		Help:     "active timers",
+		Unit:     "timers",
+		DumpZero: false,
+		Info:     ScINFO})
+	o.Cdb.Add(&CCounterRec{
+		Counter:  &o.Ticks,
+		Name:     "ticks",
+		Help:     "ticks",
+		Unit:     "ops",
+		DumpZero: false,
+		Info:     ScINFO})
+
 	return o
 }
 

@@ -75,6 +75,45 @@ func (o *CTunnelKey) Get(d *CTunnelData) {
 	d.Vlans[1] = binary.LittleEndian.Uint32(o[8:12])
 }
 
+func (o *CTunnelKey) GetJson(d *CTunnelDataJson) {
+	var t CTunnelData
+	o.Get(&t)
+	d.Vport = t.Vport
+	if t.Vlans[0] != 0 {
+		d.Tpid[0] = uint16(((t.Vlans[0] & 0xffff0000) >> 16))
+		d.Tci[0] = uint16((t.Vlans[0] & 0xfff))
+
+		if t.Vlans[1] != 0 {
+			d.Tpid[1] = uint16(((t.Vlans[1] & 0xffff0000) >> 16))
+			d.Tci[1] = uint16((t.Vlans[1] & 0xfff))
+		}
+	}
+}
+
+func (o *CTunnelKey) SetJson(d *CTunnelDataJson) {
+	var t CTunnelData
+
+	t.Vport = d.Vport
+
+	if len(d.Tci) > 0 {
+		tpid := uint16(0x8100)
+		if len(d.Tpid) > 0 {
+			tpid = d.Tpid[0]
+		}
+		t.Vlans[0] = (uint32(tpid) << 16) + uint32((d.Tci[0] & 0xfff))
+	}
+
+	if len(d.Tci) > 1 {
+		tpid := uint16(0x8100)
+		if len(d.Tpid) > 1 {
+			tpid = d.Tpid[1]
+		}
+		t.Vlans[1] = (uint32(tpid) << 16) + uint32((d.Tci[1] & 0xfff))
+	}
+
+	o.Set(&t)
+}
+
 type MapPortT map[uint16]bool
 type MapNsT map[CTunnelKey]*CNSCtx
 
@@ -82,6 +121,35 @@ type CThreadCtxStats struct {
 	addNs    uint64
 	removeNs uint64
 	activeNs uint64 // calculated field
+}
+
+func newThreadCtxStats(o *CThreadCtxStats) *CCounterDb {
+	db := NewCCounterDb("ctx")
+
+	db.Add(&CCounterRec{
+		Counter:  &o.addNs,
+		Name:     "addNs",
+		Help:     "add ns",
+		Unit:     "ops",
+		DumpZero: false,
+		Info:     ScINFO})
+
+	db.Add(&CCounterRec{
+		Counter:  &o.removeNs,
+		Name:     "removeNs",
+		Help:     "remove ns",
+		Unit:     "ops",
+		DumpZero: false,
+		Info:     ScINFO})
+	db.Add(&CCounterRec{
+		Counter:  &o.activeNs,
+		Name:     "activeNs",
+		Help:     "active ns",
+		Unit:     "ops",
+		DumpZero: false,
+		Info:     ScINFO})
+
+	return db
 }
 
 // CThreadCtx network namespace context
@@ -104,6 +172,8 @@ type CThreadCtx struct {
 	validate    *validator.Validate
 	parser      Parser
 	simRecorder []interface{} // record event for simulation
+	cdbv        *CCounterDbVec
+	clientStats CClientStats
 }
 
 func NewThreadCtx(Id uint32, serverPort uint16, simulation bool, simRx *VethIFSim) *CThreadCtx {
@@ -128,6 +198,13 @@ func NewThreadCtx(Id uint32, serverPort uint16, simulation bool, simRx *VethIFSi
 		o.Veth = &simv
 		o.simRecorder = make([]interface{}, 0)
 	}
+	/* counters */
+	o.cdbv = NewCCounterDbVec("ctx")
+	o.cdbv.AddVec(o.MPool.Cdbv)
+	o.cdbv.Add(o.parser.Cdb)
+	o.cdbv.Add(o.timerctx.Cdb)
+	o.cdbv.Add(newThreadCtxStats(&o.stats))
+
 	return o
 }
 
@@ -278,27 +355,56 @@ func (o *CThreadCtx) UnmarshalTunnel(data []byte, key *CTunnelKey) error {
 	if err != nil {
 		return err
 	}
-	var t CTunnelData
-	t.Vport = tun.Tun.Vport
-
-	if len(tun.Tun.Tci) > 0 {
-		tpid := uint16(0x8100)
-		if len(tun.Tun.Tpid) > 0 {
-			tpid = tun.Tun.Tpid[0]
-		}
-		t.Vlans[0] = (uint32(tpid) << 16) + uint32((tun.Tun.Tci[0] & 0xfff))
-	}
-
-	if len(tun.Tun.Tci) > 1 {
-		tpid := uint16(0x8100)
-		if len(tun.Tun.Tpid) > 1 {
-			tpid = tun.Tun.Tpid[1]
-		}
-		t.Vlans[1] = (uint32(tpid) << 16) + uint32((tun.Tun.Tci[1] & 0xfff))
-	}
-
-	key.Set(&t)
+	key.SetJson(&tun.Tun)
 	return nil
+}
+func (o *CThreadCtx) RemoveNsRpc(params *fastjson.RawMessage) error {
+	var key CTunnelKey
+	err := o.UnmarshalTunnel(*params, &key)
+	if err != nil {
+		return err
+	}
+	ns := o.GetNs(&key)
+	if ns == nil {
+		err = fmt.Errorf(" error can't find a  valid namespace for this tunnel")
+		return err
+	}
+
+	/* add plugin data */
+	o.RemoveNs(&key)
+	return nil
+}
+
+func (o *CThreadCtx) AddNsRpc(params *fastjson.RawMessage) (*CNSCtx, error) {
+	var key CTunnelKey
+	err := o.UnmarshalTunnel(*params, &key)
+	if err != nil {
+		return nil, err
+	}
+	ns := o.GetNs(&key)
+	if ns != nil {
+		err = fmt.Errorf(" error there is valid namespace for this tunnel, can't add it ")
+		return nil, err
+	}
+
+	ns = NewNSCtx(o, &key)
+	/* add plugin data */
+	o.AddNs(&key, ns)
+	return ns, nil
+}
+
+func (o *CThreadCtx) GetNsRpc(params *fastjson.RawMessage) (*CNSCtx, error) {
+	var key CTunnelKey
+	err := o.UnmarshalTunnel(*params, &key)
+	if err != nil {
+		return nil, err
+	}
+	ns := o.GetNs(&key)
+	if ns == nil {
+		err = fmt.Errorf(" error there is no valid namespace for this tunnel ")
+		return nil, err
+	}
+	return ns, nil
 }
 
 func (o *CThreadCtx) GetNsPlugin(params *fastjson.RawMessage, plugin string) (*PluginBase, error) {

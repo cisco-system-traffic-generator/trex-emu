@@ -63,8 +63,14 @@ type CClient struct {
 
 	Ipv6dgMac      MACKey // default
 	Ipv6dgResolved bool   // bool in case it is resolved
-	stats          CClientStats
 	PluginCtx      *PluginCtx
+}
+
+type CClientCmd struct {
+	Mac    MACKey  `json:"mac" validate:"required"`
+	Ipv4   Ipv4Key `json:"ipv4"`
+	DgIpv4 Ipv4Key `json:"ipv4_dg"`
+	Ipv6   Ipv6Key `json:"ipv6"`
 }
 
 /* NewClient Create a new client with default information and key */

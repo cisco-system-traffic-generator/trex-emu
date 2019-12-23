@@ -149,3 +149,46 @@ func (o *CCounterDb) MarshalMeta() []byte {
 	res, _ := json.Marshal(o)
 	return (res)
 }
+
+type CCounterDbVec struct {
+	Name string        `json:"name"`
+	Vec  []*CCounterDb `json:"vec"`
+}
+
+func NewCCounterDbVec(name string) *CCounterDbVec {
+	return &CCounterDbVec{Name: name, Vec: []*CCounterDb{}}
+}
+
+func (o *CCounterDbVec) Add(cnt *CCounterDb) {
+	o.Vec = append(o.Vec, cnt)
+}
+
+func (o *CCounterDbVec) AddVec(cnt *CCounterDbVec) {
+	for _, vec := range cnt.Vec {
+		o.Add(vec)
+	}
+}
+
+func (o *CCounterDbVec) Dump() {
+	fmt.Println(" counters " + o.Name + " dbvec")
+	for _, obj := range o.Vec {
+		obj.Dump()
+	}
+	fmt.Println(" ===")
+}
+
+func (o *CCounterDbVec) MarshalValues(zero bool) map[string]interface{} {
+	m := make(map[string]interface{})
+	for _, obj := range o.Vec {
+		m[obj.Name] = obj.MarshalValues(zero)
+	}
+	return (m)
+}
+
+func (o *CCounterDbVec) MarshalMeta() map[string]interface{} {
+	m := make(map[string]interface{})
+	for _, obj := range o.Vec {
+		m[obj.Name] = obj
+	}
+	return (m)
+}

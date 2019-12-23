@@ -47,6 +47,203 @@ type ParserStats struct {
 	udpBytes              uint64
 }
 
+func newParserStatsDb(o *ParserStats) *CCounterDb {
+	db := NewCCounterDb("parser")
+	db.Add(&CCounterRec{
+		Counter:  &o.errInternalHandler,
+		Name:     "errInternalHandler",
+		Help:     "internal handler",
+		Unit:     "pkts",
+		DumpZero: false,
+		Info:     ScERROR})
+
+	db.Add(&CCounterRec{
+		Counter:  &o.errParser,
+		Name:     "errParser",
+		Help:     "parser error",
+		Unit:     "pkts",
+		DumpZero: false,
+		Info:     ScERROR})
+
+	db.Add(&CCounterRec{
+		Counter:  &o.errArpTooShort,
+		Name:     "errArpTooShort",
+		Help:     "arp too short",
+		Unit:     "pkts",
+		DumpZero: false,
+		Info:     ScERROR})
+
+	db.Add(&CCounterRec{
+		Counter:  &o.errIcmpv4TooShort,
+		Name:     "errIcmpv4TooShort",
+		Help:     "icmpv4 too short",
+		Unit:     "pkts",
+		DumpZero: false,
+		Info:     ScERROR})
+
+	db.Add(&CCounterRec{
+		Counter:  &o.errUdpTooShort,
+		Name:     "errUdpTooShort",
+		Help:     "udp too short",
+		Unit:     "pkts",
+		DumpZero: false,
+		Info:     ScERROR})
+
+	db.Add(&CCounterRec{
+		Counter:  &o.errDot1qTooShort,
+		Name:     "errDot1qTooShort",
+		Help:     "dot1q too short",
+		Unit:     "pkts",
+		DumpZero: false,
+		Info:     ScERROR})
+
+	db.Add(&CCounterRec{
+		Counter:  &o.errToManyDot1q,
+		Name:     "errToManyDot1q",
+		Help:     "dot1q too long",
+		Unit:     "pkts",
+		DumpZero: false,
+		Info:     ScERROR})
+
+	db.Add(&CCounterRec{
+		Counter:  &o.errIPv4TooShort,
+		Name:     "errIPv4TooShort",
+		Help:     "ipv4 too short",
+		Unit:     "pkts",
+		DumpZero: false,
+		Info:     ScERROR})
+
+	db.Add(&CCounterRec{
+		Counter:  &o.errIPv4HeaderTooShort,
+		Name:     "errIPv4HeaderTooShort",
+		Help:     "ipv4 header too short",
+		Unit:     "pkts",
+		DumpZero: false,
+		Info:     ScERROR})
+
+	db.Add(&CCounterRec{
+		Counter:  &o.errIPv4cs,
+		Name:     "errIPv4cs",
+		Help:     "ipv4 checksum error",
+		Unit:     "pkts",
+		DumpZero: false,
+		Info:     ScERROR})
+
+	db.Add(&CCounterRec{
+		Counter:  &o.errTCP,
+		Name:     "errTCP",
+		Help:     "tcp packets",
+		Unit:     "pkts",
+		DumpZero: false,
+		Info:     ScERROR})
+
+	db.Add(&CCounterRec{
+		Counter:  &o.errUDP,
+		Name:     "errUDP",
+		Help:     "udp packets",
+		Unit:     "pkts",
+		DumpZero: false,
+		Info:     ScERROR})
+
+	db.Add(&CCounterRec{
+		Counter:  &o.arpPkts,
+		Name:     "arpPkts",
+		Help:     "arp packets",
+		Unit:     "pkts",
+		DumpZero: false,
+		Info:     ScINFO})
+
+	db.Add(&CCounterRec{
+		Counter:  &o.arpBytes,
+		Name:     "arpBytes",
+		Help:     "arp bytes",
+		Unit:     "bytes",
+		DumpZero: false,
+		Info:     ScINFO})
+
+	db.Add(&CCounterRec{
+		Counter:  &o.icmpPkts,
+		Name:     "icmpPkts",
+		Help:     "icmp packets",
+		Unit:     "pkts",
+		DumpZero: false,
+		Info:     ScINFO})
+
+	db.Add(&CCounterRec{
+		Counter:  &o.icmpBytes,
+		Name:     "icmpBytes",
+		Help:     "icmp bytes",
+		Unit:     "bytes",
+		DumpZero: false,
+		Info:     ScINFO})
+
+	db.Add(&CCounterRec{
+		Counter:  &o.igmpPkts,
+		Name:     "igmpPkts",
+		Help:     "igmp packets",
+		Unit:     "pkts",
+		DumpZero: false,
+		Info:     ScINFO})
+
+	db.Add(&CCounterRec{
+		Counter:  &o.igmpBytes,
+		Name:     "igmpBytes",
+		Help:     "igmp bytes",
+		Unit:     "bytes",
+		DumpZero: false,
+		Info:     ScINFO})
+
+	db.Add(&CCounterRec{
+		Counter:  &o.dhcpPkts,
+		Name:     "dhcpPkts",
+		Help:     "dhcp packets",
+		Unit:     "pkts",
+		DumpZero: false,
+		Info:     ScINFO})
+
+	db.Add(&CCounterRec{
+		Counter:  &o.dhcpBytes,
+		Name:     "dhcpBytes",
+		Help:     "dhcp bytes",
+		Unit:     "bytes",
+		DumpZero: false,
+		Info:     ScINFO})
+
+	db.Add(&CCounterRec{
+		Counter:  &o.tcpPkts,
+		Name:     "tcpPkts",
+		Help:     "tcp packets",
+		Unit:     "pkts",
+		DumpZero: false,
+		Info:     ScINFO})
+
+	db.Add(&CCounterRec{
+		Counter:  &o.tcpBytes,
+		Name:     "tcpBytes",
+		Help:     "tcp bytes",
+		Unit:     "bytes",
+		DumpZero: false,
+		Info:     ScINFO})
+
+	db.Add(&CCounterRec{
+		Counter:  &o.udpPkts,
+		Name:     "udpPkts",
+		Help:     "udp packets",
+		Unit:     "pkts",
+		DumpZero: false,
+		Info:     ScINFO})
+
+	db.Add(&CCounterRec{
+		Counter:  &o.udpBytes,
+		Name:     "udpBytes",
+		Help:     "udp bytes",
+		Unit:     "bytes",
+		DumpZero: false,
+		Info:     ScINFO})
+
+	return db
+}
+
 /* counters */
 type Parser struct {
 	tctx *CThreadCtx
@@ -59,6 +256,7 @@ type Parser struct {
 	dhcp ParserCb
 	tcp  ParserCb
 	udp  ParserCb
+	Cdb  *CCounterDb
 }
 
 func parserNotSupported(ps *ParserPacketState) int {
@@ -79,6 +277,7 @@ func (o *Parser) Init(tctx *CThreadCtx) {
 	o.dhcp = parserNotSupported
 	o.tcp = parserNotSupported
 	o.udp = parserNotSupported
+	o.Cdb = newParserStatsDb(&o.stats)
 }
 
 func (o *Parser) parsePacketL4(ps *ParserPacketState,
