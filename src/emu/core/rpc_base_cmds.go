@@ -40,7 +40,7 @@ type (
 
 	ApiNsIterHandler struct{}
 	ApiNsIterParams  struct {
-		Reset bool   `json:"reset" validate:"required"`
+		Reset bool   `json:"reset"`
 		Count uint16 `json:"count" validate:"required,gte=0,lte=255"`
 	}
 	ApiNsIterResult struct {
@@ -58,13 +58,20 @@ type (
 
 	ApiClientIterHandler struct{}
 	ApiClientIterParams  struct {
-		Reset bool   `json:"reset" validate:"required"`
+		Reset bool   `json:"reset"`
 		Count uint16 `json:"count" validate:"required,gte=0,lte=255"`
 	}
 	ApiClientIterResult struct {
 		Empty  bool      `json:"empty"`
 		Stoped bool      `json:"stoped"`
 		Vec    []*MACKey `json:"data"`
+	}
+
+	ApiCntHandler struct{}
+	ApiCntParams  struct {
+		Meta bool     `json:"meta"`
+		Zero bool     `json:"zero"`
+		Mask []string `json:"mask"` // get only specific counters blocks if it is empty get all
 	}
 )
 
@@ -313,23 +320,45 @@ func (h ApiClientIterHandler) ServeJSONRPC(ctx interface{}, params *fastjson.Raw
 	return &res, nil
 }
 
+func (h ApiCntHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
+
+	var p ApiCntParams
+	tctx := ctx.(*CThreadCtx)
+
+	err := tctx.UnmarshalValidate(*params, &p)
+	if err != nil {
+		return nil, &jsonrpc.Error{
+			Code:    jsonrpc.ErrorCodeInvalidRequest,
+			Message: err.Error(),
+		}
+	}
+
+	cdbv := tctx.GetCounterDbVec()
+
+	if p.Meta {
+		return cdbv.MarshalMeta(), nil
+	}
+
+	if p.Mask == nil || len(p.Mask) == 0 {
+		return cdbv.MarshalValues(p.Zero), nil
+	} else {
+		return cdbv.MarshalValuesMask(p.Zero, p.Mask), nil
+	}
+}
+
 func init() {
 	RegisterCB("api_sync_v2", ApiSyncHandler{}, true)
 	RegisterCB("get_version", ApiGetVersionHandler{}, false)
 	RegisterCB("ping", ApiPingHandler{}, false)
 
-	RegisterCB("ns_add", ApiNsAddHandler{}, false)
-	RegisterCB("ns_remove", ApiNsRemoveHandler{}, false)
-	RegisterCB("ns_iter", ApiNsIterHandler{}, false)
+	RegisterCB("ctx_ns_add", ApiNsAddHandler{}, false)
+	RegisterCB("ctx_ns_remove", ApiNsRemoveHandler{}, false)
+	RegisterCB("ctx_ns_iter", ApiNsIterHandler{}, false)
+	RegisterCB("ctx_cnt", ApiCntHandler{}, false) // get counters
 
-	RegisterCB("client_add", ApiClientAddHandler{}, false)
-	RegisterCB("client_remove", ApiClientRemoveHandler{}, false)
-	RegisterCB("client_iter", ApiClientIterHandler{}, false)
+	RegisterCB("ns_client_add", ApiClientAddHandler{}, false)
+	RegisterCB("ns_client_remove", ApiClientRemoveHandler{}, false)
+	RegisterCB("ns_client_iter", ApiClientIterHandler{}, false)
 	/* TBD add client_update */
-
-	/*RegisterCB("client_remove", ApiPingHandler{}, false)
-	RegisterCB("client_iter", ApiPingHandler{}, false)
-
-	RegisterCB("ctx_get_counters", ApiPingHandler{}, false)*/
 
 }

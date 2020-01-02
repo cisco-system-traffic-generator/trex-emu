@@ -853,7 +853,7 @@ func (o PluginArpNsReg) NewPlugin(ctx *core.PluginCtx, initJson []byte) *core.Pl
 type (
 	ApiArpNsSetCfgHandler struct{}
 	ApiArpNsSetCfgParams  struct { /* +tunnel*/
-		Enable bool `json:"enable" validate:"required"`
+		Enable bool `json:"enable"`
 	}
 
 	ApiArpNsGetCfgHandler struct{}

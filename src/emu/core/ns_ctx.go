@@ -60,13 +60,83 @@ type MapClientIPv4 map[Ipv4Key]*CClient
 type MapClientMAC map[MACKey]*CClient
 
 type CNSCtxStats struct {
-	addNs            uint64
-	removeNs         uint64
-	activeNs         uint64
+	addClient        uint64
+	removeClient     uint64
+	activeClient     uint64
 	errRemoveIPv4tbl uint64 /* ipv4 does not exits in the IPv4 table */
 	errRemoveMactbl  uint64 /* client MAC does not exits in the MAC table */
 	errRemoveIPv6tbl uint64 /* ipv4 of client does not exits in the ipv6 table */
 	errInvalidMac    uint64 /* mac is zero  */
+}
+
+func (o *CNSCtxStats) PreUpdate() {
+	if o.addClient > o.removeClient {
+		o.activeClient = o.addClient - o.removeClient
+	} else {
+		o.activeClient = 0
+	}
+}
+
+func newNsStats(o *CNSCtxStats) *CCounterDb {
+	db := NewCCounterDb("ns")
+
+	db.Add(&CCounterRec{
+		Counter:  &o.addClient,
+		Name:     "addClient",
+		Help:     "add client",
+		Unit:     "ops",
+		DumpZero: false,
+		Info:     ScINFO})
+
+	db.Add(&CCounterRec{
+		Counter:  &o.removeClient,
+		Name:     "removeClient",
+		Help:     "remove client",
+		Unit:     "ops",
+		DumpZero: false,
+		Info:     ScINFO})
+
+	db.Add(&CCounterRec{
+		Counter:  &o.activeClient,
+		Name:     "activeClient",
+		Help:     "active client",
+		Unit:     "ops",
+		DumpZero: false,
+		Info:     ScINFO})
+
+	db.Add(&CCounterRec{
+		Counter:  &o.errRemoveIPv4tbl,
+		Name:     "errRemoveIPv4tbl",
+		Help:     "err remove ipv4",
+		Unit:     "ops",
+		DumpZero: false,
+		Info:     ScERROR})
+
+	db.Add(&CCounterRec{
+		Counter:  &o.errRemoveMactbl,
+		Name:     "errRemoveMactbl",
+		Help:     "err remove mac",
+		Unit:     "ops",
+		DumpZero: false,
+		Info:     ScERROR})
+
+	db.Add(&CCounterRec{
+		Counter:  &o.errRemoveIPv6tbl,
+		Name:     "errRemoveIPv6tbl",
+		Help:     "err remove ipv6",
+		Unit:     "ops",
+		DumpZero: false,
+		Info:     ScERROR})
+
+	db.Add(&CCounterRec{
+		Counter:  &o.errInvalidMac,
+		Name:     "errInvalidMac",
+		Help:     "err invalid mac",
+		Unit:     "ops",
+		DumpZero: false,
+		Info:     ScERROR})
+
+	return db
 }
 
 func castDlistNSCtx(dlist *DList) *CNSCtx {
@@ -88,6 +158,7 @@ type CNSCtx struct {
 	iterEpoc   uint32
 	iterReady  bool
 	iter       DListIterHead
+	cdb        *CCounterDb
 }
 
 // NewNSCtx create new one
@@ -96,6 +167,8 @@ func NewNSCtx(tctx *CThreadCtx,
 	o := new(CNSCtx)
 	o.ThreadCtx = tctx
 	o.Key = *key
+	o.cdb = newNsStats(&o.stats)
+	o.cdb.IOpt = &o.stats
 	o.mapIpv6 = make(MapClientIPv6)
 	o.mapIpv4 = make(MapClientIPv4)
 	o.mapMAC = make(MapClientMAC)
@@ -195,7 +268,7 @@ func (o *CNSCtx) AddClient(client *CClient) error {
 	}
 	o.clientHead.AddLast(&client.dlist)
 	o.epoc++
-
+	o.stats.addClient++
 	return nil
 }
 
@@ -237,7 +310,7 @@ func (o *CNSCtx) RemoveClient(client *CClient) error {
 		}
 	}
 	o.epoc++
-
+	o.stats.removeClient++
 	return nil
 }
 

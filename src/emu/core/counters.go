@@ -107,6 +107,32 @@ func (o *CCounterRec) GetValAsString() string {
 	return s
 }
 
+func (o *CCounterRec) ClearValue() {
+	switch o.Counter.(type) {
+	case *uint32:
+		val := reflect.ValueOf(o.Counter)
+		elm := val.Elem()
+		a := (*uint32)(unsafe.Pointer(elm.Addr().Pointer()))
+		*a = 0
+	case *uint64:
+		val := reflect.ValueOf(o.Counter)
+		elm := val.Elem()
+		a := (*uint64)(unsafe.Pointer(elm.Addr().Pointer()))
+		*a = 0
+	case *float32:
+		val := reflect.ValueOf(o.Counter)
+		elm := val.Elem()
+		a := (*float32)(unsafe.Pointer(elm.Addr().Pointer()))
+		*a = 0.0
+	case *float64:
+		val := reflect.ValueOf(o.Counter)
+		elm := val.Elem()
+		a := (*float64)(unsafe.Pointer(elm.Addr().Pointer()))
+		*a = 0.0
+	default:
+	}
+}
+
 func (o *CCounterRec) Dump() {
 	if !o.IsZero() {
 		s := o.GetValAsString()
@@ -114,9 +140,15 @@ func (o *CCounterRec) Dump() {
 	}
 }
 
+//CCounterOp operation on the counter
+type CCounterOp interface {
+	PreUpdate()
+}
+
 type CCounterDb struct {
 	Name string         `json:"name"`
 	Vec  []*CCounterRec `json:"meta"`
+	IOpt CCounterOp     `json:"-"`
 }
 
 func NewCCounterDb(name string) *CCounterDb {
@@ -129,14 +161,22 @@ func (o *CCounterDb) Add(cnt *CCounterRec) {
 
 func (o *CCounterDb) Dump() {
 	fmt.Println(" counters " + o.Name + " db")
+	o.Preupdate()
 	for _, obj := range o.Vec {
 		obj.Dump()
 	}
 	fmt.Println(" ===")
 }
 
+func (o *CCounterDb) Preupdate() {
+	if o.IOpt != nil {
+		o.IOpt.PreUpdate()
+	}
+}
+
 func (o *CCounterDb) MarshalValues(zero bool) map[string]interface{} {
 	m := make(map[string]interface{})
+	o.Preupdate()
 	for _, obj := range o.Vec {
 		if zero || obj.IsValid() {
 			m[obj.Name] = obj.Counter
@@ -145,27 +185,50 @@ func (o *CCounterDb) MarshalValues(zero bool) map[string]interface{} {
 	return (m)
 }
 
+func (o *CCounterDb) ClearValues() {
+	o.Preupdate()
+	for _, obj := range o.Vec {
+		obj.ClearValue()
+	}
+}
+
 func (o *CCounterDb) MarshalMeta() []byte {
 	res, _ := json.Marshal(o)
 	return (res)
 }
 
 type CCounterDbVec struct {
-	Name string        `json:"name"`
-	Vec  []*CCounterDb `json:"vec"`
+	Name      string        `json:"name"`
+	Vec       []*CCounterDb `json:"vec"`
+	validator map[string]int
 }
 
 func NewCCounterDbVec(name string) *CCounterDbVec {
-	return &CCounterDbVec{Name: name, Vec: []*CCounterDb{}}
+	return &CCounterDbVec{Name: name,
+		Vec:       []*CCounterDb{},
+		validator: make(map[string]int)}
 }
 
 func (o *CCounterDbVec) Add(cnt *CCounterDb) {
+	_, ok := o.validator[cnt.Name]
+	if ok {
+		s := fmt.Sprintf(" same key is added twice %s", cnt.Name)
+		panic(s)
+	}
+	o.validator[cnt.Name] = 1
 	o.Vec = append(o.Vec, cnt)
 }
 
 func (o *CCounterDbVec) AddVec(cnt *CCounterDbVec) {
 	for _, vec := range cnt.Vec {
 		o.Add(vec)
+	}
+}
+
+func (o *CCounterDbVec) ClearValues() {
+
+	for _, obj := range o.Vec {
+		obj.ClearValues()
 	}
 }
 
@@ -180,7 +243,27 @@ func (o *CCounterDbVec) Dump() {
 func (o *CCounterDbVec) MarshalValues(zero bool) map[string]interface{} {
 	m := make(map[string]interface{})
 	for _, obj := range o.Vec {
-		m[obj.Name] = obj.MarshalValues(zero)
+		r := obj.MarshalValues(zero)
+		if len(r) > 0 {
+			m[obj.Name] = r
+		}
+
+	}
+	return (m)
+}
+
+func (o *CCounterDbVec) MarshalValuesMask(zero bool, mask []string) map[string]interface{} {
+	m := make(map[string]interface{})
+	for _, obj := range o.Vec {
+		for _, name := range mask {
+			if name == obj.Name {
+				r := obj.MarshalValues(zero)
+				if len(r) > 0 {
+					m[obj.Name] = r
+				}
+				break
+			}
+		}
 	}
 	return (m)
 }

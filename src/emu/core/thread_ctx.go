@@ -123,6 +123,14 @@ type CThreadCtxStats struct {
 	activeNs uint64 // calculated field
 }
 
+func (o *CThreadCtxStats) PreUpdate() {
+	if o.addNs > o.removeNs {
+		o.activeNs = o.addNs - o.removeNs
+	} else {
+		o.activeNs = 0
+	}
+}
+
 func newThreadCtxStats(o *CThreadCtxStats) *CCounterDb {
 	db := NewCCounterDb("ctx")
 
@@ -201,10 +209,12 @@ func NewThreadCtx(Id uint32, serverPort uint16, simulation bool, simRx *VethIFSi
 	/* counters */
 	o.cdbv = NewCCounterDbVec("ctx")
 	o.cdbv.AddVec(o.MPool.Cdbv)
+	o.cdbv.Add(o.MPool.Cdb)
 	o.cdbv.Add(o.parser.Cdb)
 	o.cdbv.Add(o.timerctx.Cdb)
-	o.cdbv.Add(newThreadCtxStats(&o.stats))
-
+	cdb := newThreadCtxStats(&o.stats)
+	cdb.IOpt = &o.stats
+	o.cdbv.Add(cdb)
 	return o
 }
 
@@ -576,4 +586,8 @@ func (o *CThreadCtx) GetTickSim() uint64 {
 
 func (o *CThreadCtx) GetTickSimInSec() float64 {
 	return o.timerctx.TicksInSec()
+}
+
+func (o *CThreadCtx) GetCounterDbVec() *CCounterDbVec {
+	return o.cdbv
 }

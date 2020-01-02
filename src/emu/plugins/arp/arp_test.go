@@ -13,6 +13,8 @@ import (
 	"runtime/pprof"
 	"testing"
 	"time"
+
+	"github.com/intel-go/fastjson"
 )
 
 var monitor int
@@ -401,6 +403,16 @@ func test1() {
 	tctx.Dump()
 	tctx.MPool.DumpStats()
 
+	cntd := tctx.GetCounterDbVec().MarshalValues(true)
+	cntjson, _ := fastjson.MarshalIndent(cntd, "", "\t")
+	fmt.Printf(string(cntjson))
+
+	tctx.GetCounterDbVec().ClearValues()
+
+	cntd1 := tctx.GetCounterDbVec().MarshalValues(true)
+	cntjson1, _ := fastjson.MarshalIndent(cntd1, "", "\t")
+	fmt.Printf(string(cntjson1))
+
 	PrintMemUsage("3")
 }
 
@@ -430,6 +442,63 @@ func TestPluginArp8(t *testing.T) {
 	//vec = vec[:0]
 	//dumpMem("/tmp/t3")
 	//dumpMem("/tmp/t3")
+}
+
+type ArpRpcCtx1 struct {
+	tctx  *core.CThreadCtx
+	timer core.CHTimerObj
+}
+
+func (o *ArpRpcCtx1) OnEvent(a, b interface{}) {
+	fmt.Printf("add request \n")
+
+	o.tctx.Veth.AppendSimuationRPC([]byte(`{"jsonrpc": "2.0", 
+	"method":"ctx_cnt", 
+	"params": {"meta": true , "zero": false }, 
+	"id": 3 }`))
+	o.tctx.Veth.AppendSimuationRPC([]byte(`{"jsonrpc": "2.0",
+	"method":"ctx_cnt",
+	"params": {"meta": false,"zero": false },
+	"id": 3 }`))
+	o.tctx.Veth.AppendSimuationRPC([]byte(`{"jsonrpc": "2.0",
+	"method":"ctx_cnt",
+	"params": {"meta": false,"zero": true },
+	"id": 3 }`))
+	o.tctx.Veth.AppendSimuationRPC([]byte(`{"jsonrpc": "2.0",
+	"method":"ctx_cnt",
+	"params": {"meta": false,"zero": true, "mask": ["mbug"] },
+	"id": 3 }`))
+	o.tctx.Veth.AppendSimuationRPC([]byte(`{"jsonrpc": "2.0",
+	"method":"ctx_cnt",
+	"params": {"meta": false,"zero":true,"mask": ["mbuf-pool"] },
+	"id": 3 }`))
+
+}
+
+func rpcQueue2(tctx *core.CThreadCtx, test *ArpTestBase) int {
+	timerw := tctx.GetTimerCtx()
+	ticks := timerw.DurationToTicks(50 * time.Second)
+	var arpctx ArpRpcCtx1
+	arpctx.timer.SetCB(&arpctx, test.cbArg1, test.cbArg2)
+	arpctx.tctx = tctx
+	timerw.StartTicks(&arpctx.timer, ticks)
+	return 0
+}
+
+func TestPluginArp9(t *testing.T) {
+
+	a := &ArpTestBase{
+		testname:     "arp9",
+		dropAll:      true,
+		monitor:      false,
+		match:        0,
+		capture:      true,
+		duration:     1 * time.Minute,
+		clientsToSim: 1,
+		cb:           rpcQueue2,
+		cbArg1:       1,
+	}
+	a.Run(t)
 }
 
 func init() {

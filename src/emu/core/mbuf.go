@@ -42,7 +42,7 @@ type MbufPoll struct {
 	pools []MbufPollSize
 	stats MbufPollStats
 	Cdbv  *CCounterDbVec
-	cdb   *CCounterDb
+	Cdb   *CCounterDb
 }
 
 var poolSizes = [...]uint16{128, 256, 512, 1024, 2048, 4096, MAX_PACKET_SIZE}
@@ -62,7 +62,16 @@ func (o *MbufPoll) Init(maxCacheSize uint32) {
 		o.pools[i].Init(maxCacheSize, s)
 		o.Cdbv.Add(o.pools[i].cdb)
 	}
-	o.cdb = NewMbufStatsDb(&o.stats)
+	o.Cdb = NewMbufStatsDb(&o.stats)
+	o.Cdb.Name = fmt.Sprintf("mbuf-pool")
+	o.Cdb.IOpt = o
+}
+
+func (o *MbufPoll) PreUpdate() {
+	o.stats.Clear()
+	for i := range poolSizes {
+		o.stats.Add(&o.pools[i].stats)
+	}
 }
 
 func (o *MbufPoll) ClearCache() {
@@ -87,16 +96,12 @@ func (o *MbufPoll) Alloc(size uint16) *Mbuf {
 }
 func (o *MbufPoll) GetCdb() *CCounterDb {
 	_ = o.GetStats()
-	return o.cdb
+	return o.Cdb
 }
 
 // GetStats return accumulated statistics for all pools
 func (o *MbufPoll) GetStats() *MbufPollStats {
-	o.stats.Clear()
-
-	for i := range poolSizes {
-		o.stats.Add(&o.pools[i].stats)
-	}
+	o.PreUpdate()
 	return &o.stats
 }
 
@@ -199,6 +204,7 @@ func (o *MbufPollSize) Init(maxCacheSize uint32, mbufSize uint16) {
 	o.maxCacheSize = maxCacheSize
 	o.mbufSize = mbufSize
 	o.cdb = NewMbufStatsDb(&o.stats)
+	o.cdb.Name = fmt.Sprintf("mbuf-%d", mbufSize)
 }
 
 func (o *MbufPollSize) getHead() *Mbuf {
