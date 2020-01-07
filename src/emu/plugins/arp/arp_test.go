@@ -13,8 +13,6 @@ import (
 	"runtime/pprof"
 	"testing"
 	"time"
-
-	"github.com/intel-go/fastjson"
 )
 
 var monitor int
@@ -400,18 +398,18 @@ func test1() {
 	fmt.Printf(" timers : %v \n", tctx.GetTimerCtx().ActiveTimers())
 
 	dumpMem("/tmp/t3")
-	tctx.Dump()
-	tctx.MPool.DumpStats()
+	//tctx.Dump()
+	//tctx.MPool.DumpStats()
 
-	cntd := tctx.GetCounterDbVec().MarshalValues(true)
-	cntjson, _ := fastjson.MarshalIndent(cntd, "", "\t")
-	fmt.Printf(string(cntjson))
+	//cntd := tctx.GetCounterDbVec().MarshalValues(true)
+	//cntjson, _ := fastjson.MarshalIndent(cntd, "", "\t")
+	//fmt.Printf(string(cntjson))
 
-	tctx.GetCounterDbVec().ClearValues()
+	//tctx.GetCounterDbVec().ClearValues()
 
-	cntd1 := tctx.GetCounterDbVec().MarshalValues(true)
-	cntjson1, _ := fastjson.MarshalIndent(cntd1, "", "\t")
-	fmt.Printf(string(cntjson1))
+	//cntd1 := tctx.GetCounterDbVec().MarshalValues(true)
+	//cntjson1, _ := fastjson.MarshalIndent(cntd1, "", "\t")
+	//fmt.Printf(string(cntjson1))
 
 	PrintMemUsage("3")
 }
@@ -487,7 +485,7 @@ func rpcQueue2(tctx *core.CThreadCtx, test *ArpTestBase) int {
 
 func TestPluginArp9(t *testing.T) {
 
-	a := &ArpTestBase{
+	/*a := &ArpTestBase{
 		testname:     "arp9",
 		dropAll:      true,
 		monitor:      false,
@@ -498,7 +496,7 @@ func TestPluginArp9(t *testing.T) {
 		cb:           rpcQueue2,
 		cbArg1:       1,
 	}
-	a.Run(t)
+	a.Run(t)*/
 }
 
 func init() {
