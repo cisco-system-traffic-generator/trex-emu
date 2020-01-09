@@ -74,6 +74,12 @@ func (o IPv4Header) GetTOS() uint8 {
 	return uint8(o[1])
 }
 
+func (o IPv4Header) SwapSrcDst() {
+	src := o.GetIPSrc()
+	o.SetIPSrc(o.GetIPDst())
+	o.SetIPDst(src)
+}
+
 // SetIPSrc Update IP Src
 func (o IPv4Header) SetIPSrc(ip uint32) {
 	binary.BigEndian.PutUint32(o[12:16], ip)

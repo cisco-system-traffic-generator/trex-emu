@@ -267,6 +267,9 @@ func (o *Parser) Register(protocol string) {
 	if protocol == "arp" {
 		o.arp = getProto("arp")
 	}
+	if protocol == "icmp" {
+		o.icmp = getProto("icmp")
+	}
 }
 
 func (o *Parser) Init(tctx *CThreadCtx) {

@@ -25,6 +25,13 @@ func (o EthernetHeader) GetNextProtocol() uint16 {
 	return binary.BigEndian.Uint16(o[12:14])
 }
 
+func (o EthernetHeader) SwapSrcDst() {
+	var tmp [6]byte
+	copy(tmp[:], o[0:6])
+	copy(o[0:6], o[6:12])
+	copy(o[6:12], tmp[0:6])
+}
+
 func (o EthernetHeader) SetSrcAddress(d []byte) {
 	copy(o[6:12], d[:])
 }

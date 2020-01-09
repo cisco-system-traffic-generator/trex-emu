@@ -205,6 +205,45 @@ func CreateICMPv4TypeCode(typ uint8, code uint8) ICMPv4TypeCode {
 	return ICMPv4TypeCode(binary.BigEndian.Uint16([]byte{typ, code}))
 }
 
+type ICMPv4Header []byte
+
+func (o ICMPv4Header) GetTypeCode() ICMPv4TypeCode {
+	return ICMPv4TypeCode(binary.BigEndian.Uint16(o[0:2]))
+}
+
+func (o ICMPv4Header) SetTypeCode(code ICMPv4TypeCode) {
+	binary.BigEndian.PutUint16(o[0:2], uint16(code))
+}
+
+func UpdateInetChecksum(pkt uint16,
+	oldVal uint16,
+	newVal uint16) uint16 {
+	/*var newCS uint32
+	newCS = uint32(binary.BigEndian.Uint16(pkt))
+	newCS += uint32(binary.BigEndian.Uint16(oldVal))
+	newCS += uint32(binary.BigEndian.Uint16(newVal))
+	for {
+		if (newCS >> 16) == 0 {
+			break
+		}
+		newCS = (newCS & 0xffff) + (newCS >> 16)
+	}
+	return binary.BigEndian.Uint16(uint16(newCS))*/
+	return 0
+}
+
+//UpdateChecksum2 change only one value
+func (o ICMPv4Header) UpdateChecksum2(old uint16, new uint16) {
+	var newCs uint16
+
+	newCs = UpdateInetChecksum(
+		binary.BigEndian.Uint16(o[2:4]),
+		old,
+		new)
+
+	binary.BigEndian.PutUint16(o[2:4], newCs)
+}
+
 // ICMPv4 is the layer for IPv4 ICMP packet data.
 type ICMPv4 struct {
 	BaseLayer

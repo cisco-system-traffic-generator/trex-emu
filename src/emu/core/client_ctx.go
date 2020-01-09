@@ -2,6 +2,8 @@ package core
 
 import (
 	"encoding/binary"
+	"external/google/gopacket/layers"
+	"net"
 	"unsafe"
 )
 
@@ -132,4 +134,19 @@ func (o *CClient) GetL2Header(broadcast bool, next uint16) []byte {
 	b = append(b, 0, 0)
 	binary.BigEndian.PutUint16(b[len(b)-2:], uint16(next))
 	return b
+}
+
+func (o *CClient) GetIPv4Header(broadcast bool, next uint8) ([]byte, uint16) {
+	l2 := o.GetL2Header(broadcast, uint16(layers.EthernetTypeIPv4))
+	offsetIPv4 := uint16(len(l2))
+	ipHeader := PacketUtlBuild(
+		&layers.IPv4{Version: 4, IHL: 5,
+			TTL:      128,
+			Id:       0xcc,
+			SrcIP:    net.IPv4(o.Ipv4[3], o.Ipv4[2], o.Ipv4[1], o.Ipv4[0]),
+			DstIP:    net.IPv4(o.DgIpv4[3], o.DgIpv4[2], o.DgIpv4[1], o.DgIpv4[0]),
+			Length:   44,
+			Protocol: layers.IPProtocol(next)})
+	l2 = append(l2, ipHeader...)
+	return l2, offsetIPv4
 }

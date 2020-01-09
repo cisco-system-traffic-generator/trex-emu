@@ -484,7 +484,12 @@ func rpcQueue2(tctx *core.CThreadCtx, test *ArpTestBase) int {
 }
 
 func TestPluginArp9(t *testing.T) {
+	var a uint16
+	var b uint16
+	a = 0x1234
+	b = ^a
 
+	fmt.Printf(" 0x%x 0xx%x \n", a, b)
 	/*a := &ArpTestBase{
 		testname:     "arp9",
 		dropAll:      true,
