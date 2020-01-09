@@ -442,7 +442,7 @@ func Test2() {
 
 func main() {
 	//arp.ARPTest()
-	fmt.Printf("hey \n")
-	return
+	//fmt.Printf("hey \n")
+	//return
 	RunCoreZmq()
 }

@@ -823,11 +823,11 @@ func HandleRxArpPacket(ps *core.ParserPacketState) int {
 
 	ns := ps.Tctx.GetNs(ps.Tun)
 	if ns == nil {
-		return -2
+		return -1
 	}
 	nsplg := ns.PluginCtx.Get(ARP_PLUG)
 	if nsplg == nil {
-		return -2
+		return -1
 	}
 	arpnPlug := nsplg.Ext.(*PluginArpNs)
 	arpnPlug.HandleRxArpPacket(ps.M, ps.L3)

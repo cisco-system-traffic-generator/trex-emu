@@ -1,9 +1,21 @@
 package icmp
 
+/* basic support for ICMP, ping does not work right now. just answer to
+
+EchoRequest
+TimestampRequest
+
+TBD - need to add support for ping command
+
+*/
+
 import (
 	"emu/core"
+	"encoding/binary"
 	"external/google/gopacket/layers"
 	"external/osamingo/jsonrpc"
+	"net"
+	"time"
 
 	"github.com/intel-go/fastjson"
 )
@@ -19,6 +31,7 @@ type IcmpNsStats struct {
 	pktRxIcmpResponse      uint64
 	pktRxErrTooShort       uint64
 	pktRxErrUnhandled      uint64
+	pktRxErrMulticastB     uint64
 	pktRxNoClientUnhandled uint64
 }
 
@@ -52,28 +65,42 @@ func NewIcmpNsStatsDb(o *IcmpNsStats) *core.CCounterDb {
 		Unit:     "ops",
 		DumpZero: false,
 		Info:     core.ScINFO})
+	db.Add(&core.CCounterRec{
+		Counter:  &o.pktRxErrTooShort,
+		Name:     "pktRxErrTooShort",
+		Help:     "rx too short",
+		Unit:     "ops",
+		DumpZero: false,
+		Info:     core.ScINFO})
+	db.Add(&core.CCounterRec{
+		Counter:  &o.pktRxErrUnhandled,
+		Name:     "pktRxErrUnhandled",
+		Help:     "rx wrong opcode",
+		Unit:     "ops",
+		DumpZero: false,
+		Info:     core.ScINFO})
+	db.Add(&core.CCounterRec{
+		Counter:  &o.pktRxNoClientUnhandled,
+		Name:     "pktRxNoClientUnhandled",
+		Help:     "rx no client ",
+		Unit:     "ops",
+		DumpZero: false,
+		Info:     core.ScINFO})
+	db.Add(&core.CCounterRec{
+		Counter:  &o.pktRxErrMulticastB,
+		Name:     "pktRxErrMulticastB",
+		Help:     "src ip is not valid ",
+		Unit:     "ops",
+		DumpZero: false,
+		Info:     core.ScINFO})
+
 	return db
 }
 
 // PluginArpClient icmp information per client
 type PluginIcmpClient struct {
 	core.PluginBase
-	//icmpPktTemplate []byte // template packet with
-	//icmpHeader      layers.ICMPv4 // point to template packet
-	//pktOffset  uint16
 	icmpNsPlug *PluginIcmpNs
-	//ipv4Header layers.IPv4Header
-	//icmpHeader layers.IcmpHeader
-}
-
-func (o *PluginIcmpClient) preparePacketTemplate() {
-	/*l3, ipoffset := o.Client.GetIPv4Header(false, uint8(layers.IPProtocolICMPv4))
-	o.pktOffset = uint16(arpOffset)
-	icmpHeader := core.PacketUtlBuild(
-		&layers.ICMPv4{TypeCode: layers.ICMPv4TypeEchoRequest, Id: 1, Seq: 0x11}
-	)
-	icmpPktTemplate = append(l3, icmpHeader...)
-	o.ipv4Header = layers.IPv4Header(o.arpPktTemplate[ipoffset : ipoffset+20])*/
 }
 
 var icmpEvents = []string{}
@@ -83,10 +110,9 @@ func NewIcmpClient(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
 	o := new(PluginIcmpClient)
 	o.InitPluginBase(ctx, o)             /* init base object*/
 	o.RegisterEvents(ctx, icmpEvents, o) /* register events, only if exits*/
-	//o.preparePacketTemplate()
 	nsplg := o.Ns.PluginCtx.GetOrCreate(ICMP_PLUG)
 	o.icmpNsPlug = nsplg.Ext.(*PluginIcmpNs)
-	//o.OnCreate()
+	o.OnCreate()
 	return &o.PluginBase
 }
 
@@ -105,16 +131,9 @@ func (o *PluginIcmpClient) OnCreate() {
 
 func (o *PluginIcmpClient) SendPing(dst uint32) {
 	if !o.Client.Ipv4.IsZero() {
-		//TBD
-		//o.Tctx.Veth.SendBuffer(false, o.Client, o.arpPktTemplate)
+		//TBD o.Tctx.Veth.SendBuffer(false, o.Client, o.arpPktTemplate)
+		//TBD need to add callback per client for resolve ip,mac
 	}
-}
-
-func (o *PluginIcmpClient) Respond() {
-
-	//o.arpNsPlug.stats.pktTxReply++
-	//o.Tctx.Veth.SendBuffer(false, o.Client, o.arpPktTemplate)
-	//eth.SetBroadcast() /* back to default as broadcast */
 }
 
 // PluginArpNs icmp information per namespace
@@ -143,26 +162,60 @@ func (o *PluginIcmpNs) SetTruncated() {
 
 }
 
-func (o *PluginIcmpNs) HandleEcho(ps *core.ParserPacketState) {
-	mc := m.DeepClone()
+func iptime() uint32 {
+	t := time.Now().UnixNano()
+	sec := t / int64(time.Second)
+	msec := (t - sec*int64(time.Second)) / int64(time.Millisecond)
+	r := uint32((sec%(24*60*60))*1000 + msec)
+	return r
+}
+
+func (o *PluginIcmpNs) HandleEcho(ps *core.ParserPacketState, ts bool) {
+	mc := ps.M.DeepClone()
 	p := mc.GetData()
 
 	eth := layers.EthernetHeader(p[0:12])
 	eth.SwapSrcDst()
+	if eth.IsBroadcast() || eth.IsMcast() {
+		o.stats.pktRxErrMulticastB++
+		mc.FreeMbuf()
+		return
+	}
+
 	ipv4 := layers.IPv4Header(p[ps.L3 : ps.L3+20])
 	ipv4.SwapSrcDst()
 	icmp := layers.ICMPv4Header(p[ps.L4:])
-	icmp.SetTypeCode(layers.ICMPv4TypeEchoReply)
-	icmp.UpdateChecksum2(uint16(layers.ICMPv4TypeEchoRequest), uint16(layers.ICMPv4TypeEchoReply))
+	if !ts {
+		ncode := layers.CreateICMPv4TypeCode(layers.ICMPv4TypeEchoReply, 0)
+		ocode := icmp.GetTypeCode()
+		icmp.SetTypeCode(ncode)
+		icmp.UpdateChecksum2(uint16(ocode), uint16(ncode))
+	} else {
+		ncode := layers.CreateICMPv4TypeCode(layers.ICMPv4TypeTimestampReply, 0)
+		icmp.SetTypeCode(ncode)
+		if len(icmp) < 20 {
+			o.stats.pktRxErrTooShort++
+			mc.FreeMbuf()
+			return
+		}
+		ipt := iptime()
+		binary.BigEndian.PutUint32(icmp[12:16], ipt)
+		binary.BigEndian.PutUint32(icmp[16:20], ipt)
+		icmp.UpdateChecksum()
+	}
+	o.stats.pktRxIcmpQuery++
+	o.stats.pktTxIcmpResponse++
+	o.Tctx.Veth.Send(mc)
 }
 
-func (o *PluginIcmpNs) HandleRxIcmpPacket(ps *core.ParserPacketState) {
+/* HandleRxIcmpPacket -1 for parser error, 0 valid  */
+func (o *PluginIcmpNs) HandleRxIcmpPacket(ps *core.ParserPacketState) int {
 
 	m := ps.M
 
 	if m.PktLen() < uint32(ps.L7) {
 		o.stats.pktRxErrTooShort++
-		return
+		return -1
 	}
 
 	p := m.GetData()
@@ -170,7 +223,7 @@ func (o *PluginIcmpNs) HandleRxIcmpPacket(ps *core.ParserPacketState) {
 	err := icmpv4.DecodeFromBytes(p[ps.L4:], o)
 	if err != nil {
 		o.stats.pktRxErrTooShort++
-		return
+		return -1
 	}
 
 	ipv4 := layers.IPv4Header(p[ps.L3 : ps.L3+20])
@@ -180,26 +233,29 @@ func (o *PluginIcmpNs) HandleRxIcmpPacket(ps *core.ParserPacketState) {
 	client := o.Ns.CLookupByIPv4(&ipv4Key)
 	if client == nil {
 		o.stats.pktRxNoClientUnhandled++
-		return
+		return 0
+	}
+	ipv4Key.SetUint32(ipv4.GetIPSrc())
+
+	/* source ip should be a valid ipv4 */
+	srcip := net.IPv4(ipv4Key[0], ipv4Key[1], ipv4Key[2], ipv4Key[3])
+	if !srcip.IsGlobalUnicast() {
+		o.stats.pktRxErrMulticastB++
+		return 0
 	}
 
 	switch icmpv4.TypeCode {
-	case layers.ICMPv4TypeEchoRequest:
-		o.HandleEcho(ps)
-	case layers.ICMPv4TypeTimestampRequest:
-
-	case layers.ICMPv4TypeInfoRequest:
+	case layers.CreateICMPv4TypeCode(layers.ICMPv4TypeEchoRequest, 0):
+		o.HandleEcho(ps, false)
+	case layers.CreateICMPv4TypeCode(layers.ICMPv4TypeTimestampRequest, 0):
+		o.HandleEcho(ps, true)
 
 	default:
 		o.stats.pktRxErrUnhandled++
 	}
 
+	return 0
 }
-
-// PluginArpThread  per thread
-/*type PluginArpThread struct {
-	core.PluginBase
-}*/
 
 // HandleRxArpPacket Parser call this function with mbuf from the pool
 // Either by register functions -- maybe it would be better to register the function
@@ -208,11 +264,11 @@ func HandleRxIcmpPacket(ps *core.ParserPacketState) int {
 
 	ns := ps.Tctx.GetNs(ps.Tun)
 	if ns == nil {
-		return -2
+		return -1
 	}
 	nsplg := ns.PluginCtx.Get(ICMP_PLUG)
 	if nsplg == nil {
-		return -2
+		return -1
 	}
 	icmpPlug := nsplg.Ext.(*PluginIcmpNs)
 	return icmpPlug.HandleRxIcmpPacket(ps)

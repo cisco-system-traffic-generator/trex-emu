@@ -218,18 +218,21 @@ func (o ICMPv4Header) SetTypeCode(code ICMPv4TypeCode) {
 func UpdateInetChecksum(pkt uint16,
 	oldVal uint16,
 	newVal uint16) uint16 {
-	/*var newCS uint32
-	newCS = uint32(binary.BigEndian.Uint16(pkt))
-	newCS += uint32(binary.BigEndian.Uint16(oldVal))
-	newCS += uint32(binary.BigEndian.Uint16(newVal))
-	for {
-		if (newCS >> 16) == 0 {
-			break
-		}
-		newCS = (newCS & 0xffff) + (newCS >> 16)
+	var csum uint32
+	csum = uint32(^pkt)
+	csum += uint32(^oldVal)
+	csum += uint32(newVal)
+
+	for csum > 0xffff {
+		csum = (csum >> 16) + (csum & 0xffff)
 	}
-	return binary.BigEndian.Uint16(uint16(newCS))*/
-	return 0
+	return ^uint16(csum)
+}
+
+func (o ICMPv4Header) UpdateChecksum() {
+	binary.BigEndian.PutUint16(o[2:4], 0)
+	cs := tcpipChecksum(o, 0)
+	binary.BigEndian.PutUint16(o[2:4], cs)
 }
 
 //UpdateChecksum2 change only one value

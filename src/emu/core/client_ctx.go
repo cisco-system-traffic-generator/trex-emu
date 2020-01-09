@@ -56,8 +56,10 @@ type CClient struct {
 	Ipv6   Ipv6Key // set the self ipv6
 	DgIpv6 Ipv6Key // default gateway
 	Ipv4   Ipv4Key // source ipv4
+	Maskv4 Ipv4Key // mask default 0xffffffff
 	DgIpv4 Ipv4Key // default gateway for ipv4
 	Mac    MACKey  // immutable over lifetime of client
+	MTU    uint16  // MTU in L3 1500 by default
 
 	DGW            *CClientDgIPv4 /* resolve by ARP */
 	ForceDGW       bool           /* true in case we want to enforce default gateway MAC */
@@ -90,6 +92,8 @@ func NewClient(ns *CNSCtx,
 	o.Ipv4 = Ipv4
 	o.Ipv6 = Ipv6
 	o.DgIpv4 = DgIpv4
+	o.Maskv4 = [4]byte{0xff, 0xff, 0xff, 0xff}
+	o.MTU = 1500
 	o.PluginCtx = NewPluginCtx(o, ns, ns.ThreadCtx, PLUGIN_LEVEL_CLIENT)
 	return o
 }
