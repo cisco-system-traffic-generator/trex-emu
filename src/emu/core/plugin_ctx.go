@@ -159,7 +159,7 @@ func (o *PluginCtx) CreatePlugins(plugins []string, initJson [][]byte) error {
 		if i < initlen {
 			initobj = initJson[i]
 		}
-		l := o.addPlugins(pl, initobj)
+		l := o.addPlugin(pl, initobj)
 		if l != nil {
 			errstrings = append(errstrings, l.Error())
 		}
@@ -204,8 +204,8 @@ func (o *PluginCtx) getRegLevel(v *PluginRegisterData) IPluginRegister {
 	return p
 }
 
-// addPlugins n
-func (o *PluginCtx) addPlugins(pl string, initJson []byte) error {
+// addPlugin add one plugin to PluginCtx 
+func (o *PluginCtx) addPlugin(pl string, initJson []byte) error {
 
 	v, ok := pluginregister.M[pl]
 	if !ok {
@@ -268,7 +268,7 @@ func (o *PluginCtx) callEx1Cb(pl string, cb string) {
 func (o *PluginCtx) GetOrCreate(pl string) *PluginBase {
 	obj, ok := o.mapPlugins[pl]
 	if !ok {
-		o.addPlugins(pl, nil)
+		o.addPlugin(pl, nil)
 		obj = o.Get(pl)
 	}
 

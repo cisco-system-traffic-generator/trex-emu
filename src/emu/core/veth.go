@@ -248,3 +248,9 @@ func (o *VethIFSimulator) SetDebug(monitor bool, capture bool) {
 func (o *VethIFSimulator) GetCdb() *CCounterDb {
 	return o.cdb
 }
+
+type VethSink struct {}
+func (o *VethSink) ProcessTxToRx(m *Mbuf) *Mbuf {
+	m.FreeMbuf()
+	return nil
+}

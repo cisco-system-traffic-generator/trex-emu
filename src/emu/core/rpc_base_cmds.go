@@ -32,11 +32,14 @@ type (
 		Timestamp float64 `json:"ts"`
 	}
 
+	/* Namespace Commands */
 	ApiNsAddHandler struct{}
-	ApiNsAddParams  struct{} /* key tunnel */
+	ApiNsAddParams  struct{
+		Plugins MapJsonPlugs `json:"plugins"`
+	} /* [key tunnel] */
 
 	ApiNsRemoveHandler struct{}
-	ApiNsRemoveParams  struct{} /* key tunnel*/
+	ApiNsRemoveParams  struct{} /* [key tunnel] */
 
 	ApiNsIterHandler struct{}
 	ApiNsIterParams  struct {
@@ -45,16 +48,51 @@ type (
 	}
 	ApiNsIterResult struct {
 		Empty  bool `json:"empty"`
-		Stoped bool `json:"stoped"`
+		Stopped bool `json:"stopped"`
 
 		Vec []*CTunnelDataJson `json:"data"`
 	}
 
+	ApiNsGetInfoHandler struct {}
+	ApiNsGetInfoParams struct {} /* [key tunnel] */
+	ApiNsGetInfoResult struct {
+		NsInfo []CNsInfo `json:"ns_info"`
+	}
+
+	/* Ns Default Plugins */
+	ApiNsSetDefPlugHandler struct {}
+	ApiNsSetDefPlugParams struct {
+		DefPlugs MapJsonPlugs `json:"def_plugs"`
+	}
+	ApiNsGetDefPlugHandler struct {}
+	ApiNsGetDefPlugResult struct {
+		DefPlugs MapJsonPlugs `json:"def_plugs"`
+	}
+
+	/* Client Commands */
 	ApiClientAddHandler struct{}
-	ApiClientAddParams  struct{} /* key tunnel,ClientCmd */
+	ApiClientAddParams  struct{} /* key tunnel, [ClientCmd] */
 
 	ApiClientRemoveHandler struct{}
-	ApiClientRemoveParams  struct{} /* key tunnel,MAC*/
+	ApiClientRemoveParams  struct{} /* key tunnel, [MAC] */
+
+	ApiClientGetInfoHandler struct {}
+	ApiClientGetInfoParams struct {} /* key tunnel, [MAC] */
+	ApiClientGetInfoResult struct {
+		ClientInfo []CClientInfo `json:"client_info"`
+	}
+
+
+	/* Client Default Plugins */
+	ApiClientSetDefPlugHandler struct {}
+	ApiClientSetDefPlugParams struct {
+		DefPlugs MapJsonPlugs `json:"def_plugs"`
+	} /* key tunnel */
+	ApiClientGetDefPlugHandler struct {}
+	ApiClientGetDefPlugParams struct {} /* key tunnel */
+	ApiClientGetDefPlugResult struct {
+		DefPlugs MapJsonPlugs `json:"def_plugs"`
+	}
 
 	ApiClientIterHandler struct{}
 	ApiClientIterParams  struct {
@@ -63,7 +101,7 @@ type (
 	}
 	ApiClientIterResult struct {
 		Empty  bool      `json:"empty"`
-		Stoped bool      `json:"stoped"`
+		Stopped bool      `json:"stopped"`
 		Vec    []*MACKey `json:"data"`
 	}
 
@@ -72,6 +110,7 @@ type (
 		Meta bool     `json:"meta"`
 		Zero bool     `json:"zero"`
 		Mask []string `json:"mask"` // get only specific counters blocks if it is empty get all
+		Clear bool	  `json:"clear"` // clear all counters
 	}
 )
 
@@ -137,7 +176,7 @@ func (h ApiSyncHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessag
 func (h ApiNsAddHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
 
 	tctx := ctx.(*CThreadCtx)
-	_, err := tctx.AddNsRpc(params)
+	err := tctx.AddNsRpcSlice(params)
 
 	if err != nil {
 		return nil, &jsonrpc.Error{
@@ -152,7 +191,7 @@ func (h ApiNsAddHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessa
 func (h ApiNsRemoveHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
 
 	tctx := ctx.(*CThreadCtx)
-	err := tctx.RemoveNsRpc(params)
+	err := tctx.RemoveNsRpcSlice(params)
 
 	if err != nil {
 		return nil, &jsonrpc.Error{
@@ -176,13 +215,13 @@ func (h ApiNsIterHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMess
 		}
 	}
 	if p.Reset {
-		res.Empty = tctx.IterReset()
+		res.Empty = !tctx.IterReset()
 	}
 	if res.Empty {
 		return &res, nil
 	}
 	if tctx.IterIsStopped() {
-		res.Stoped = true
+		res.Stopped = true
 		return &res, nil
 	}
 
@@ -204,6 +243,56 @@ func (h ApiNsIterHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMess
 	return &res, nil
 }
 
+func (h ApiNsGetInfoHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
+	
+	tctx := ctx.(*CThreadCtx)
+	keys, err := tctx.UnmarshalTunnels(*params)
+	if err != nil {
+		return nil, &jsonrpc.Error{
+			Code:    jsonrpc.ErrorCodeInvalidRequest,
+			Message: err.Error(),
+		}
+	}
+
+	var res ApiNsGetInfoResult
+	res.NsInfo = make([]CNsInfo, len(keys))
+	for i, key := range keys {
+		ns := tctx.GetNs(&key)
+		if ns == nil {
+			return nil, &jsonrpc.Error{
+				Code:    jsonrpc.ErrorCodeInvalidRequest,
+				Message: "error can't find a valid namespace for this tunnel",
+			}
+		}
+
+		res.NsInfo[i] = *ns.GetInfo()
+	}
+
+	return res.NsInfo, nil
+}
+
+func (h ApiNsSetDefPlugHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
+	tctx := ctx.(*CThreadCtx)
+	var p ApiNsSetDefPlugParams
+	err := tctx.UnmarshalValidate(*params, &p)
+	if err != nil {
+		return nil, &jsonrpc.Error{
+			Code:    jsonrpc.ErrorCodeInvalidRequest,
+			Message: err.Error(),
+		}
+	}
+	tctx.DefNsPlugs = p.DefPlugs
+	return nil, nil
+}
+
+func (h ApiNsGetDefPlugHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
+	tctx := ctx.(*CThreadCtx)
+	var res ApiNsGetDefPlugResult
+	res.DefPlugs = tctx.DefNsPlugs
+
+	return res, nil
+}
+
 func (h ApiClientAddHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
 
 	tctx := ctx.(*CThreadCtx)
@@ -214,7 +303,7 @@ func (h ApiClientAddHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawM
 			Message: err.Error(),
 		}
 	}
-	var newc CClientCmd
+	var newc CClientCmds
 
 	err = tctx.UnmarshalValidate(*params, &newc)
 	if err != nil {
@@ -224,22 +313,97 @@ func (h ApiClientAddHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawM
 		}
 	}
 
-	client := NewClient(ns, newc.Mac, newc.Ipv4, newc.Ipv6, newc.DgIpv4)
+	for _, c := range newc.Clients {
+		client := NewClient(ns, c.Mac, c.Ipv4, c.Ipv6, c.DgIpv4)
+		
+		err = ns.AddClient(client)
+		if err != nil {
+			return nil, &jsonrpc.Error{
+				Code:    jsonrpc.ErrorCodeInvalidRequest,
+				Message: err.Error(),
+			}
+		}
 
-	err = ns.AddClient(client)
+		/* add default plugins */
+		for plName, plData := range ns.DefClientPlugs {
+			err = client.PluginCtx.addPlugin(plName, *plData)
+			if err != nil {
+				return nil, &jsonrpc.Error{
+					Code:    jsonrpc.ErrorCodeInternal,
+					Message: err.Error(),
+				}
+			}
+		}
+	}
+	return nil, nil
+}
+
+func (h ApiClientRemoveHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
+
+	ns, keys, err := getNsAndMacs(ctx, params)
+	if err != nil {
+		return nil, &jsonrpc.Error{
+			Code:    jsonrpc.ErrorCodeInvalidRequest,
+			Message: err.Error(),
+			}
+	}
+
+	for _, key := range keys {
+		client := ns.CLookupByMac(&key)
+		if client == nil {
+				return nil, &jsonrpc.Error{
+					Code:    jsonrpc.ErrorCodeInvalidRequest,
+					Message: "client does exits ",
+				}
+		}
+	
+		err = ns.RemoveClient(client)
+		if err != nil {
+			return nil, &jsonrpc.Error{
+				Code:    jsonrpc.ErrorCodeInvalidRequest,
+				Message: err.Error(),
+			}
+		}
+	}
+	return nil, nil
+}
+
+func (h ApiClientGetInfoHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
+	
+	ns, keys, err := getNsAndMacs(ctx, params)
+	if err != nil {
+		return nil, &jsonrpc.Error{
+			Code:    jsonrpc.ErrorCodeInvalidRequest,
+			Message: err.Error(),
+			}
+	}
+
+	res := make([]CClientInfo, len(keys))
+	for i, key := range keys {
+		client := ns.GetClient(&key)
+		if client == nil {
+			return nil, &jsonrpc.Error{
+				Code:    jsonrpc.ErrorCodeInvalidRequest,
+				Message: err.Error(),
+			}
+		}
+		res[i] = *client.GetInfo() 
+	}
+
+	return res, nil
+}
+
+func (h ApiClientSetDefPlugHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
+	tctx := ctx.(*CThreadCtx)
+	var p ApiClientSetDefPlugParams
+	err := tctx.UnmarshalValidate(*params, &p)
 	if err != nil {
 		return nil, &jsonrpc.Error{
 			Code:    jsonrpc.ErrorCodeInvalidRequest,
 			Message: err.Error(),
 		}
 	}
-	/* TBD - register plugins */
-	return nil, nil
-}
 
-func (h ApiClientRemoveHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
-
-	tctx := ctx.(*CThreadCtx)
 	ns, err := tctx.GetNsRpc(params)
 	if err != nil {
 		return nil, &jsonrpc.Error{
@@ -247,35 +411,36 @@ func (h ApiClientRemoveHandler) ServeJSONRPC(ctx interface{}, params *fastjson.R
 			Message: err.Error(),
 		}
 	}
-
-	var key MACKey
-	err = tctx.UnmarshalMacKey(*params, &key)
-	if err != nil {
+	if ns == nil {
 		return nil, &jsonrpc.Error{
-			Code:    jsonrpc.ErrorCodeInvalidRequest,
-			Message: err.Error(),
+			Code:    jsonrpc.ErrorCodeInvalidParams,
+			Message: "namespace doesn't exists for set client default plugins ",
 		}
 	}
-
-	client := ns.CLookupByMac(&key)
-	if client == nil {
-		if err != nil {
-			return nil, &jsonrpc.Error{
-				Code:    jsonrpc.ErrorCodeInvalidRequest,
-				Message: "client does exits ",
-			}
-		}
-	}
-
-	err = ns.RemoveClient(client)
-	if err != nil {
-		return nil, &jsonrpc.Error{
-			Code:    jsonrpc.ErrorCodeInvalidRequest,
-			Message: err.Error(),
-		}
-	}
+	ns.DefClientPlugs = p.DefPlugs
 	return nil, nil
 }
+
+func (h ApiClientGetDefPlugHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
+	tctx := ctx.(*CThreadCtx)
+	ns, err := tctx.GetNsRpc(params)
+	if err != nil {
+		return nil, &jsonrpc.Error{
+			Code:    jsonrpc.ErrorCodeInvalidRequest,
+			Message: err.Error(),
+		}	
+	}
+	if ns == nil {
+		return nil, &jsonrpc.Error{
+			Code:    jsonrpc.ErrorCodeInvalidParams,
+			Message: "namespace doesn't exists for iteration",
+		}
+	}
+	var p ApiClientGetDefPlugResult
+	p.DefPlugs = ns.DefClientPlugs
+	return p, nil
+}
+
 
 func (h ApiClientIterHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
 
@@ -290,6 +455,12 @@ func (h ApiClientIterHandler) ServeJSONRPC(ctx interface{}, params *fastjson.Raw
 			Message: err.Error(),
 		}
 	}
+	if ns == nil {
+		return nil, &jsonrpc.Error{
+			Code:    jsonrpc.ErrorCodeInvalidParams,
+			Message: "namespace doesn't exists",
+		}
+	}
 
 	err = tctx.UnmarshalValidate(*params, &p)
 	if err != nil {
@@ -299,13 +470,13 @@ func (h ApiClientIterHandler) ServeJSONRPC(ctx interface{}, params *fastjson.Raw
 		}
 	}
 	if p.Reset {
-		res.Empty = ns.IterReset()
+		res.Empty = !ns.IterReset()
 	}
 	if res.Empty {
 		return &res, nil
 	}
 	if ns.IterIsStopped() {
-		res.Stoped = true
+		res.Stopped = true
 		return &res, nil
 	}
 	res.Vec, err = ns.GetNext(p.Count)
@@ -321,7 +492,7 @@ func (h ApiClientIterHandler) ServeJSONRPC(ctx interface{}, params *fastjson.Raw
 }
 
 func (h ApiCntHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
-
+	
 	var p ApiCntParams
 	tctx := ctx.(*CThreadCtx)
 
@@ -333,32 +504,48 @@ func (h ApiCntHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage
 		}
 	}
 
-	cdbv := tctx.GetCounterDbVec()
+	return tctx.GetCounterDbVec().GeneralCounters(&p)
+}
 
-	if p.Meta {
-		return cdbv.MarshalMeta(), nil
+func getNsAndMacs (ctx interface{}, params *fastjson.RawMessage) (*CNSCtx, []MACKey, error) {
+	tctx := ctx.(*CThreadCtx)
+	ns, err := tctx.GetNsRpc(params)
+	if err != nil {
+		return nil, nil, err
+	}
+	if ns == nil {
+		return nil, nil, &jsonrpc.Error{
+			Code:    jsonrpc.ErrorCodeInvalidParams,
+			Message: "namespace doesn't exists",
+		}
 	}
 
-	if p.Mask == nil || len(p.Mask) == 0 {
-		return cdbv.MarshalValues(p.Zero), nil
-	} else {
-		return cdbv.MarshalValuesMask(p.Zero, p.Mask), nil
+	keys, err := tctx.UnmarshalMacKeys(*params)
+	if err != nil {
+		return nil, nil, err
 	}
+	return ns, keys, nil
 }
 
 func init() {
 	RegisterCB("api_sync_v2", ApiSyncHandler{}, true)
-	RegisterCB("get_version", ApiGetVersionHandler{}, false)
+	RegisterCB("get_version", ApiGetVersionHandler{}, true)
 	RegisterCB("ping", ApiPingHandler{}, false)
 
-	RegisterCB("ctx_ns_add", ApiNsAddHandler{}, false)
-	RegisterCB("ctx_ns_remove", ApiNsRemoveHandler{}, false)
-	RegisterCB("ctx_ns_iter", ApiNsIterHandler{}, false)
+	RegisterCB("ctx_add", ApiNsAddHandler{}, false)
+	RegisterCB("ctx_remove", ApiNsRemoveHandler{}, false)
+	RegisterCB("ctx_iter", ApiNsIterHandler{}, false)
+	RegisterCB("ctx_get_info", ApiNsGetInfoHandler{}, false)
+	RegisterCB("ctx_set_def_plugins", ApiNsSetDefPlugHandler{}, false)
+	RegisterCB("ctx_get_def_plugins", ApiNsGetDefPlugHandler{}, false)
 	RegisterCB("ctx_cnt", ApiCntHandler{}, false) // get counters
 
-	RegisterCB("ns_client_add", ApiClientAddHandler{}, false)
-	RegisterCB("ns_client_remove", ApiClientRemoveHandler{}, false)
-	RegisterCB("ns_client_iter", ApiClientIterHandler{}, false)
+	RegisterCB("ctx_client_add", ApiClientAddHandler{}, false)
+	RegisterCB("ctx_client_remove", ApiClientRemoveHandler{}, false)
+	RegisterCB("ctx_client_get_info", ApiClientGetInfoHandler{}, false)
+	RegisterCB("ctx_client_set_def_plugins", ApiClientSetDefPlugHandler{}, false)
+	RegisterCB("ctx_client_get_def_plugins", ApiClientGetDefPlugHandler{}, false)
+	RegisterCB("ctx_client_iter", ApiClientIterHandler{}, false)
 	/* TBD add client_update */
 
 }

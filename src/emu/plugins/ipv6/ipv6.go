@@ -330,13 +330,8 @@ func (o PluginIpv6NsReg) NewPlugin(ctx *core.PluginCtx, initJson []byte) *core.P
 type (
 	ApiIpv6NsCntHandler struct{}
 	ApiIpv6NsCntParams  struct {
-		Meta bool     `json:"meta"`
-		Zero bool     `json:"zero"`
-		Mask []string `json:"mask"` // get only specific counters blocks if it is empty get all
-	}
-
-	/* Get counters metadata */
-	ApiIpv6NsCntMetaHandler struct{}
+		core.ApiCntParams
+	} /* [key tunnel] */
 
 	ApiMldNsAddHandler struct{}
 	ApiMldNsAddParams  struct {
@@ -374,18 +369,15 @@ type (
 	}
 )
 
-func getNs(ctx interface{}, params *fastjson.RawMessage) (*PluginIpv6Ns, *jsonrpc.Error) {
+func getNsPlugin(ctx interface{}, params *fastjson.RawMessage) (*PluginIpv6Ns, error) {
 	tctx := ctx.(*core.CThreadCtx)
 	plug, err := tctx.GetNsPlugin(params, IPV6_PLUG)
 
 	if err != nil {
-		return nil, &jsonrpc.Error{
-			Code:    jsonrpc.ErrorCodeInvalidRequest,
-			Message: err.Error(),
-		}
+		return nil, err
 	}
 
-	icmpNs := plug.Ext.(*PluginIpv6Ns)
+	icmpNs := plug.(*PluginIpv6Ns)
 
 	return icmpNs, nil
 }
@@ -410,39 +402,35 @@ func (h ApiIpv6NsCntHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawM
 	var p ApiIpv6NsCntParams
 	tctx := ctx.(*core.CThreadCtx)
 
-	ipv6Ns, err := getNs(ctx, params)
+	ipv6Ns, err := getNsPlugin(ctx, params)
 	if err != nil {
-		return nil, err
-	}
-
-	err1 := tctx.UnmarshalValidate(*params, &p)
-	if err1 != nil {
 		return nil, &jsonrpc.Error{
 			Code:    jsonrpc.ErrorCodeInvalidRequest,
-			Message: err1.Error(),
+			Message: err.Error(),
 		}
 	}
 
-	cdbv := ipv6Ns.cdbv
-
-	if p.Meta {
-		return cdbv.MarshalMeta(), nil
+	err = tctx.UnmarshalValidate(*params, &p)
+	if err != nil {
+		return nil, &jsonrpc.Error{
+			Code:    jsonrpc.ErrorCodeInvalidRequest,
+			Message: err.Error(),
+		}
 	}
 
-	if p.Mask == nil || len(p.Mask) == 0 {
-		return cdbv.MarshalValues(p.Zero), nil
-	} else {
-		return cdbv.MarshalValuesMask(p.Zero, p.Mask), nil
-	}
+	return ipv6Ns.cdbv.GeneralCounters(&p.ApiCntParams)
 }
 
 func (h ApiMldNsAddHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
 	var p ApiMldNsAddParams
 	tctx := ctx.(*core.CThreadCtx)
 
-	ipv6Ns, err := getNs(ctx, params)
+	ipv6Ns, err := getNsPlugin(ctx, params)
 	if err != nil {
-		return nil, err
+		return nil, &jsonrpc.Error{
+			Code:    jsonrpc.ErrorCodeInvalidRequest,
+			Message: err.Error(),
+		}	
 	}
 
 	err1 := tctx.UnmarshalValidate(*params, &p)
@@ -469,9 +457,12 @@ func (h ApiMldNsRemoveHandler) ServeJSONRPC(ctx interface{}, params *fastjson.Ra
 	var p ApiMldNsRemoveParams
 	tctx := ctx.(*core.CThreadCtx)
 
-	ipv6Ns, err := getNs(ctx, params)
+	ipv6Ns, err := getNsPlugin(ctx, params)
 	if err != nil {
-		return nil, err
+		return nil, &jsonrpc.Error{
+			Code:    jsonrpc.ErrorCodeInvalidRequest,
+			Message: err.Error(),
+		}
 	}
 
 	err1 := tctx.UnmarshalValidate(*params, &p)
@@ -501,9 +492,12 @@ func (h ApiMldNsIterHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawM
 
 	tctx := ctx.(*core.CThreadCtx)
 
-	ipv6Ns, err := getNs(ctx, params)
+	ipv6Ns, err := getNsPlugin(ctx, params)
 	if err != nil {
-		return nil, err
+		return nil, &jsonrpc.Error{
+			Code:    jsonrpc.ErrorCodeInvalidRequest,
+			Message: err.Error(),
+		}
 	}
 
 	err1 := tctx.UnmarshalValidate(*params, &p)
@@ -542,9 +536,12 @@ func (h ApiMldSetHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMess
 
 	tctx := ctx.(*core.CThreadCtx)
 
-	ipv6Ns, err := getNs(ctx, params)
+	ipv6Ns, err := getNsPlugin(ctx, params)
 	if err != nil {
-		return nil, err
+		return nil, &jsonrpc.Error{
+			Code:    jsonrpc.ErrorCodeInvalidRequest,
+			Message: err.Error(),
+		}
 	}
 
 	err1 := tctx.UnmarshalValidate(*params, &p)
@@ -569,9 +566,12 @@ func (h ApiMldGetHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMess
 
 	var res ApiMldGetResult
 
-	ipv6Ns, err := getNs(ctx, params)
+	ipv6Ns, err := getNsPlugin(ctx, params)
 	if err != nil {
-		return nil, err
+		return nil, &jsonrpc.Error{
+			Code:    jsonrpc.ErrorCodeInvalidRequest,
+			Message: err.Error(),
+		}	
 	}
 
 	res.Mtu = ipv6Ns.mld.mtu

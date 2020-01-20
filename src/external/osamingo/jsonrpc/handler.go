@@ -18,7 +18,8 @@ type Handler interface {
 func (mr *MethodRepository) ServeBytes(req []byte) []byte {
 
 	if mr.Verbose {
-		fmt.Println(string(req))
+		fmt.Println("[verbose] Got Request to Server:")
+		fmt.Println(string(req) + "\n")
 	}
 	rs, batch, err := ParseRequestBytes(req)
 	if err != nil {
@@ -38,7 +39,8 @@ func (mr *MethodRepository) ServeBytes(req []byte) []byte {
 
 	b, _ := GetResponseBytes(resp, batch)
 	if mr.Verbose {
-		fmt.Println(string(b))
+		fmt.Println("[verbose] Sending Response to Client:")
+		fmt.Println(string(b) + "\n\n")
 	}
 	return b
 }
@@ -110,6 +112,9 @@ func (mr *MethodRepository) InvokeMethod(c context.Context, r *Request) *Respons
 	}
 
 	res.Result, res.Error = h.ServeJSONRPC(mr.ctx, r.Params)
+	if res.Result == nil {
+		res.Result = true
+	}
 	if res.Error != nil {
 		res.Result = nil
 	}

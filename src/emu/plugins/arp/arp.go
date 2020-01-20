@@ -662,6 +662,7 @@ type PluginArpNs struct {
 	tbl       ArpFlowTable
 	stats     ArpNsStats
 	cdb       *core.CCounterDb
+	cdbv      *core.CCounterDbVec
 }
 
 func NewArpNs(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
@@ -672,6 +673,8 @@ func NewArpNs(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
 	o.tbl.Create(ctx.Tctx.GetTimerCtx())
 	o.tbl.stats = &o.stats
 	o.cdb = NewArpNsStatsDb(&o.stats)
+	o.cdbv = core.NewCCounterDbVec("arp")
+	o.cdbv.Add(o.cdb)
 	return &o.PluginBase
 }
 
@@ -858,14 +861,11 @@ type (
 
 	ApiArpNsGetCfgHandler struct{}
 
-	/* Get counters metadata */
-	ApiArpNsCntMetaHandler struct{}
+	ApiArpNsCntHandler struct {}
+	ApiArpNsCntParams struct {
+		core.ApiCntParams
+	} /* [key tunnel] */
 
-	/* Get counters  */
-	ApiArpNsCntValueHandler struct{}
-	ApiArpNsCntValueParams  struct { /* +tunnel*/
-		Zero bool `json:"zero"` /* dump zero too */
-	}
 
 	ApiArpCCmdQueryHandler struct{} /* +tunnel*/
 	ApiArpCCmdQueryParams  struct {
@@ -873,19 +873,15 @@ type (
 	}
 )
 
-func getNs(ctx interface{}, params *fastjson.RawMessage) (*PluginArpNs, *jsonrpc.Error) {
+func getNsPlugin(ctx interface{}, params *fastjson.RawMessage) (*PluginArpNs, error) {
 	tctx := ctx.(*core.CThreadCtx)
 	plug, err := tctx.GetNsPlugin(params, ARP_PLUG)
 
 	if err != nil {
-		return nil, &jsonrpc.Error{
-			Code:    jsonrpc.ErrorCodeInvalidRequest,
-			Message: err.Error(),
-		}
+		return nil, err
 	}
 
-	arpNs := plug.Ext.(*PluginArpNs)
-
+	arpNs := plug.(*PluginArpNs)
 	return arpNs, nil
 }
 
@@ -909,7 +905,7 @@ func (h ApiArpNsSetCfgHandler) ServeJSONRPC(ctx interface{}, params *fastjson.Ra
 
 	var arpobj ApiArpNsSetCfgParams
 	tctx := ctx.(*core.CThreadCtx)
-	plug, err := tctx.GetNsPlugin(params, ARP_PLUG)
+	arpNs, err := getNsPlugin(ctx, params)
 
 	if err != nil {
 		return nil, &jsonrpc.Error{
@@ -927,8 +923,6 @@ func (h ApiArpNsSetCfgHandler) ServeJSONRPC(ctx interface{}, params *fastjson.Ra
 		}
 	}
 
-	arpNs := plug.Ext.(*PluginArpNs)
-
 	arpNs.arpEnable = arpobj.Enable
 
 	return nil, nil
@@ -936,42 +930,39 @@ func (h ApiArpNsSetCfgHandler) ServeJSONRPC(ctx interface{}, params *fastjson.Ra
 
 func (h ApiArpNsGetCfgHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
 
-	arpNs, err := getNs(ctx, params)
+	arpNs, err := getNsPlugin(ctx, params)
 	if err != nil {
-		return nil, err
+		return nil, &jsonrpc.Error{
+			Code:    jsonrpc.ErrorCodeInvalidRequest,
+			Message: err.Error(),
+		}
 	}
 	return &ApiArpNsSetCfgParams{Enable: arpNs.arpEnable}, nil
 }
 
-func (h ApiArpNsCntMetaHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
+func (h ApiArpNsCntHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
 
-	arpNs, err := getNs(ctx, params)
-	if err != nil {
-		return nil, err
-	}
-	return arpNs.cdb, nil
-}
-
-func (h ApiArpNsCntValueHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
-
-	var p ApiArpNsCntValueParams
+	var p ApiArpNsCntParams
 	tctx := ctx.(*core.CThreadCtx)
 
-	arpNs, err := getNs(ctx, params)
+	arpNsPlug, err := getNsPlugin(ctx, params)
 	if err != nil {
-		return nil, err
-	}
-
-	err1 := tctx.UnmarshalValidate(*params, &p)
-
-	if err1 != nil {
 		return nil, &jsonrpc.Error{
 			Code:    jsonrpc.ErrorCodeInvalidRequest,
-			Message: err1.Error(),
+			Message: err.Error(),
 		}
 	}
 
-	return arpNs.cdb.MarshalValues(p.Zero), nil
+	err = tctx.UnmarshalValidate(*params, &p)
+
+	if err != nil {
+		return nil, &jsonrpc.Error{
+			Code:    jsonrpc.ErrorCodeInvalidRequest,
+			Message: err.Error(),
+		}
+	}
+
+	return arpNsPlug.cdbv.GeneralCounters(&p.ApiCntParams)
 }
 
 func (h ApiArpCCmdQueryHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
@@ -1025,8 +1016,7 @@ func init() {
 	*/
 	core.RegisterCB("arp_ns_set_cfg", ApiArpNsSetCfgHandler{}, true)
 	core.RegisterCB("arp_ns_get_cfg", ApiArpNsGetCfgHandler{}, true)
-	core.RegisterCB("arp_ns_get_cnt_meta", ApiArpNsCntMetaHandler{}, true)
-	core.RegisterCB("arp_ns_get_cnt_val", ApiArpNsCntValueHandler{}, true)
+	core.RegisterCB("arp_ns_cnt", ApiArpNsCntHandler{}, true)
 	core.RegisterCB("arp_c_cmd_query", ApiArpCCmdQueryHandler{}, true)
 
 	/* register callback for rx side*/

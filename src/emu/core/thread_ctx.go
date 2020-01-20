@@ -42,6 +42,10 @@ type RpcCmdTunnel struct {
 	Tun CTunnelDataJson `json:"tun" validate:"required"`
 }
 
+type RpcCmdTunnels struct {
+	Tunnels []CTunnelDataJson `json:"tunnels" validate:"required"`
+}
+
 type CTunnelKey [4 + 4 + 4]byte
 
 func (o *CTunnelKey) DumpHex() {
@@ -127,6 +131,8 @@ type CThreadCtxStats struct {
 	activeNs uint64 // calculated field
 }
 
+type MapJsonPlugs map[string]*fastjson.RawMessage
+
 func (o *CThreadCtxStats) PreUpdate() {
 	if o.addNs > o.removeNs {
 		o.activeNs = o.addNs - o.removeNs
@@ -187,6 +193,7 @@ type CThreadCtx struct {
 	simRecorder []interface{} // record event for simulation
 	cdbv        *CCounterDbVec
 	clientStats CClientStats
+	DefNsPlugs     MapJsonPlugs // Default plugins for each new namespace
 }
 
 func NewThreadCtx(Id uint32, serverPort uint16, simulation bool, simRx *VethIFSim) *CThreadCtx {
@@ -200,18 +207,18 @@ func NewThreadCtx(Id uint32, serverPort uint16, simulation bool, simRx *VethIFSi
 	o.rpc.SetCtx(o) /* back pointer to interface this */
 	o.nsHead.SetSelf()
 	o.PluginCtx = NewPluginCtx(nil, nil, o, PLUGIN_LEVEL_THREAD)
+	o.DefNsPlugs = make(MapJsonPlugs)
 	o.validate = validator.New()
 	o.parser.Init(o)
-	if simulation {
-		var simv VethIFSimulator
-		simv.Create(o)
-		if simRx == nil {
-			panic(" ERROR in case of simulation mode VethIFSim should be provided ")
-		}
-		simv.Sim = *simRx
-		o.Veth = &simv
-		o.simRecorder = make([]interface{}, 0)
+	var simv VethIFSimulator
+	simv.Create(o)
+	if simRx == nil && simulation {
+		panic(" ERROR in case of simulation mode VethIFSim should be provided ")
 	}
+	simv.Sim = *simRx
+	o.Veth = &simv
+	o.simRecorder = make([]interface{}, 0)
+
 	/* counters */
 	o.cdbv = NewCCounterDbVec("ctx")
 	o.cdbv.AddVec(o.MPool.Cdbv)
@@ -308,6 +315,7 @@ func (o *CThreadCtx) MainLoop() {
 			o.rpc.HandleReqToChan(req) // RPC command
 		case <-o.C():
 			o.timerctx.HandleTicks()
+			o.Veth.SimulatorCheckRxQueue()
 		}
 	}
 
@@ -365,6 +373,15 @@ func (o *CThreadCtx) UnmarshalMacKey(data []byte, key *MACKey) error {
 	return nil
 }
 
+func (o *CThreadCtx) UnmarshalMacKeys(data []byte) ([]MACKey, error) {
+	var rkey RpcCmdMacs
+	err := o.UnmarshalValidate(data, &rkey)
+	if err != nil {
+		return nil, err
+	}
+	return rkey.MACKeys, nil
+}
+
 func (o *CThreadCtx) UnmarshalTunnel(data []byte, key *CTunnelKey) error {
 	var tun RpcCmdTunnel
 	err := o.UnmarshalValidate(data, &tun)
@@ -374,6 +391,20 @@ func (o *CThreadCtx) UnmarshalTunnel(data []byte, key *CTunnelKey) error {
 	key.SetJson(&tun.Tun)
 	return nil
 }
+
+func (o *CThreadCtx) UnmarshalTunnels(data []byte) ([]CTunnelKey, error) {
+	var tuns RpcCmdTunnels
+	err := o.UnmarshalValidate(data, &tuns)
+	if err != nil {
+		return nil, err
+	}
+	keys := make([]CTunnelKey, len(tuns.Tunnels))
+	for i, tun := range tuns.Tunnels {
+		keys[i].SetJson(&tun)
+	}
+	return keys, nil
+}
+
 func (o *CThreadCtx) RemoveNsRpc(params *fastjson.RawMessage) error {
 	var key CTunnelKey
 	err := o.UnmarshalTunnel(*params, &key)
@@ -388,6 +419,28 @@ func (o *CThreadCtx) RemoveNsRpc(params *fastjson.RawMessage) error {
 
 	/* add plugin data */
 	o.RemoveNs(&key)
+	return nil
+}
+
+func (o *CThreadCtx) RemoveNsRpcSlice(params *fastjson.RawMessage) error {
+	keys, err := o.UnmarshalTunnels(*params)
+	if err != nil {
+		return err
+	}
+
+	for _, key := range keys {
+		ns := o.GetNs(&key)
+		if ns == nil {
+			return fmt.Errorf(" error can't find a valid namespace for this tunnel")
+		}
+
+		/* add plugin data */
+		err := o.RemoveNs(&key)
+		if err != nil {
+			return err
+		}
+	}
+	
 	return nil
 }
 
@@ -409,6 +462,67 @@ func (o *CThreadCtx) AddNsRpc(params *fastjson.RawMessage) (*CNSCtx, error) {
 	return ns, nil
 }
 
+func (o *CThreadCtx) AddNsRpcSlice(params *fastjson.RawMessage) error {
+	keys, err := o.UnmarshalTunnels(*params)
+	if err != nil {
+		return err
+	}
+
+	var p ApiNsAddParams
+	err = o.UnmarshalValidate(*params, &p)
+	if err != nil {
+		return err
+	}
+
+	for _, key := range keys {
+		ns := o.GetNs(&key)
+		if ns != nil {
+			err = fmt.Errorf(" error there is valid namespace for this tunnel: %s, can't add it ", key)
+			return err
+		}
+
+		ns = NewNSCtx(o, &key)
+		/* add plugin data */
+		err := o.AddNs(&key, ns)
+		if err != nil {
+			return err
+		}
+		
+		if err = o.addPluginsNs(ns, p); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (o *CThreadCtx) addPluginsNs(ns *CNSCtx, p ApiNsAddParams) error {
+	var err error
+
+	/* add default plugins */
+	for plName, plData := range o.DefNsPlugs {
+		var data *fastjson.RawMessage
+		if val, ok := p.Plugins[plName]; ok {
+			data = val
+		} else {
+			data = plData
+		}
+		if err = ns.PluginCtx.addPlugin(plName, *data); err != nil {
+			return err
+		}			
+	}
+
+	/* add plugins from params we haven't added yet */
+	for plName, plData := range p.Plugins {
+		if _, ok := o.DefNsPlugs[plName]; !ok {
+			if err = ns.PluginCtx.addPlugin(plName, *plData); err != nil {
+				return err
+			}	
+		}
+	}
+	return nil
+}
+
 func (o *CThreadCtx) GetNsRpc(params *fastjson.RawMessage) (*CNSCtx, error) {
 	var key CTunnelKey
 	err := o.UnmarshalTunnel(*params, &key)
@@ -421,26 +535,6 @@ func (o *CThreadCtx) GetNsRpc(params *fastjson.RawMessage) (*CNSCtx, error) {
 		return nil, err
 	}
 	return ns, nil
-}
-
-func (o *CThreadCtx) GetNsPlugin(params *fastjson.RawMessage, plugin string) (*PluginBase, error) {
-	var key CTunnelKey
-	err := o.UnmarshalTunnel(*params, &key)
-	if err != nil {
-		return nil, err
-	}
-	ns := o.GetNs(&key)
-	if ns == nil {
-		err = fmt.Errorf(" error there is valid namespace for this tunnel ")
-		return nil, err
-	}
-	plug := ns.PluginCtx.Get(plugin)
-	if plug == nil {
-		err = fmt.Errorf(" error there is valid plugin %s for this tunnel ", plugin)
-		return nil, err
-	}
-
-	return plug, nil
 }
 
 func (o *CThreadCtx) UnmarshalValidate(data []byte, v interface{}) error {
@@ -500,13 +594,38 @@ func (o *CThreadCtx) RemoveNs(key *CTunnelKey) error {
 	if !o.HasNs(key) {
 		return fmt.Errorf("ns with tunnel %v does not exists, could not remove", *key)
 	}
-	o.stats.removeNs++
 	ns := o.GetNs(key)
+	ns.stats.PreUpdate()
+	if ns.stats.activeClient > 0 {
+		return fmt.Errorf("ns with tunnel %v still has active clients, remove them", *key)
+	}
 	ns.OnRemove()
+	o.stats.removeNs++
 	o.epoc++
 	o.nsHead.RemoveNode(&ns.dlist)
 	delete(o.mapNs, *key)
 	return nil
+}
+
+// GetNsPlugin gets the wanted plugin object named `plugName`
+func (o *CThreadCtx) GetNsPlugin(params *fastjson.RawMessage, plugName string) (interface{}, error) {
+	var key CTunnelKey
+	err := o.UnmarshalTunnel(*params, &key)
+	if err != nil {
+		return nil, err
+	}
+	ns := o.GetNs(&key)	
+	if ns == nil {
+		err = fmt.Errorf(" error there is not a valid namespace for this tunnel: %v", key)
+		return nil, err
+	}
+	plug := ns.PluginCtx.Get(plugName)
+	if plug == nil {
+		err = fmt.Errorf(" error there isn't a valid plugin %s for this tunnel: %v ", plugName, key)
+		return nil, err
+	}
+
+	return plug.Ext, nil
 }
 
 // IterReset save the rpc epoc and operate only if there wasn't a change
@@ -596,4 +715,8 @@ func (o *CThreadCtx) GetTickSimInSec() float64 {
 
 func (o *CThreadCtx) GetCounterDbVec() *CCounterDbVec {
 	return o.cdbv
+}
+
+func (o *CThreadCtx) SetVerbose(v bool) {
+	o.rpc.mr.Verbose = v
 }

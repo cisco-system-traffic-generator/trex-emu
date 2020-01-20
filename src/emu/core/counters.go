@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"reflect"
 	"unsafe"
+	"external/osamingo/jsonrpc"
 )
 
 /* CCounter Type */
@@ -274,4 +275,24 @@ func (o *CCounterDbVec) MarshalMeta() map[string]interface{} {
 		m[obj.Name] = obj
 	}
 	return (m)
+}
+
+//GeneralCounters function for all types of counters i.e: ctx, arp, igmp..
+func (o *CCounterDbVec) GeneralCounters(p *ApiCntParams) (interface{}, *jsonrpc.Error) {
+
+	if p.Clear {
+		o.ClearValues()
+		return nil, nil
+	}
+
+	if p.Meta {
+		return o.MarshalMeta(), nil
+	}
+
+	if p.Mask == nil || len(p.Mask) == 0 {
+		return o.MarshalValues(p.Zero), nil
+	} else {
+		return o.MarshalValuesMask(p.Zero, p.Mask), nil
+	}
+
 }

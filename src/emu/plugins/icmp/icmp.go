@@ -141,6 +141,7 @@ type PluginIcmpNs struct {
 	core.PluginBase
 	stats IcmpNsStats
 	cdb   *core.CCounterDb
+	cdbv  *core.CCounterDbVec
 }
 
 func NewIcmpNs(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
@@ -148,6 +149,8 @@ func NewIcmpNs(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
 	o.InitPluginBase(ctx, o)
 	o.RegisterEvents(ctx, []string{}, o)
 	o.cdb = NewIcmpNsStatsDb(&o.stats)
+	o.cdbv = core.NewCCounterDbVec("icmp")
+	o.cdbv.Add(o.cdb)
 	return &o.PluginBase
 }
 
@@ -306,20 +309,22 @@ type (
 	ApiIcmpNsCntValueParams  struct { /* +tunnel*/
 		Zero bool `json:"zero"` /* dump zero too */
 	}
+
+	ApiIcmpNsCntHandler struct {}
+	ApiIcmpNsCntParams struct {
+		core.ApiCntParams
+	} /* [key tunnel] */
 )
 
-func getNs(ctx interface{}, params *fastjson.RawMessage) (*PluginIcmpNs, *jsonrpc.Error) {
+func getNsPlugin(ctx interface{}, params *fastjson.RawMessage) (*PluginIcmpNs, error) {
 	tctx := ctx.(*core.CThreadCtx)
 	plug, err := tctx.GetNsPlugin(params, ICMP_PLUG)
 
 	if err != nil {
-		return nil, &jsonrpc.Error{
-			Code:    jsonrpc.ErrorCodeInvalidRequest,
-			Message: err.Error(),
-		}
+		return nil, err
 	}
 
-	icmpNs := plug.Ext.(*PluginIcmpNs)
+	icmpNs := plug.(*PluginIcmpNs)
 
 	return icmpNs, nil
 }
@@ -340,23 +345,15 @@ func getClient(ctx interface{}, params *fastjson.RawMessage) (*PluginIcmpClient,
 	return icmpClient, nil
 }
 
-func (h ApiIcmpNsCntMetaHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
+func (h ApiIcmpNsCntHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
 
-	icmpNs, err := getNs(ctx, params)
-	if err != nil {
-		return nil, err
-	}
-	return icmpNs.cdb, nil
-}
-
-func (h ApiIcmpNsCntValueHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
-
-	var p ApiIcmpNsCntValueParams
+	var p ApiIcmpNsCntParams
 	tctx := ctx.(*core.CThreadCtx)
 
-	icmpNs, err := getNs(ctx, params)
-	if err != nil {
-		return nil, err
+	icmpNs, err := getNsPlugin(ctx, params)
+	return nil, &jsonrpc.Error{
+		Code:    jsonrpc.ErrorCodeInvalidRequest,
+		Message: err.Error(),
 	}
 
 	err1 := tctx.UnmarshalValidate(*params, &p)
@@ -368,7 +365,11 @@ func (h ApiIcmpNsCntValueHandler) ServeJSONRPC(ctx interface{}, params *fastjson
 		}
 	}
 
-	return icmpNs.cdb.MarshalValues(p.Zero), nil
+	return icmpNs.cdbv.GeneralCounters(&p.ApiCntParams)
+}
+
+func Register(ctx *core.CThreadCtx) {
+    ctx.RegisterParserCb("icmp")
 }
 
 func init() {
@@ -393,8 +394,8 @@ func init() {
 
 	  aa - misc
 	*/
-	core.RegisterCB("icmp_ns_get_cnt_meta", ApiIcmpNsCntMetaHandler{}, true)
-	core.RegisterCB("icmp_ns_get_cnt_val", ApiIcmpNsCntValueHandler{}, true)
+
+	core.RegisterCB("icmp_ns_cnt", ApiIcmpNsCntHandler{}, true)
 
 	/* register callback for rx side*/
 	core.ParserRegister("icmp", HandleRxIcmpPacket)

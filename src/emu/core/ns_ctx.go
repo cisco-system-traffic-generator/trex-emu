@@ -55,6 +55,10 @@ type RpcCmdMac struct {
 	MACKey MACKey `json:"mac" validate:"required"`
 }
 
+type RpcCmdMacs struct {
+	MACKeys []MACKey `json:"macs" validate:"required"`
+}
+
 type MapClientIPv6 map[Ipv6Key]*CClient
 type MapClientIPv4 map[Ipv4Key]*CClient
 type MapClientMAC map[MACKey]*CClient
@@ -159,6 +163,16 @@ type CNSCtx struct {
 	iterReady  bool
 	iter       DListIterHead
 	cdb        *CCounterDb
+	DefClientPlugs MapJsonPlugs // Default plugins for each new client
+}
+
+type CNsInfo struct {
+	Port uint16    `json:"vport" validate:"required"`
+	Tci  []uint16 `json:"tpid"`
+	Tpid []uint16 `json:"tci"`
+	ActiveClients uint64 `json:"active_clients"`
+	PluginsCount  uint64 `json:"plugins_count"`
+	// TODO add more later ..
 }
 
 // NewNSCtx create new one
@@ -173,6 +187,7 @@ func NewNSCtx(tctx *CThreadCtx,
 	o.mapIpv4 = make(MapClientIPv4)
 	o.mapMAC = make(MapClientMAC)
 	o.PluginCtx = NewPluginCtx(nil, o, tctx, PLUGIN_LEVEL_NS)
+	o.DefClientPlugs = make(MapJsonPlugs)
 	o.clientHead.SetSelf()
 	o.iterReady = false
 	return o
@@ -406,6 +421,34 @@ func (o *CNSCtx) GetNext(n uint16) ([]*MACKey, error) {
 		o.iter.Next()
 	}
 	return r, nil
+}
+
+func (o *CNSCtx) GetInfo() *CNsInfo {
+	var info CNsInfo
+	o.stats.PreUpdate()
+	
+	var d CTunnelDataJson
+	o.Key.GetJson(&d)
+	info.Port          = d.Vport
+	info.Tci           = d.Tci
+	info.Tpid          = d.Tpid
+	info.ActiveClients = o.stats.activeClient
+	info.PluginsCount  = uint64(len(o.PluginCtx.mapPlugins))
+	return &info
+}
+
+func (o *CNSCtx) HasClient(key *MACKey) bool {
+	_, ok := o.mapMAC[*key]
+	return ok
+}
+
+func (o *CNSCtx) GetClient(key *MACKey) *CClient {
+	if o.HasClient(key) {
+		r, _ := o.mapMAC[*key]
+		return r
+	} else {
+		return nil
+	}
 }
 
 func (o *CNSCtx) Dump() {

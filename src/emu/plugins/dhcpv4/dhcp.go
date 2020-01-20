@@ -738,10 +738,8 @@ func (o PluginDhcpNsReg) NewPlugin(ctx *core.PluginCtx, initJson []byte) *core.P
 type (
 	ApiDhcpClientCntHandler struct{}
 	ApiDhcpClientCntParams  struct {
-		Meta bool     `json:"meta"`
-		Zero bool     `json:"zero"`
-		Mask []string `json:"mask"` // get only specific counters blocks if it is empty get all
-	}
+		core.ApiCntParams
+	} /* [key tunnel] */
 )
 
 func getNs(ctx interface{}, params *fastjson.RawMessage) (*PluginDhcpNs, *jsonrpc.Error) {
@@ -755,12 +753,12 @@ func getNs(ctx interface{}, params *fastjson.RawMessage) (*PluginDhcpNs, *jsonrp
 		}
 	}
 
-	arpNs := plug.Ext.(*PluginDhcpNs)
+	arpNs := plug.(*PluginDhcpNs)
 
 	return arpNs, nil
 }
 
-func getClient(ctx interface{}, params *fastjson.RawMessage) (*PluginDhcpClient, *jsonrpc.Error) {
+func getClientPlugin(ctx interface{}, params *fastjson.RawMessage) (*PluginDhcpClient, *jsonrpc.Error) {
 	tctx := ctx.(*core.CThreadCtx)
 
 	plug, err := tctx.GetClientPlugin(params, DHCP_PLUG)
@@ -782,7 +780,7 @@ func (h ApiDhcpClientCntHandler) ServeJSONRPC(ctx interface{}, params *fastjson.
 	var p ApiDhcpClientCntParams
 
 	tctx := ctx.(*core.CThreadCtx)
-	c, err := getClient(ctx, params)
+	c, err := getClientPlugin(ctx, params)
 	if err != nil {
 		return nil, err
 	}
@@ -795,17 +793,7 @@ func (h ApiDhcpClientCntHandler) ServeJSONRPC(ctx interface{}, params *fastjson.
 		}
 	}
 
-	cdbv := c.cdbv
-
-	if p.Meta {
-		return cdbv.MarshalMeta(), nil
-	}
-
-	if p.Mask == nil || len(p.Mask) == 0 {
-		return cdbv.MarshalValues(p.Zero), nil
-	} else {
-		return cdbv.MarshalValuesMask(p.Zero, p.Mask), nil
-	}
+	return c.cdbv.GeneralCounters(&p.ApiCntParams)
 }
 
 func init() {

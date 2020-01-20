@@ -90,6 +90,18 @@ type CClientCmd struct {
 	Ipv6   Ipv6Key `json:"ipv6"`
 }
 
+type CClientCmds struct {
+	Clients []CClientCmd `json:"clients" validate:"required"`
+}
+
+type CClientInfo struct {
+	Mac    MACKey  `json:"mac"`
+	Ipv4   Ipv4Key `json:"ipv4"`
+	DgIpv4 Ipv4Key `json:"ipv4_dg"`
+	Ipv6   Ipv6Key `json:"ipv6"`
+	// TODO add more ...
+}
+
 /* NewClient Create a new client with default information and key */
 func NewClient(ns *CNSCtx,
 	Mac MACKey,
@@ -196,4 +208,13 @@ func (o *CClient) IsUnicastToMe(p []byte) bool {
 		}
 	}
 	return false
+}
+
+func (o *CClient) GetInfo() *CClientInfo {
+	var info CClientInfo
+	info.Mac    = o.Mac
+	info.Ipv4   = o.Ipv4
+	info.DgIpv4 = o.DgIpv4
+	info.Ipv6   = o.Ipv6
+	return &info
 }

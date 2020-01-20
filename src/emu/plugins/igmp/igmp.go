@@ -1087,10 +1087,8 @@ func (o PluginIgmpNsReg) NewPlugin(ctx *core.PluginCtx, initJson []byte) *core.P
 type (
 	ApiIgmpNsCntHandler struct{}
 	ApiIgmpNsCntParams  struct {
-		Meta bool     `json:"meta"`
-		Zero bool     `json:"zero"`
-		Mask []string `json:"mask"` // get only specific counters blocks if it is empty get all
-	}
+		core.ApiCntParams
+	} /* [key tunnel] */
 
 	ApiIgmpNsAddHandler struct{}
 	ApiIgmpNsAddParams  struct {
@@ -1128,20 +1126,14 @@ type (
 	}
 )
 
-func getNs(ctx interface{}, params *fastjson.RawMessage) (*PluginIgmpNs, *jsonrpc.Error) {
+func getNsPlugin(ctx interface{}, params *fastjson.RawMessage) (*PluginIgmpNs, error) {
 	tctx := ctx.(*core.CThreadCtx)
-	plug, err := tctx.GetNsPlugin(params, IGMP_PLUG)
-
+	nsPlug, err := tctx.GetNsPlugin(params, IGMP_PLUG)
 	if err != nil {
-		return nil, &jsonrpc.Error{
-			Code:    jsonrpc.ErrorCodeInvalidRequest,
-			Message: err.Error(),
-		}
+		return nil, err
 	}
-
-	arpNs := plug.Ext.(*PluginIgmpNs)
-
-	return arpNs, nil
+	igmpPlug := nsPlug.(*PluginIgmpNs)
+	return igmpPlug, nil
 }
 
 func getClient(ctx interface{}, params *fastjson.RawMessage) (*PluginIgmpClient, *jsonrpc.Error) {
@@ -1167,9 +1159,12 @@ func (h ApiIgmpSetHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMes
 
 	tctx := ctx.(*core.CThreadCtx)
 
-	igmpNs, err := getNs(ctx, params)
+	igmpNs, err := getNsPlugin(ctx, params)
 	if err != nil {
-		return nil, err
+		return nil, &jsonrpc.Error{
+			Code:    jsonrpc.ErrorCodeInvalidRequest,
+			Message: err.Error(),
+		}
 	}
 
 	err1 := tctx.UnmarshalValidate(*params, &p)
@@ -1194,14 +1189,17 @@ func (h ApiIgmpGetHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMes
 
 	var res ApiIgmpGetResult
 
-	igmpNs, err := getNs(ctx, params)
+	igmpPlug, err := getNsPlugin(ctx, params)
 	if err != nil {
-		return nil, err
+		return nil, &jsonrpc.Error{
+			Code:    jsonrpc.ErrorCodeInvalidRequest,
+			Message: err.Error(),
+		}
 	}
 
-	res.Mtu = igmpNs.mtu
-	res.DesignatorMac = igmpNs.designatorMac
-	res.Version = uint8(igmpNs.igmpVersion)
+	res.Mtu = igmpPlug.mtu
+	res.DesignatorMac = igmpPlug.designatorMac
+	res.Version = uint8(igmpPlug.igmpVersion)
 
 	return &res, nil
 }
@@ -1211,39 +1209,35 @@ func (h ApiIgmpNsCntHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawM
 	var p ApiIgmpNsCntParams
 	tctx := ctx.(*core.CThreadCtx)
 
-	igmpNs, err := getNs(ctx, params)
+	igmpPlug, err := getNsPlugin(ctx, params)
 	if err != nil {
-		return nil, err
-	}
-
-	err1 := tctx.UnmarshalValidate(*params, &p)
-	if err1 != nil {
 		return nil, &jsonrpc.Error{
 			Code:    jsonrpc.ErrorCodeInvalidRequest,
-			Message: err1.Error(),
+			Message: err.Error(),
 		}
 	}
 
-	cdbv := igmpNs.cdbv
-
-	if p.Meta {
-		return cdbv.MarshalMeta(), nil
+	err = tctx.UnmarshalValidate(*params, &p)
+	if err != nil {
+		return nil, &jsonrpc.Error{
+			Code:    jsonrpc.ErrorCodeInvalidRequest,
+			Message: err.Error(),
+		}
 	}
 
-	if p.Mask == nil || len(p.Mask) == 0 {
-		return cdbv.MarshalValues(p.Zero), nil
-	} else {
-		return cdbv.MarshalValuesMask(p.Zero, p.Mask), nil
-	}
+	return igmpPlug.cdbv.GeneralCounters(&p.ApiCntParams)
 }
 
 func (h ApiIgmpNsAddHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
 	var p ApiIgmpNsAddParams
 	tctx := ctx.(*core.CThreadCtx)
 
-	igmpNs, err := getNs(ctx, params)
+	igmpPlug, err := getNsPlugin(ctx, params)
 	if err != nil {
-		return nil, err
+		return nil, &jsonrpc.Error{
+			Code:    jsonrpc.ErrorCodeInvalidRequest,
+			Message: err.Error(),
+		}
 	}
 
 	err1 := tctx.UnmarshalValidate(*params, &p)
@@ -1254,7 +1248,7 @@ func (h ApiIgmpNsAddHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawM
 		}
 	}
 
-	err1 = igmpNs.addMc(p.Vec)
+	err1 = igmpPlug.addMc(p.Vec)
 
 	if err1 != nil {
 		return nil, &jsonrpc.Error{
@@ -1270,9 +1264,12 @@ func (h ApiIgmpNsRemoveHandler) ServeJSONRPC(ctx interface{}, params *fastjson.R
 	var p ApiIgmpNsRemoveParams
 	tctx := ctx.(*core.CThreadCtx)
 
-	igmpNs, err := getNs(ctx, params)
+	igmpPlug, err := getNsPlugin(ctx, params)
 	if err != nil {
-		return nil, err
+		return nil, &jsonrpc.Error{
+			Code:    jsonrpc.ErrorCodeInvalidRequest,
+			Message: err.Error(),
+		}
 	}
 
 	err1 := tctx.UnmarshalValidate(*params, &p)
@@ -1283,7 +1280,7 @@ func (h ApiIgmpNsRemoveHandler) ServeJSONRPC(ctx interface{}, params *fastjson.R
 		}
 	}
 
-	err1 = igmpNs.RemoveMc(p.Vec)
+	err1 = igmpPlug.RemoveMc(p.Vec)
 
 	if err1 != nil {
 		return nil, &jsonrpc.Error{
@@ -1302,9 +1299,12 @@ func (h ApiIgmpNsIterHandler) ServeJSONRPC(ctx interface{}, params *fastjson.Raw
 
 	tctx := ctx.(*core.CThreadCtx)
 
-	igmpNs, err := getNs(ctx, params)
+	igmpPlug, err := getNsPlugin(ctx, params)
 	if err != nil {
-		return nil, err
+		return nil, &jsonrpc.Error{
+			Code:    jsonrpc.ErrorCodeInvalidRequest,
+			Message: err.Error(),
+		}
 	}
 
 	err1 := tctx.UnmarshalValidate(*params, &p)
@@ -1316,17 +1316,17 @@ func (h ApiIgmpNsIterHandler) ServeJSONRPC(ctx interface{}, params *fastjson.Raw
 	}
 
 	if p.Reset {
-		res.Empty = igmpNs.IterReset()
+		res.Empty = igmpPlug.IterReset()
 	}
 	if res.Empty {
 		return &res, nil
 	}
-	if igmpNs.IterIsStopped() {
+	if igmpPlug.IterIsStopped() {
 		res.Stoped = true
 		return &res, nil
 	}
 
-	keys, err2 := igmpNs.GetNext(p.Count)
+	keys, err2 := igmpPlug.GetNext(p.Count)
 	if err2 != nil {
 		return nil, &jsonrpc.Error{
 			Code:    jsonrpc.ErrorCodeInvalidRequest,
@@ -1369,4 +1369,8 @@ func init() {
 
 	/* register callback for rx side*/
 	core.ParserRegister("igmp", HandleRxIgmpPacket)
+}
+
+func Register(ctx *core.CThreadCtx) {
+	ctx.RegisterParserCb("igmp")
 }

@@ -26,7 +26,7 @@ func arpSupported(ps *ParserPacketState) int {
 }
 
 func TestParserArp(t *testing.T) {
-	tctx := NewThreadCtx(0, 4510, false, nil)
+	tctx := NewThreadCtx(0, 4510, false, nil, false)
 	var parser Parser
 	parser.tctx = tctx
 	parser.arp = arpSupported

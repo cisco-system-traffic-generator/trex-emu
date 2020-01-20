@@ -7,6 +7,12 @@ import (
 	"reflect"
 	"time"
 	"unsafe"
+	"github.com/akamensky/argparse"
+	"os"
+
+	"emu/plugins/arp"
+	"emu/plugins/icmp"
+	"emu/plugins/igmp"
 )
 
 func testVarHash() {
@@ -91,6 +97,16 @@ func desc(i interface{}) {
 }
 
 type MapPortT map[uint16]bool
+type MainArgs struct {
+	port 	int
+	verbose bool
+	sim		bool
+	capture	bool
+	monitor bool
+	time 	time.Duration
+	file	string
+	dummyVeth bool
+}
 
 func testTunnelKey() {
 	var portMap MapPortT
@@ -338,13 +354,41 @@ func (o MyMapEventBus) RemoveObj(msg string, a *A) {
 	o[msg] = v
 }
 
-func RunCoreZmq() {
-	fmt.Printf(" run zmq server ")
+func RegisterPlugins(tctx *core.CThreadCtx) {
+	arp.Register(tctx)
+	icmp.Register(tctx)
+	igmp.Register(tctx)
+	// TODO add more for each plugin
+}
+
+func RunCoreZmq(args *MainArgs) {
+
+	port := uint16(args.port)
+	fmt.Println("run zmq server on port", port)
 	rand.Seed(time.Now().UnixNano())
-	tctx := core.NewThreadCtx(0, 4510, false, nil)
+
+	var simrx core.VethIFSim
+	if args.dummyVeth {
+		var simVeth core.VethSink
+		simrx = &simVeth
+	}
+
+	tctx := core.NewThreadCtx(0, port, args.sim, &simrx)
+	RegisterPlugins(tctx)
+
+	tctx.SetVerbose(args.verbose)
+	tctx.Veth.SetDebug(args.monitor, args.capture)
 	tctx.StartRxThread()
 	defer tctx.Delete()
-	tctx.MainLoop()
+	
+	if !args.sim {
+		tctx.MainLoop()
+	} else {
+		tctx.MainLoopSim(args.time)
+	}
+	if args.capture {
+		tctx.SimRecordExport(args.file)
+	}
 }
 
 func Test2() {
@@ -440,9 +484,28 @@ func Test2() {
 	//fmt.Println(b[0:1])
 }
 
-func main() {
-	//arp.ARPTest()
-	//fmt.Printf("hey \n")
-	//return
-	RunCoreZmq()
+func parseMainArgs() *MainArgs {
+	parser := argparse.NewParser("Emu Server", "Emu server emulates clients and namespaces")
+	
+	portArg := parser.Int("p", "port", &argparse.Options{Default: 4510, Help: "Port for server"})
+	verboseArg := parser.Flag("v", "verbose", &argparse.Options{Default: false, Help: "Run server in verbose mode"})
+	simArg := parser.Flag("s", "simulator", &argparse.Options{Default: false, Help: "Run server in simulator mode"})
+	captureArg := parser.Flag("c", "capture", &argparse.Options{Default: false, Help: "Run server in capture mode"})
+	monitorArg := parser.Flag("m", "monitor", &argparse.Options{Default: false, Help: "Run server in K12 monitor mode"})
+	timeArg := parser.Int("t", "time", &argparse.Options{Default: 10, Help: "Time of the simulation in sec"})
+	fileArg := parser.String("f", "file",&argparse.Options{Default: "emu_file",Help: "Path to save the pcap file"} )
+	dummyVethArg := parser.Flag("d", "dummy-veth", &argparse.Options{Default: false, Help: "Run server with a dummy veth, all packets to rx will be dropped"})
+
+	err := parser.Parse(os.Args)
+	if err != nil {
+		fmt.Print(parser.Usage(err))
+	}
+
+	durInSec := time.Duration(*timeArg) * time.Second
+	return &MainArgs{port: *portArg, verbose: *verboseArg, sim: *simArg, capture: *captureArg,
+		monitor: *monitorArg, time: durInSec , file: *fileArg, dummyVeth: *dummyVethArg}
+}
+
+func main() {	
+	RunCoreZmq(parseMainArgs())
 }

@@ -291,11 +291,11 @@ func (o *ArpRpcCtx) OnEvent(a, b interface{}) {
 	"id": 3 }`))
 
 	o.tctx.Veth.AppendSimuationRPC([]byte(`{"jsonrpc": "2.0", 
-	"method":"arp_ns_get_cnt_meta", 
-	"params": {"tun": {"vport":1,"tci":[1,2]} }, "id": 3 }`))
+	"method":"arp_ns_cnt", 
+	"params": {"tun": {"vport":1,"tci":[1,2]},"meta": true}, "id": 3 }`))
 
 	o.tctx.Veth.AppendSimuationRPC([]byte(`{"jsonrpc": "2.0", 
-	"method":"arp_ns_get_cnt_val", 
+	"method":"arp_ns_cnt", 
 	"params": {"tun": {"vport":1,"tci":[1,2]},"zero": true }, "id": 3 }`))
 
 	o.tctx.Veth.AppendSimuationRPC([]byte(`{"jsonrpc": "2.0", 
