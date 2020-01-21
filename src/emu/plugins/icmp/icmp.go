@@ -312,9 +312,9 @@ func getNs(ctx interface{}, params *fastjson.RawMessage) (*PluginIcmpNs, *jsonrp
 		}
 	}
 
-	arpNs := plug.Ext.(*PluginIcmpNs)
+	icmpNs := plug.Ext.(*PluginIcmpNs)
 
-	return arpNs, nil
+	return icmpNs, nil
 }
 
 func getClient(ctx interface{}, params *fastjson.RawMessage) (*PluginIcmpClient, *jsonrpc.Error) {
@@ -328,9 +328,9 @@ func getClient(ctx interface{}, params *fastjson.RawMessage) (*PluginIcmpClient,
 		}
 	}
 
-	arpClient := plug.Ext.(*PluginIcmpClient)
+	icmpClient := plug.Ext.(*PluginIcmpClient)
 
-	return arpClient, nil
+	return icmpClient, nil
 }
 
 func (h ApiIcmpNsCntMetaHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
