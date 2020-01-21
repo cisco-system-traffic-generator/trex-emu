@@ -97,7 +97,7 @@ func NewIcmpNsStatsDb(o *IcmpNsStats) *core.CCounterDb {
 	return db
 }
 
-// PluginArpClient icmp information per client
+// PluginIcmpClient icmp information per client
 type PluginIcmpClient struct {
 	core.PluginBase
 	icmpNsPlug *PluginIcmpNs
@@ -105,7 +105,7 @@ type PluginIcmpClient struct {
 
 var icmpEvents = []string{}
 
-/*NewArpClient create plugin */
+/*NewIcmpClient create plugin */
 func NewIcmpClient(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
 	o := new(PluginIcmpClient)
 	o.InitPluginBase(ctx, o)             /* init base object*/
@@ -136,7 +136,7 @@ func (o *PluginIcmpClient) SendPing(dst uint32) {
 	}
 }
 
-// PluginArpNs icmp information per namespace
+// PluginIcmpNs icmp information per namespace
 type PluginIcmpNs struct {
 	core.PluginBase
 	stats IcmpNsStats
@@ -257,7 +257,7 @@ func (o *PluginIcmpNs) HandleRxIcmpPacket(ps *core.ParserPacketState) int {
 	return 0
 }
 
-// HandleRxArpPacket Parser call this function with mbuf from the pool
+// HandleRxIcmpPacket Parser call this function with mbuf from the pool
 // Either by register functions -- maybe it would be better to register the function
 // Rx side
 func HandleRxIcmpPacket(ps *core.ParserPacketState) int {
