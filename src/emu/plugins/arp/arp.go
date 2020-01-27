@@ -1032,3 +1032,7 @@ func init() {
 	/* register callback for rx side*/
 	core.ParserRegister("arp", HandleRxArpPacket)
 }
+
+func Register(ctx *core.CThreadCtx) {
+	ctx.RegisterParserCb("arp")
+}

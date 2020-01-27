@@ -16,6 +16,32 @@ import (
 	"external/google/gopacket"
 )
 
+type IGMPHeader []byte
+
+func (o IGMPHeader) GetType() uint8 {
+	return o[0]
+}
+
+func (o IGMPHeader) GetCode() uint8 {
+	return o[1]
+}
+
+func (o IGMPHeader) GetGroup() uint32 {
+	return binary.BigEndian.Uint32(o[4:8])
+}
+
+func (o IGMPHeader) GetMisc() uint8 {
+	return o[8]
+}
+
+func (o IGMPHeader) Getqqi() uint8 {
+	return o[9]
+}
+
+func (o IGMPHeader) GetNumSrc() uint16 {
+	return binary.BigEndian.Uint16(o[10:12])
+}
+
 type IGMPType uint8
 
 const (

@@ -423,3 +423,24 @@ func (o *CNSCtx) Dump() {
 		fmt.Printf(" MAC : %v \n", obj[0])
 	}
 }
+
+func (o *CNSCtx) GetL2Header(broadcast bool, next uint16) []byte {
+	var tund CTunnelData
+	o.Key.Get(&tund)
+	b := []byte{}
+	if broadcast {
+		b = append(b, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff)
+	} else {
+		b = append(b, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0)
+	}
+	b = append(b, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0)
+	for _, val := range tund.Vlans {
+		if val != 0 {
+			b = append(b, 0, 0, 0, 0)
+			binary.BigEndian.PutUint32(b[len(b)-4:], val)
+		}
+	}
+	b = append(b, 0, 0)
+	binary.BigEndian.PutUint16(b[len(b)-2:], uint16(next))
+	return b
+}

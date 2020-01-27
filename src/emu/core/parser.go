@@ -25,6 +25,7 @@ type ParserStats struct {
 	errParser             uint64
 	errArpTooShort        uint64
 	errIcmpv4TooShort     uint64
+	errIgmpv4TooShort     uint64
 	errUdpTooShort        uint64
 	errDot1qTooShort      uint64
 	errToManyDot1q        uint64
@@ -77,6 +78,14 @@ func newParserStatsDb(o *ParserStats) *CCounterDb {
 		Counter:  &o.errIcmpv4TooShort,
 		Name:     "errIcmpv4TooShort",
 		Help:     "icmpv4 too short",
+		Unit:     "pkts",
+		DumpZero: false,
+		Info:     ScERROR})
+
+	db.Add(&CCounterRec{
+		Counter:  &o.errIgmpv4TooShort,
+		Name:     "errIgmpv4TooShort",
+		Help:     "igmpv4 too short",
 		Unit:     "pkts",
 		DumpZero: false,
 		Info:     ScERROR})
@@ -270,6 +279,10 @@ func (o *Parser) Register(protocol string) {
 	if protocol == "icmp" {
 		o.icmp = getProto("icmp")
 	}
+	if protocol == "igmp" {
+		o.igmp = getProto("igmp")
+	}
+
 }
 
 func (o *Parser) Init(tctx *CThreadCtx) {

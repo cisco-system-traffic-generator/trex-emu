@@ -116,6 +116,10 @@ func (o IPv4Header) IsValidHeaderChecksum() bool {
 	}
 }
 
+func (o IPv4Header) GetTTL() uint8 {
+	return uint8(o[8])
+}
+
 // IPv4 is the header of an IP packet.
 type IPv4 struct {
 	BaseLayer

@@ -47,6 +47,10 @@ func (ip *IPv6) pseudoheaderChecksum() (csum uint32, err error) {
 	return csum, nil
 }
 
+func PktChecksum(data []byte, csum uint32) uint16 {
+	return tcpipChecksum(data, csum)
+}
+
 // Calculate the TCP/IP checksum defined in rfc1071.  The passed-in csum is any
 // initial checksum data that's already been computed.
 func tcpipChecksum(data []byte, csum uint32) uint16 {
