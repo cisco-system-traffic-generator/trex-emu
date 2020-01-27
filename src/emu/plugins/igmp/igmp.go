@@ -759,6 +759,7 @@ func (o *PluginIgmpNs) HandleRxIgmpV2Query(ps *core.ParserPacketState) int {
 		o.stats.pktRxgroupQueries++
 	}
 	o.igmpVersion = IGMP_VERSION_2
+	fmt.Printf(" version 2 \n")
 	o.maxresp = uint32(igmph.GetCode())
 
 	return o.HandleRxIgmpCmn(isGenQuery, igmph.GetGroup())
@@ -825,7 +826,7 @@ func (o *PluginIgmpNs) HandleRxIgmpPacket(ps *core.ParserPacketState) int {
 	p := m.GetData()
 	/* the header is at least 8 bytes*/
 
-	igmplen := m.PktLen() - uint32(ps.L4)
+	//igmplen := m.PktLen() - uint32(ps.L4)
 	igmp := p[ps.L4:]
 
 	/* checksum */
@@ -837,6 +838,7 @@ func (o *PluginIgmpNs) HandleRxIgmpPacket(ps *core.ParserPacketState) int {
 
 	igmph := layers.IGMPHeader(igmp)
 	ipv4 := layers.IPv4Header(p[ps.L3 : ps.L3+IPV4_HEADER_SIZE-4])
+	igmplen := uint32(ipv4.GetLength() - ipv4.GetHeaderLen())
 
 	igmpType := igmph.GetType()
 

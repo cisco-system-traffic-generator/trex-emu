@@ -156,6 +156,7 @@ func (o *VethIgmpSim) ProcessTxToRx(m *core.Mbuf) *core.Mbuf {
 type IgmpQueryCtx struct {
 	tctx  *core.CThreadCtx
 	timer core.CHTimerObj
+	test  *IgmpTestBase
 }
 
 func (o *IgmpQueryCtx) OnEvent(a, b interface{}) {
@@ -163,37 +164,70 @@ func (o *IgmpQueryCtx) OnEvent(a, b interface{}) {
 	opts := gopacket.SerializeOptions{FixLengths: true,
 		ComputeChecksums: true}
 
-	gopacket.SerializeLayers(buf, opts,
-		&layers.Ethernet{
-			SrcMAC:       net.HardwareAddr{0, 0, 0, 2, 0, 0},
-			DstMAC:       net.HardwareAddr{0x01, 0x00, 0x5e, 0x00, 0x00, 0x01},
-			EthernetType: layers.EthernetTypeDot1Q,
-		},
-		&layers.Dot1Q{
-			Priority:       uint8(0),
-			VLANIdentifier: uint16(1),
-			Type:           layers.EthernetTypeDot1Q,
-		},
-		&layers.Dot1Q{
-			Priority:       uint8(0),
-			VLANIdentifier: uint16(2),
-			Type:           layers.EthernetTypeIPv4,
-		},
+	if o.test.match == 3 {
+		gopacket.SerializeLayers(buf, opts,
+			&layers.Ethernet{
+				SrcMAC:       net.HardwareAddr{0, 0, 0, 2, 0, 0},
+				DstMAC:       net.HardwareAddr{0x01, 0x00, 0x5e, 0x00, 0x00, 0x01},
+				EthernetType: layers.EthernetTypeDot1Q,
+			},
+			&layers.Dot1Q{
+				Priority:       uint8(0),
+				VLANIdentifier: uint16(1),
+				Type:           layers.EthernetTypeDot1Q,
+			},
+			&layers.Dot1Q{
+				Priority:       uint8(0),
+				VLANIdentifier: uint16(2),
+				Type:           layers.EthernetTypeIPv4,
+			},
 
-		&layers.IPv4{Version: 4, IHL: 6, TTL: 1, Id: 0xcc,
-			SrcIP:    net.IPv4(16, 0, 0, 10),
-			DstIP:    net.IPv4(224, 0, 0, 1),
-			Length:   44,
-			Protocol: layers.IPProtocolIGMP,
-			Options: []layers.IPv4Option{{ /* router alert */
-				OptionType:   0x94,
-				OptionData:   []byte{0, 0},
-				OptionLength: 4},
-			}},
+			&layers.IPv4{Version: 4, IHL: 6, TTL: 1, Id: 0xcc,
+				SrcIP:    net.IPv4(16, 0, 0, 10),
+				DstIP:    net.IPv4(224, 0, 0, 1),
+				Length:   44,
+				Protocol: layers.IPProtocolIGMP,
+				Options: []layers.IPv4Option{{ /* router alert */
+					OptionType:   0x94,
+					OptionData:   []byte{0, 0},
+					OptionLength: 4},
+				}},
 
-		gopacket.Payload([]byte{0x11, 0x18, 0xec, 0xd3, 0x00, 0x00, 0x00, 0x00, 0x02, 0x14, 0x00, 0x00}),
-	)
+			gopacket.Payload([]byte{0x11, 0x64, 0xee, 0x9b, 0x00, 0x00, 0x00, 0x00}),
+		)
 
+	} else {
+		gopacket.SerializeLayers(buf, opts,
+			&layers.Ethernet{
+				SrcMAC:       net.HardwareAddr{0, 0, 0, 2, 0, 0},
+				DstMAC:       net.HardwareAddr{0x01, 0x00, 0x5e, 0x00, 0x00, 0x01},
+				EthernetType: layers.EthernetTypeDot1Q,
+			},
+			&layers.Dot1Q{
+				Priority:       uint8(0),
+				VLANIdentifier: uint16(1),
+				Type:           layers.EthernetTypeDot1Q,
+			},
+			&layers.Dot1Q{
+				Priority:       uint8(0),
+				VLANIdentifier: uint16(2),
+				Type:           layers.EthernetTypeIPv4,
+			},
+
+			&layers.IPv4{Version: 4, IHL: 6, TTL: 1, Id: 0xcc,
+				SrcIP:    net.IPv4(16, 0, 0, 10),
+				DstIP:    net.IPv4(224, 0, 0, 1),
+				Length:   44,
+				Protocol: layers.IPProtocolIGMP,
+				Options: []layers.IPv4Option{{ /* router alert */
+					OptionType:   0x94,
+					OptionData:   []byte{0, 0},
+					OptionLength: 4},
+				}},
+
+			gopacket.Payload([]byte{0x11, 0x18, 0xec, 0xd3, 0x00, 0x00, 0x00, 0x00, 0x02, 0x14, 0x00, 0x00}),
+		)
+	}
 	m := o.tctx.MPool.Alloc(uint16(256))
 	m.SetVPort(1)
 	m.Append(buf.Bytes())
@@ -211,6 +245,7 @@ func Cb4(tctx *core.CThreadCtx, test *IgmpTestBase) int {
 	var arpctx IgmpQueryCtx
 	arpctx.timer.SetCB(&arpctx, test.cbArg1, test.cbArg2)
 	arpctx.tctx = tctx
+	arpctx.test = test
 	timerw.StartTicks(&arpctx.timer, ticks)
 	return 0
 }
@@ -224,6 +259,20 @@ func TestPluginIgmp3(t *testing.T) {
 		capture:      true,
 		duration:     60 * time.Second,
 		clientsToSim: 1000,
+		cb:           Cb4,
+	}
+	a.Run(t)
+}
+
+func TestPluginIgmp4(t *testing.T) {
+	a := &IgmpTestBase{
+		testname:     "igmp4",
+		dropAll:      true,
+		monitor:      false,
+		match:        3, /* mark as IGMPv2 version */
+		capture:      true,
+		duration:     60 * time.Second,
+		clientsToSim: 100,
 		cb:           Cb4,
 	}
 	a.Run(t)
