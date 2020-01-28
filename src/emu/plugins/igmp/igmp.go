@@ -6,6 +6,15 @@ v3 does not support EXCLUDE/INCLUDE per client
 The implementation is in the namespace domain (shared for all the clients on the same network)
 One client ipv4/mac is the designator to answer the queries for all the clients.
 However this implementation can scale
+
+
+inijson :
+	type IgmpNsInit struct {
+		Mtu           uint16         `json:"mtu" validate:"required,gte=256,lte=9000"`
+		DesignatorMac core.MACKey    `json:"dmac"`  // mac addrees of the client that represent the network
+		Vec           []core.Ipv4Key `json:"vec"` // add mc
+	}
+
 */
 
 import (
@@ -446,7 +455,6 @@ func NewIgmpNs(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
 	o.timer.SetCB(&o.timerCb, o, 0) // set the callback to OnEvent
 	o.preparePacketTemplate()
 	if err == nil {
-		fmt.Printf("init %+v \n", init)
 		/* init json was provided */
 		if init.Mtu > 0 {
 			o.mtu = init.Mtu
@@ -829,7 +837,6 @@ func (o *PluginIgmpNs) HandleRxIgmpV2Query(ps *core.ParserPacketState) int {
 		o.stats.pktRxgroupQueries++
 	}
 	o.igmpVersion = IGMP_VERSION_2
-	fmt.Printf(" version 2 \n")
 	o.maxresp = uint32(igmph.GetCode())
 
 	return o.HandleRxIgmpCmn(isGenQuery, igmph.GetGroup())
