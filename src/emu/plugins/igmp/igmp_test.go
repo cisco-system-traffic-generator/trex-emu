@@ -9,6 +9,8 @@ import (
 	"net"
 	"testing"
 	"time"
+
+	"github.com/intel-go/fastjson"
 )
 
 var monitor int
@@ -116,7 +118,8 @@ func createSimulationEnv(simRx *core.VethIFSim, num int) (*core.CThreadCtx, *cor
 		core.Ipv6Key{},
 		dg)
 	ns.AddClient(client)
-	ns.PluginCtx.CreatePlugins([]string{"igmp"}, [][]byte{})
+	//"vec" : [ [239,1,1,1]]
+	ns.PluginCtx.CreatePlugins([]string{"igmp"}, [][]byte{[]byte(`{"dmac" :[0, 0, 1, 0, 0, 1]  } `)})
 	client.PluginCtx.CreatePlugins([]string{"igmp"}, [][]byte{})
 	ns.Dump()
 	tctx.RegisterParserCb("igmp")
@@ -126,7 +129,6 @@ func createSimulationEnv(simRx *core.VethIFSim, num int) (*core.CThreadCtx, *cor
 		panic(" can't find plugin")
 	}
 	nsPlug := nsplg.Ext.(*PluginIgmpNs)
-	nsPlug.designatorMac = core.MACKey{0, 0, 1, 0, 0, 1}
 
 	vecIpv4 := []core.Ipv4Key{}
 	fmt.Printf(" number of mc : %d \n", num)
@@ -285,7 +287,55 @@ type IgmpRpcCtx struct {
 }
 
 func (o *IgmpRpcCtx) OnEvent(a, b interface{}) {
-	fmt.Printf("add request \n")
+	fmt.Printf("add request %v %v \n", a, b)
+	if a.(int) == 2 {
+
+		buf := gopacket.NewSerializeBuffer()
+		opts := gopacket.SerializeOptions{FixLengths: true,
+			ComputeChecksums: true}
+
+		gopacket.SerializeLayers(buf, opts,
+			&layers.Ethernet{
+				SrcMAC:       net.HardwareAddr{0, 0, 0, 2, 0, 0},
+				DstMAC:       net.HardwareAddr{0x01, 0x00, 0x5e, 0x00, 0x00, 0x01},
+				EthernetType: layers.EthernetTypeDot1Q,
+			},
+			&layers.Dot1Q{
+				Priority:       uint8(0),
+				VLANIdentifier: uint16(1),
+				Type:           layers.EthernetTypeDot1Q,
+			},
+			&layers.Dot1Q{
+				Priority:       uint8(0),
+				VLANIdentifier: uint16(2),
+				Type:           layers.EthernetTypeIPv4,
+			},
+
+			&layers.IPv4{Version: 4, IHL: 6, TTL: 1, Id: 0xcc,
+				SrcIP:    net.IPv4(16, 0, 0, 10),
+				DstIP:    net.IPv4(224, 0, 0, 1),
+				Length:   44,
+				Protocol: layers.IPProtocolIGMP,
+				Options: []layers.IPv4Option{{ /* router alert */
+					OptionType:   0x94,
+					OptionData:   []byte{0, 0},
+					OptionLength: 4},
+				}},
+
+			gopacket.Payload([]byte{0x11, 0x18, 0xec, 0xd3, 0x00, 0x00, 0x00, 0x00, 0x02, 0x14, 0x00, 0x00}),
+		)
+		m := o.tctx.MPool.Alloc(uint16(256))
+		m.SetVPort(1)
+		m.Append(buf.Bytes())
+		//core.PacketUtl("arp1", buf.Bytes())
+		o.tctx.Veth.OnRx(m)
+
+		o.tctx.Veth.AppendSimuationRPC([]byte(`{"jsonrpc": "2.0",
+		"method":"igmp_ns_remove",
+		"params": {"tun": {"vport":1,"tci":[1,2]}, "vec": [ [239,0,0,250],[239,0,0,251] ] },
+		"id": 3 }`))
+
+	}
 
 	o.tctx.Veth.AppendSimuationRPC([]byte(`{"jsonrpc": "2.0", 
 	"method":"igmp_ns_get_cfg", 
@@ -365,6 +415,41 @@ func TestPluginIgmp5(t *testing.T) {
 		cbArg1:       1,
 	}
 	a.Run(t)
+}
+
+func TestPluginIgmp6(t *testing.T) {
+	a := &IgmpTestBase{
+		testname:     "igmp6",
+		dropAll:      true,
+		monitor:      false,
+		match:        2, /* mark as IGMPv2 version */
+		capture:      true,
+		duration:     60 * time.Second,
+		clientsToSim: 500,
+		cb:           rpcQueue,
+		cbArg1:       2,
+	}
+	a.Run(t)
+}
+
+type MyIgmpNsInit struct {
+	Mtu           uint16         `json:"mtu" validate:"required,gte=256,lte=9000"`
+	DesignatorMac core.MACKey    `json:"dmac"`
+	Vec           []core.Ipv4Key `json:"vec"` // add mc
+}
+
+func TestPluginIgmp7(t *testing.T) {
+	json := []byte(`{}`)
+	//json := []byte{}
+	//var json []byte
+	fmt.Printf(" %s \n", json)
+	var d MyIgmpNsInit
+	err := fastjson.Unmarshal(json, &d)
+	if err == nil {
+		fmt.Printf(" %+v \n", d)
+	} else {
+		fmt.Printf(" %+v \n", err.Error())
+	}
 }
 
 func init() {

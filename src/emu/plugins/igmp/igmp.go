@@ -47,6 +47,12 @@ const (
 	IPV4_HEADER_SIZE               = 24   /* plus router alert */
 )
 
+type IgmpNsInit struct {
+	Mtu           uint16         `json:"mtu" validate:"required,gte=256,lte=9000"`
+	DesignatorMac core.MACKey    `json:"dmac"`
+	Vec           []core.Ipv4Key `json:"vec"` // add mc
+}
+
 type IgmpNsStats struct {
 	pktRxTotal    uint64 /* total IGMP messages received */
 	pktRxTooshort uint64 /* received with too few bytes */
@@ -421,6 +427,9 @@ type PluginIgmpNs struct {
 }
 
 func NewIgmpNs(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
+	var init IgmpNsInit
+	err := fastjson.Unmarshal(initJson, &init)
+
 	o := new(PluginIgmpNs)
 	o.InitPluginBase(ctx, o)
 	o.RegisterEvents(ctx, []string{}, o)
@@ -436,6 +445,20 @@ func NewIgmpNs(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
 	o.timerw = ctx.Tctx.GetTimerCtx()
 	o.timer.SetCB(&o.timerCb, o, 0) // set the callback to OnEvent
 	o.preparePacketTemplate()
+	if err == nil {
+		fmt.Printf("init %+v \n", init)
+		/* init json was provided */
+		if init.Mtu > 0 {
+			o.mtu = init.Mtu
+		}
+		if !init.DesignatorMac.IsZero() {
+			o.designatorMac = init.DesignatorMac
+		}
+		if len(init.Vec) > 0 {
+			o.addMc(init.Vec)
+		}
+	}
+
 	return &o.PluginBase
 }
 
