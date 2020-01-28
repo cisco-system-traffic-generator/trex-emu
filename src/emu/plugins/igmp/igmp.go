@@ -323,7 +323,6 @@ func (o *IgmpFlowTbl) addMc(ipv4 core.Ipv4Key) error {
 	e.epocQuery = o.epocQuery
 	o.mapIgmp[ipv4] = e
 	o.head.AddLast(&e.dlist)
-	o.epoc++
 	return nil
 }
 
@@ -339,7 +338,6 @@ func (o *IgmpFlowTbl) removeMc(ipv4 core.Ipv4Key) error {
 		o.activeIter = e.dlist.Next()
 	}
 	o.head.RemoveNode(&e.dlist)
-	o.epoc++
 	return nil
 }
 
@@ -408,15 +406,18 @@ type PluginIgmpNs struct {
 	qrv             uint8  /* qrv */
 	activeQuery     bool   /* true in case there is a active query */
 	started         bool
-	epoc            uint32
 	stats           IgmpNsStats
 	cdb             *core.CCounterDb
+	cdbv            *core.CCounterDbVec
 	timer           core.CHTimerObj
 	timerCb         PluginIgmpNsTimer
 	tickMsec        uint32
 	ipv4pktTemplate []byte
 	ipv4Offset      uint16
 	activeEpocQuery uint32
+	rpcIterEpoc     uint32
+	iter            core.DListIterHead
+	iterReady       bool
 }
 
 func NewIgmpNs(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
@@ -424,6 +425,8 @@ func NewIgmpNs(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
 	o.InitPluginBase(ctx, o)
 	o.RegisterEvents(ctx, []string{}, o)
 	o.cdb = NewIgmpNsStatsDb(&o.stats)
+	o.cdbv = core.NewCCounterDbVec("igmp")
+	o.cdbv.Add(o.cdb)
 	o.tbl.OnCreate(&o.stats)
 	o.igmpVersion = IGMP_VERSION_3
 	o.mtu = 1500
@@ -434,6 +437,48 @@ func NewIgmpNs(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
 	o.timer.SetCB(&o.timerCb, o, 0) // set the callback to OnEvent
 	o.preparePacketTemplate()
 	return &o.PluginBase
+}
+
+func (o *PluginIgmpNs) IterReset() bool {
+	o.rpcIterEpoc = o.tbl.epoc
+	o.iter.Init(&o.tbl.head)
+	if o.tbl.head.IsEmpty() {
+		o.iterReady = false
+		return true
+	}
+	o.iterReady = true
+	return false
+}
+
+func (o *PluginIgmpNs) IterIsStopped() bool {
+	return !o.iterReady
+}
+
+func (o *PluginIgmpNs) GetNext(n uint16) ([]core.Ipv4Key, error) {
+	r := make([]core.Ipv4Key, 0)
+
+	if !o.iterReady {
+		return r, fmt.Errorf(" Iterator is not ready- reset the iterator")
+	}
+
+	if o.rpcIterEpoc != o.tbl.epoc {
+		return r, fmt.Errorf(" iterator was interupted , reset and start again ")
+	}
+	cnt := 0
+	for {
+		if !o.iter.IsCont() {
+			o.iterReady = false // require a new reset
+			break
+		}
+		cnt++
+		if cnt > int(n) {
+			break
+		}
+		ent := covertToIgmpEntry(o.iter.Val())
+		r = append(r, ent.Ipv4)
+		o.iter.Next()
+	}
+	return r, nil
 }
 
 func (o *PluginIgmpNs) preparePacketTemplate() {
@@ -484,6 +529,7 @@ func (o *PluginIgmpNs) addMc(vecIpv4 []core.Ipv4Key) error {
 	var err error
 	vec := []uint32{}
 	maxIds := int(o.getMaxIPv4Ids())
+	o.tbl.epoc++
 	for _, ipv4 := range vecIpv4 {
 		err = o.tbl.addMc(ipv4)
 		if err != nil {
@@ -505,6 +551,7 @@ func (o *PluginIgmpNs) addMc(vecIpv4 []core.Ipv4Key) error {
 func (o *PluginIgmpNs) RemoveMc(vecIpv4 []core.Ipv4Key) error {
 	var err error
 	vec := []uint32{}
+	o.tbl.epoc++
 	maxIds := int(o.getMaxIPv4Ids())
 	for _, ipv4 := range vecIpv4 {
 		err = o.tbl.removeMc(ipv4)
@@ -931,13 +978,46 @@ func (o PluginIgmpNsReg) NewPlugin(ctx *core.PluginCtx, initJson []byte) *core.P
 /*******************************************/
 /* ICMP RPC commands */
 type (
-	/* Get counters metadata */
-	ApiIgmpNsCntMetaHandler struct{}
+	ApiIgmpNsCntHandler struct{}
+	ApiIgmpNsCntParams  struct {
+		Meta bool     `json:"meta"`
+		Zero bool     `json:"zero"`
+		Mask []string `json:"mask"` // get only specific counters blocks if it is empty get all
+	}
 
-	/* Get counters  */
-	ApiIgmpNsCntValueHandler struct{}
-	ApiIgmpNsCntValueParams  struct { /* +tunnel*/
-		Zero bool `json:"zero"` /* dump zero too */
+	ApiIgmpNsAddHandler struct{}
+	ApiIgmpNsAddParams  struct {
+		Vec []core.Ipv4Key `json:"vec"`
+	}
+
+	ApiIgmpNsRemoveHandler struct{}
+	ApiIgmpNsRemoveParams  struct {
+		Vec []core.Ipv4Key `json:"vec"`
+	}
+
+	ApiIgmpNsIterHandler struct{}
+	ApiIgmpNsIterParams  struct {
+		Reset bool   `json:"reset"`
+		Count uint16 `json:"count" validate:"required,gte=0,lte=255"`
+	}
+	ApiIgmpNsIterResult struct {
+		Empty  bool           `json:"empty"`
+		Stoped bool           `json:"stoped"`
+		Vec    []core.Ipv4Key `json:"data"`
+	}
+
+	ApiIgmpSetHandler struct{}
+	ApiIgmpSetParams  struct {
+		Mtu           uint16      `json:"mtu" validate:"required,gte=256,lte=9000"`
+		DesignatorMac core.MACKey `json:"dmac"`
+	}
+
+	ApiIgmpGetHandler struct{}
+
+	ApiIgmpGetResult struct {
+		Mtu           uint16      `json:"mtu"`
+		DesignatorMac core.MACKey `json:"dmac"`
+		Version       uint8       `json:"version"`
 	}
 )
 
@@ -974,26 +1054,100 @@ func getClient(ctx interface{}, params *fastjson.RawMessage) (*PluginIgmpClient,
 	return arpClient, nil
 }
 
-func (h ApiIgmpNsCntMetaHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
+func (h ApiIgmpSetHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
 
-	icmpNs, err := getNs(ctx, params)
-	if err != nil {
-		return nil, err
-	}
-	return icmpNs.cdb, nil
-}
+	var p ApiIgmpSetParams
 
-func (h ApiIgmpNsCntValueHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
-
-	var p ApiIgmpNsCntValueParams
 	tctx := ctx.(*core.CThreadCtx)
 
-	icmpNs, err := getNs(ctx, params)
+	igmpNs, err := getNs(ctx, params)
 	if err != nil {
 		return nil, err
 	}
 
 	err1 := tctx.UnmarshalValidate(*params, &p)
+	if err1 != nil {
+		return nil, &jsonrpc.Error{
+			Code:    jsonrpc.ErrorCodeInvalidRequest,
+			Message: err1.Error(),
+		}
+	}
+
+	if p.Mtu > 0 {
+		igmpNs.mtu = p.Mtu
+	}
+
+	if !p.DesignatorMac.IsZero() {
+		igmpNs.designatorMac = p.DesignatorMac
+	}
+	return nil, nil
+}
+
+func (h ApiIgmpGetHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
+
+	var res ApiIgmpGetResult
+
+	igmpNs, err := getNs(ctx, params)
+	if err != nil {
+		return nil, err
+	}
+
+	res.Mtu = igmpNs.mtu
+	res.DesignatorMac = igmpNs.designatorMac
+	res.Version = uint8(igmpNs.igmpVersion)
+
+	return &res, nil
+}
+
+func (h ApiIgmpNsCntHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
+
+	var p ApiIgmpNsCntParams
+	tctx := ctx.(*core.CThreadCtx)
+
+	igmpNs, err := getNs(ctx, params)
+	if err != nil {
+		return nil, err
+	}
+
+	err1 := tctx.UnmarshalValidate(*params, &p)
+	if err1 != nil {
+		return nil, &jsonrpc.Error{
+			Code:    jsonrpc.ErrorCodeInvalidRequest,
+			Message: err1.Error(),
+		}
+	}
+
+	cdbv := igmpNs.cdbv
+
+	if p.Meta {
+		return cdbv.MarshalMeta(), nil
+	}
+
+	if p.Mask == nil || len(p.Mask) == 0 {
+		return cdbv.MarshalValues(p.Zero), nil
+	} else {
+		return cdbv.MarshalValuesMask(p.Zero, p.Mask), nil
+	}
+}
+
+func (h ApiIgmpNsAddHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
+	var p ApiIgmpNsAddParams
+	tctx := ctx.(*core.CThreadCtx)
+
+	igmpNs, err := getNs(ctx, params)
+	if err != nil {
+		return nil, err
+	}
+
+	err1 := tctx.UnmarshalValidate(*params, &p)
+	if err1 != nil {
+		return nil, &jsonrpc.Error{
+			Code:    jsonrpc.ErrorCodeInvalidRequest,
+			Message: err1.Error(),
+		}
+	}
+
+	err1 = igmpNs.addMc(p.Vec)
 
 	if err1 != nil {
 		return nil, &jsonrpc.Error{
@@ -1002,7 +1156,78 @@ func (h ApiIgmpNsCntValueHandler) ServeJSONRPC(ctx interface{}, params *fastjson
 		}
 	}
 
-	return icmpNs.cdb.MarshalValues(p.Zero), nil
+	return nil, nil
+}
+
+func (h ApiIgmpNsRemoveHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
+	var p ApiIgmpNsRemoveParams
+	tctx := ctx.(*core.CThreadCtx)
+
+	igmpNs, err := getNs(ctx, params)
+	if err != nil {
+		return nil, err
+	}
+
+	err1 := tctx.UnmarshalValidate(*params, &p)
+	if err1 != nil {
+		return nil, &jsonrpc.Error{
+			Code:    jsonrpc.ErrorCodeInvalidRequest,
+			Message: err1.Error(),
+		}
+	}
+
+	err1 = igmpNs.RemoveMc(p.Vec)
+
+	if err1 != nil {
+		return nil, &jsonrpc.Error{
+			Code:    jsonrpc.ErrorCodeInvalidRequest,
+			Message: err1.Error(),
+		}
+	}
+
+	return nil, nil
+}
+
+func (h ApiIgmpNsIterHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
+
+	var p ApiIgmpNsIterParams
+	var res ApiIgmpNsIterResult
+
+	tctx := ctx.(*core.CThreadCtx)
+
+	igmpNs, err := getNs(ctx, params)
+	if err != nil {
+		return nil, err
+	}
+
+	err1 := tctx.UnmarshalValidate(*params, &p)
+	if err1 != nil {
+		return nil, &jsonrpc.Error{
+			Code:    jsonrpc.ErrorCodeInvalidRequest,
+			Message: err1.Error(),
+		}
+	}
+
+	if p.Reset {
+		res.Empty = igmpNs.IterReset()
+	}
+	if res.Empty {
+		return &res, nil
+	}
+	if igmpNs.IterIsStopped() {
+		res.Stoped = true
+		return &res, nil
+	}
+
+	keys, err2 := igmpNs.GetNext(p.Count)
+	if err2 != nil {
+		return nil, &jsonrpc.Error{
+			Code:    jsonrpc.ErrorCodeInvalidRequest,
+			Message: err2.Error(),
+		}
+	}
+	res.Vec = keys
+	return &res, nil
 }
 
 func init() {
@@ -1027,8 +1252,13 @@ func init() {
 
 	  aa - misc
 	*/
-	core.RegisterCB("igmp_ns_get_cnt_meta", ApiIgmpNsCntMetaHandler{}, true)
-	core.RegisterCB("igmp_ns_get_cnt_val", ApiIgmpNsCntValueHandler{}, true)
+
+	core.RegisterCB("igmp_ns_cnt", ApiIgmpNsCntHandler{}, false)       // get counters/meta
+	core.RegisterCB("igmp_ns_add", ApiIgmpNsAddHandler{}, false)       // add mc
+	core.RegisterCB("igmp_ns_remove", ApiIgmpNsRemoveHandler{}, false) // remove mc
+	core.RegisterCB("igmp_ns_iter", ApiIgmpNsIterHandler{}, false)     // iterator
+	core.RegisterCB("igmp_ns_get_cfg", ApiIgmpGetHandler{}, false)     // Get
+	core.RegisterCB("igmp_ns_set_cfg", ApiIgmpSetHandler{}, false)     // Set
 
 	/* register callback for rx side*/
 	core.ParserRegister("igmp", HandleRxIgmpPacket)

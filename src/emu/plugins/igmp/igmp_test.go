@@ -129,7 +129,7 @@ func createSimulationEnv(simRx *core.VethIFSim, num int) (*core.CThreadCtx, *cor
 	nsPlug.designatorMac = core.MACKey{0, 0, 1, 0, 0, 1}
 
 	vecIpv4 := []core.Ipv4Key{}
-	fmt.Printf(" number of clients : %d \n", num)
+	fmt.Printf(" number of mc : %d \n", num)
 	for j := 0; j < num; j++ {
 		vecIpv4 = append(vecIpv4, core.Ipv4Key{239, 0, uint8(((j >> 8) & 0xff)), uint8(j)})
 	}
@@ -274,6 +274,95 @@ func TestPluginIgmp4(t *testing.T) {
 		duration:     60 * time.Second,
 		clientsToSim: 100,
 		cb:           Cb4,
+	}
+	a.Run(t)
+}
+
+type IgmpRpcCtx struct {
+	tctx  *core.CThreadCtx
+	timer core.CHTimerObj
+	test  *IgmpTestBase
+}
+
+func (o *IgmpRpcCtx) OnEvent(a, b interface{}) {
+	fmt.Printf("add request \n")
+
+	o.tctx.Veth.AppendSimuationRPC([]byte(`{"jsonrpc": "2.0", 
+	"method":"igmp_ns_get_cfg", 
+	"params": {"tun": {"vport":1,"tci":[1,2]} }, 
+	"id": 3 }`))
+
+	o.tctx.Veth.AppendSimuationRPC([]byte(`{"jsonrpc": "2.0", 
+	"method":"igmp_ns_set_cfg", 
+	"params": {"tun": {"vport":1,"tci":[1,2]}, "mtu":10 }, "id": 3 }`))
+
+	o.tctx.Veth.AppendSimuationRPC([]byte(`{"jsonrpc": "2.0", 
+	"method":"igmp_ns_set_cfg", 
+	"params": {"tun": {"vport":1,"tci":[1,2]}, "mtu":512 ,"dmac":[0,0,1,0,0,1] }, "id": 3 }`))
+
+	o.tctx.Veth.AppendSimuationRPC([]byte(`{"jsonrpc": "2.0", 
+	"method":"igmp_ns_get_cfg", 
+	"params": {"tun": {"vport":1,"tci":[1,2]} }, 
+	"id": 3 }`))
+
+	o.tctx.Veth.AppendSimuationRPC([]byte(`{"jsonrpc": "2.0", 
+	"method":"igmp_ns_cnt", 
+	"params": {"tun": {"vport":1,"tci":[1,2]}, "meta":true }, 
+	"id": 3 }`))
+
+	o.tctx.Veth.AppendSimuationRPC([]byte(`{"jsonrpc": "2.0", 
+	"method":"igmp_ns_cnt", 
+	"params": {"tun": {"vport":1,"tci":[1,2]}, "meta":false, "zero":false }, 
+	"id": 3 }`))
+
+	o.tctx.Veth.AppendSimuationRPC([]byte(`{"jsonrpc": "2.0",
+	"method":"igmp_ns_add",
+	"params": {"tun": {"vport":1,"tci":[1,2]}, "vec": [ [239,0,1,1],[239,0,1,2] ] },
+	"id": 3 }`))
+
+	o.tctx.Veth.AppendSimuationRPC([]byte(`{"jsonrpc": "2.0",
+	"method":"igmp_ns_add",
+	"params": {"tun": {"vport":1,"tci":[1,2]}, "vec": [ [239,0,1,1],[239,0,1,2] ] },
+	"id": 3 }`))
+
+	o.tctx.Veth.AppendSimuationRPC([]byte(`{"jsonrpc": "2.0",
+	"method":"igmp_ns_remove",
+	"params": {"tun": {"vport":1,"tci":[1,2]}, "vec": [ [239,0,1,1],[239,0,1,2] ] },
+	"id": 3 }`))
+
+	o.tctx.Veth.AppendSimuationRPC([]byte(`{"jsonrpc": "2.0",
+	"method":"igmp_ns_iter",
+	"params": {"tun": {"vport":1,"tci":[1,2]}, "reset": true, "count" : 99},
+	"id": 3 }`))
+	o.tctx.Veth.AppendSimuationRPC([]byte(`{"jsonrpc": "2.0",
+	"method":"igmp_ns_iter",
+	"params": {"tun": {"vport":1,"tci":[1,2]}, "reset": false, "count" : 100},
+	"id": 3 }`))
+
+}
+
+func rpcQueue(tctx *core.CThreadCtx, test *IgmpTestBase) int {
+	timerw := tctx.GetTimerCtx()
+	ticks := timerw.DurationToTicks(50 * time.Second)
+	var arpctx IgmpRpcCtx
+	arpctx.timer.SetCB(&arpctx, test.cbArg1, test.cbArg2)
+	arpctx.tctx = tctx
+	arpctx.test = test
+	timerw.StartTicks(&arpctx.timer, ticks)
+	return 0
+}
+
+func TestPluginIgmp5(t *testing.T) {
+	a := &IgmpTestBase{
+		testname:     "igmp5",
+		dropAll:      true,
+		monitor:      false,
+		match:        3, /* mark as IGMPv2 version */
+		capture:      true,
+		duration:     60 * time.Second,
+		clientsToSim: 100,
+		cb:           rpcQueue,
+		cbArg1:       1,
 	}
 	a.Run(t)
 }
