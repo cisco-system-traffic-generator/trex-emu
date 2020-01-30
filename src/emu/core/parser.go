@@ -8,12 +8,13 @@ import (
 )
 
 type ParserPacketState struct {
-	Tctx *CThreadCtx
-	Tun  *CTunnelKey
-	M    *Mbuf
-	L3   uint16 // 0 is not valid
-	L4   uint16 // 0 is not valid
-	L7   uint16
+	Tctx  *CThreadCtx
+	Tun   *CTunnelKey
+	M     *Mbuf
+	L3    uint16 // offset 0 is not valid (ip)
+	L4    uint16 // offset 0 is not valid (tcp/udp)
+	L7    uint16 // offset
+	L7Len uint16 // 0 if not relevant
 }
 
 /*ParserCb callback function for a protocol. In case the return value is zero, it means the protocol handle the packet
@@ -46,6 +47,8 @@ type ParserStats struct {
 	tcpBytes              uint64
 	udpPkts               uint64
 	udpBytes              uint64
+	udpCsErr              uint64
+	tcpCsErr              uint64
 }
 
 func newParserStatsDb(o *ParserStats) *CCounterDb {
@@ -282,7 +285,9 @@ func (o *Parser) Register(protocol string) {
 	if protocol == "igmp" {
 		o.igmp = getProto("igmp")
 	}
-
+	if protocol == "dhcp" {
+		o.dhcp = getProto("dhcp")
+	}
 }
 
 func (o *Parser) Init(tctx *CThreadCtx) {
@@ -297,7 +302,7 @@ func (o *Parser) Init(tctx *CThreadCtx) {
 }
 
 func (o *Parser) parsePacketL4(ps *ParserPacketState,
-	nextHdr uint8) int {
+	nextHdr uint8, pcs uint32, l4len uint16) int {
 	packetSize := ps.M.PktLen()
 	p := ps.M.GetData()
 
@@ -329,7 +334,14 @@ func (o *Parser) parsePacketL4(ps *ParserPacketState,
 			o.stats.errUdpTooShort++
 			return (-1)
 		}
+		ps.L7Len = l4len - 8
 		udp := layers.UDPHeader(p[ps.L4 : ps.L4+8])
+		if udp.Checksum() > 0 {
+			if layers.PktChecksum(p[ps.L4:], pcs) != 0 {
+				o.stats.udpCsErr++
+				return -1
+			}
+		}
 		o.stats.udpPkts++
 		o.stats.udpBytes += uint64(packetSize)
 		if (udp.SrcPort() == 67) && (udp.DstPort() == 68) {
@@ -428,11 +440,12 @@ func (o *Parser) ParsePacket(m *Mbuf) int {
 				o.stats.errIPv4cs++
 				return -1
 			}
-
+			l4len := ipv4.GetLength() - ipv4.GetHeaderLen()
 			ps.L4 = offset + hdr
 			offset = ps.L4
 			tun.Set(&d)
-			return o.parsePacketL4(&ps, ipv4.GetNextProtocol())
+
+			return o.parsePacketL4(&ps, ipv4.GetNextProtocol(), ipv4.GetPhCs(), l4len)
 		case layers.EthernetTypeIPv6:
 			ps.L3 = offset
 			if packetSize < uint32(offset+20) {

@@ -163,6 +163,7 @@ func newThreadCtxStats(o *CThreadCtxStats) *CCounterDb {
 // CThreadCtx network namespace context
 type CThreadCtx struct {
 	timerctx    *TimerCtx
+	Simulation  bool
 	MPool       MbufPoll /* mbuf pool */
 	portMap     MapPortT // valid port for this cCZmqJsonRPC2t
 	Id          uint32
@@ -188,6 +189,7 @@ func NewThreadCtx(Id uint32, serverPort uint16, simulation bool, simRx *VethIFSi
 	o := new(CThreadCtx)
 	o.timerctx = NewTimerCtx(simulation)
 	o.portMap = make(MapPortT)
+	o.Simulation = simulation
 	o.mapNs = make(MapNsT)
 	o.MPool.Init(mBUFS_CACHE)
 	o.rpc.NewZmqRpc(serverPort, simulation)

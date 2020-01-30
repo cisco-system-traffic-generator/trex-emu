@@ -46,6 +46,17 @@ func (f IPv4Flag) String() string {
 // ipv4.SetTOS(0x10)
 type IPv4Header []byte
 
+func (o IPv4Header) GetPhCs() uint32 {
+	var ph [12]byte
+	binary.BigEndian.PutUint32(ph[0:4], o.GetIPSrc())
+	binary.BigEndian.PutUint32(ph[4:8], o.GetIPDst())
+	ph[9] = o.GetNextProtocol()
+	var len uint16
+	len = o.GetLength() - o.GetHeaderLen()
+	binary.BigEndian.PutUint16(ph[10:12], len)
+	return getCs(ph)
+}
+
 func (o IPv4Header) GetNextProtocol() uint8 {
 	return o[9]
 }

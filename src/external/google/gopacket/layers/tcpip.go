@@ -19,6 +19,22 @@ type tcpipchecksum struct {
 	pseudoheader tcpipPseudoHeader
 }
 
+func getCs(d [12]byte) uint32 {
+	var csum uint32
+
+	for i := 0; i < 12; i += 2 {
+		// For our test packet, doing this manually is about 25% faster
+		// (740 ns vs. 1000ns) than doing it by calling binary.BigEndian.Uint16.
+		csum += uint32(d[i]) << 8
+		csum += uint32(d[i+1])
+	}
+	return csum
+}
+
+func PktChecksumTcpUdp(data []byte, csum uint32, ipv4 IPv4Header) uint16 {
+	return PktChecksum(data, ipv4.GetPhCs())
+}
+
 type tcpipPseudoHeader interface {
 	pseudoheaderChecksum() (uint32, error)
 }
