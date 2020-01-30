@@ -1,7 +1,7 @@
 package dhcp
 
 /*
-RFC 2131 simple DHCP client
+RFC 2131 DHCP client
 
 client inijson {
 	TimerDiscoverSec uint32 `json:"timerd"`
@@ -151,8 +151,8 @@ type PluginDhcpClientTimer struct {
 }
 
 func (o *PluginDhcpClientTimer) OnEvent(a, b interface{}) {
-	pigmp := a.(*PluginDhcpClient)
-	pigmp.onTimerEvent()
+	pi := a.(*PluginDhcpClient)
+	pi.onTimerEvent()
 }
 
 //PluginDhcpClient information per client
@@ -183,7 +183,7 @@ type PluginDhcpClient struct {
 	xid                        uint32
 }
 
-var igmpEvents = []string{}
+var dhcpEvents = []string{}
 
 /*NewDhcpClient create plugin */
 func NewDhcpClient(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
@@ -192,7 +192,7 @@ func NewDhcpClient(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
 
 	o := new(PluginDhcpClient)
 	o.InitPluginBase(ctx, o)             /* init base object*/
-	o.RegisterEvents(ctx, igmpEvents, o) /* register events, only if exits*/
+	o.RegisterEvents(ctx, dhcpEvents, o) /* register events, only if exits*/
 	nsplg := o.Ns.PluginCtx.GetOrCreate(DHCP_PLUG)
 	o.dhcpNsPlug = nsplg.Ext.(*PluginDhcpNs)
 	o.OnCreate()
@@ -374,7 +374,7 @@ func (o *PluginDhcpClient) OnEvent(msg string, a, b interface{}) {
 func (o *PluginDhcpClient) OnRemove(ctx *core.PluginCtx) {
 	/* force removing the link to the client */
 	o.SendRenewRebind(false, true, 0)
-	ctx.UnregisterEvents(&o.PluginBase, igmpEvents)
+	ctx.UnregisterEvents(&o.PluginBase, dhcpEvents)
 	// TBD send release message
 	if o.timer.IsRunning() {
 		o.timerw.Stop(&o.timer)
@@ -662,17 +662,10 @@ type PluginDhcpNs struct {
 }
 
 func NewDhcpNs(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
-	//var init DhcpNsInit
-	//err := fastjson.Unmarshal(initJson, &init)
 
 	o := new(PluginDhcpNs)
 	o.InitPluginBase(ctx, o)
 	o.RegisterEvents(ctx, []string{}, o)
-	/*	if err == nil {
-		if init.Mtu > 0 {
-			o.mtu = init.Mtu
-		}
-	}*/
 
 	return &o.PluginBase
 }
