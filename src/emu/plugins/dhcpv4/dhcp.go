@@ -3,9 +3,9 @@ package dhcp
 /*
 RFC 2131 simple DHCP client
 
-client:
-inijson {
-	   TimerDiscoverSec     uint16         `json:"timer_discover" `
+client inijson {
+	TimerDiscoverSec uint32 `json:"timerd"`
+	TimerOfferSec    uint32 `json:"timero"`
 }:
 
 */
@@ -35,7 +35,9 @@ const (
 	DHCP_STATE_BOUND      = 6
 )
 
-type DhcpNsInit struct {
+type DhcpInit struct {
+	TimerDiscoverSec uint32 `json:"timerd"`
+	TimerOfferSec    uint32 `json:"timero"`
 }
 
 type DhcpStats struct {
@@ -153,7 +155,7 @@ func (o *PluginDhcpClientTimer) OnEvent(a, b interface{}) {
 	pigmp.onTimerEvent()
 }
 
-// PluginIgmpClient icmp information per client
+//PluginDhcpClient information per client
 type PluginDhcpClient struct {
 	core.PluginBase
 	dhcpNsPlug *PluginDhcpNs
@@ -183,15 +185,28 @@ type PluginDhcpClient struct {
 
 var igmpEvents = []string{}
 
-/*NewIgmpClient create plugin */
-func NewIgmpClient(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
+/*NewDhcpClient create plugin */
+func NewDhcpClient(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
+	var init DhcpInit
+	err := fastjson.Unmarshal(initJson, &init)
+
 	o := new(PluginDhcpClient)
 	o.InitPluginBase(ctx, o)             /* init base object*/
 	o.RegisterEvents(ctx, igmpEvents, o) /* register events, only if exits*/
 	nsplg := o.Ns.PluginCtx.GetOrCreate(DHCP_PLUG)
 	o.dhcpNsPlug = nsplg.Ext.(*PluginDhcpNs)
-
 	o.OnCreate()
+
+	if err == nil {
+		/* init json was provided */
+		if init.TimerDiscoverSec > 0 {
+			o.timerDiscoverRetransmitSec = init.TimerDiscoverSec
+		}
+		if init.TimerOfferSec > 0 {
+			o.timerOfferRetransmitSec = init.TimerOfferSec
+		}
+	}
+
 	return &o.PluginBase
 }
 
@@ -640,7 +655,7 @@ func (o *PluginDhcpClient) HandleRxDhcpPacket(ps *core.ParserPacketState) int {
 	return (0)
 }
 
-// PluginIgmpNs icmp information per namespace
+// PluginDhcpNs icmp information per namespace
 type PluginDhcpNs struct {
 	core.PluginBase
 	stats DhcpStats
@@ -696,7 +711,7 @@ func (o *PluginDhcpNs) HandleRxDhcpPacket(ps *core.ParserPacketState) int {
 	return dhcpCPlug.HandleRxDhcpPacket(ps)
 }
 
-// HandleRxIgmpPacket Parser call this function with mbuf from the pool
+// HandleRxDhcpPacket Parser call this function with mbuf from the pool
 func HandleRxDhcpPacket(ps *core.ParserPacketState) int {
 	ns := ps.Tctx.GetNs(ps.Tun)
 	if ns == nil {
@@ -718,7 +733,7 @@ type PluginDhcpCReg struct{}
 type PluginDhcpNsReg struct{}
 
 func (o PluginDhcpCReg) NewPlugin(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
-	return NewIgmpClient(ctx, initJson)
+	return NewDhcpClient(ctx, initJson)
 }
 
 func (o PluginDhcpNsReg) NewPlugin(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
@@ -728,10 +743,11 @@ func (o PluginDhcpNsReg) NewPlugin(ctx *core.PluginCtx, initJson []byte) *core.P
 /*******************************************/
 /*  RPC commands */
 type (
-	ApiDhcpGetHandler struct{}
-
-	ApiDhcpGetResult struct {
-		Version uint8 `json:"version"`
+	ApiDhcpClientCntHandler struct{}
+	ApiDhcpClientCntParams  struct {
+		Meta bool     `json:"meta"`
+		Zero bool     `json:"zero"`
+		Mask []string `json:"mask"` // get only specific counters blocks if it is empty get all
 	}
 )
 
@@ -763,23 +779,40 @@ func getClient(ctx interface{}, params *fastjson.RawMessage) (*PluginDhcpClient,
 		}
 	}
 
-	arpClient := plug.Ext.(*PluginDhcpClient)
+	pClient := plug.Ext.(*PluginDhcpClient)
 
-	return arpClient, nil
+	return pClient, nil
 }
 
-func (h ApiDhcpGetHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
+func (h ApiDhcpClientCntHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
 
-	var res ApiDhcpGetResult
+	var p ApiDhcpClientCntParams
 
-	//igmpNs, err := getNs(ctx, params)
-	//if err != nil {
-	//	return nil, err
-	//}
+	tctx := ctx.(*core.CThreadCtx)
+	c, err := getClient(ctx, params)
+	if err != nil {
+		return nil, err
+	}
 
-	res.Version = 0
+	err1 := tctx.UnmarshalValidate(*params, &p)
+	if err1 != nil {
+		return nil, &jsonrpc.Error{
+			Code:    jsonrpc.ErrorCodeInvalidRequest,
+			Message: err1.Error(),
+		}
+	}
 
-	return &res, nil
+	cdbv := c.cdbv
+
+	if p.Meta {
+		return cdbv.MarshalMeta(), nil
+	}
+
+	if p.Mask == nil || len(p.Mask) == 0 {
+		return cdbv.MarshalValues(p.Zero), nil
+	} else {
+		return cdbv.MarshalValuesMask(p.Zero, p.Mask), nil
+	}
 }
 
 func init() {
@@ -805,7 +838,7 @@ func init() {
 	  aa - misc
 	*/
 
-	//core.RegisterCB("igmp_ns_cnt", ApiIgmpNsCntHandler{}, false)       // get counters/meta
+	core.RegisterCB("dhcp_client_cnt", ApiDhcpClientCntHandler{}, false) // get counters/meta
 
 	/* register callback for rx side*/
 	core.ParserRegister("dhcp", HandleRxDhcpPacket)
