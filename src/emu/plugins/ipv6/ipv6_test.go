@@ -147,16 +147,6 @@ func (o *IcmpQueryCtx) OnEvent(a, b interface{}) {
 					0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02},
 			},
 
-			/*&layers.IPv6HopByHopOption{
-				BaseLayer: BaseLayer{
-					Contents: []byte{0x3b, 0x00, 0x01, 0x04, 0x00, 0x00, 0x00, 0x00},
-					Payload:  []byte{},
-				},
-				NextHeader:   layers.IPProtocolICMPv6,
-				HeaderLength: uint8(0),
-				ActualLength: 8,
-			},*/
-
 			&layers.ICMPv6{TypeCode: layers.CreateICMPv6TypeCode(layers.ICMPv6TypeEchoRequest, 0)},
 
 			&layers.ICMPv6Echo{Identifier: 0x1234,

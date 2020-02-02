@@ -13,7 +13,6 @@ import (
 	"encoding/binary"
 	"external/google/gopacket/layers"
 	"external/osamingo/jsonrpc"
-	"time"
 
 	"github.com/intel-go/fastjson"
 )
@@ -158,14 +157,6 @@ func (o *PluginIpv6Ns) OnEvent(msg string, a, b interface{}) {
 
 func (o *PluginIpv6Ns) SetTruncated() {
 
-}
-
-func iptime() uint32 {
-	t := time.Now().UnixNano()
-	sec := t / int64(time.Second)
-	msec := (t - sec*int64(time.Second)) / int64(time.Millisecond)
-	r := uint32((sec%(24*60*60))*1000 + msec)
-	return r
 }
 
 func (o *PluginIpv6Ns) HandleEcho(ps *core.ParserPacketState, ts bool) {
