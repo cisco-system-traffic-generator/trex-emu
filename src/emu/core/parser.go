@@ -18,6 +18,7 @@ const (
 	IPV6_EXT_MOBILE     = 135
 	IPV6_EXT_HOST       = 139
 	IPV6_EXT_SHIM       = 140
+	IPV6_EXT_JUMBO      = 194
 	IPV6_EXT_END        = 59
 )
 
@@ -66,6 +67,7 @@ type ParserStats struct {
 	errIPv6TooShort       uint64
 	errIPv6HopLimitDrop   uint64
 	errIPv6Empty          uint64
+	errIPv6OptJumbo       uint64
 	errIcmpv6TooShort     uint64
 	errIcmpv6Cse          uint64
 	errIcmpv6Unsupported  uint64
@@ -339,6 +341,14 @@ func newParserStatsDb(o *ParserStats) *CCounterDb {
 		DumpZero: false,
 		Info:     ScINFO})
 
+	db.Add(&CCounterRec{
+		Counter:  &o.errIPv6OptJumbo,
+		Name:     "errIPv6OptJumbo",
+		Help:     "Icmpv6 jumbo option is not supported ",
+		Unit:     "pkt",
+		DumpZero: false,
+		Info:     ScERROR})
+
 	return db
 }
 
@@ -600,6 +610,7 @@ func (o *Parser) ParsePacket(m *Mbuf) int {
 			tun.Set(&d)
 
 			nh := ipv6.NextHeader()
+			var osize uint16
 			doloop := true
 			for doloop {
 				switch nh {
@@ -624,7 +635,12 @@ func (o *Parser) ParsePacket(m *Mbuf) int {
 					}
 					nh = ipv6ex.NextHeader()
 					l4len -= hl
+					osize += hl
 					l4 += hl
+				case IPV6_EXT_JUMBO:
+					// not supported
+					o.stats.errIPv6OptJumbo++
+					return (-1)
 
 				case IPV6_EXT_END:
 					o.stats.errIPv6Empty++
@@ -635,7 +651,7 @@ func (o *Parser) ParsePacket(m *Mbuf) int {
 				}
 			}
 			ps.L4 = l4
-			return o.parsePacketL4(&ps, ipv6.NextHeader(), ipv6.GetPhCs(), l4len)
+			return o.parsePacketL4(&ps, nh, ipv6.GetPhCs(osize, nh), l4len)
 		default:
 		}
 	}

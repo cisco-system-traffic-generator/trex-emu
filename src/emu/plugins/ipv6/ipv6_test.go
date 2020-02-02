@@ -117,6 +117,7 @@ func (o *IcmpQueryCtx) OnEvent(a, b interface{}) {
 	buf := gopacket.NewSerializeBuffer()
 	opts := gopacket.SerializeOptions{FixLengths: false, ComputeChecksums: false}
 
+	var raw []byte
 	if o.match == 0 {
 		gopacket.SerializeLayers(buf, opts,
 			&layers.Ethernet{
@@ -154,23 +155,80 @@ func (o *IcmpQueryCtx) OnEvent(a, b interface{}) {
 
 			gopacket.Payload([]byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}),
 		)
-
 		pkt := buf.Bytes()
 		off := 14 + 8
 		ipv6 := layers.IPv6Header(pkt[off : off+40])
 		ipv6.SetPyloadLength(uint16(len(pkt) - off - 40))
 
-		cs := layers.PktChecksumTcpUdpV6(pkt[off+40:], 0, ipv6)
+		cs := layers.PktChecksumTcpUdpV6(pkt[off+40:], 0, ipv6, 0, uint8(layers.IPProtocolICMPv6))
 		binary.BigEndian.PutUint16(pkt[off+42:off+44], cs)
 
+		raw = buf.Bytes()
+
 	} else {
+		gopacket.SerializeLayers(buf, opts,
+			&layers.Ethernet{
+				SrcMAC:       net.HardwareAddr{0, 0, 0, 2, 0, 0},
+				DstMAC:       net.HardwareAddr{0, 0, 1, 0, 0, 0},
+				EthernetType: layers.EthernetTypeDot1Q,
+			},
+			&layers.Dot1Q{
+				Priority:       uint8(0),
+				VLANIdentifier: uint16(1),
+				Type:           layers.EthernetTypeDot1Q,
+			},
+			&layers.Dot1Q{
+				Priority:       uint8(0),
+				VLANIdentifier: uint16(2),
+				Type:           layers.EthernetTypeIPv6,
+			},
+
+			&layers.IPv6{
+				Version:      6,
+				TrafficClass: 0,
+				FlowLabel:    0,
+				Length:       8,
+				NextHeader:   layers.IPProtocolICMPv6,
+				HopLimit:     64,
+				SrcIP:        net.IP{0x20, 0x01, 0x0d, 0xb8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01},
+				DstIP: net.IP{0x20, 0x01, 0x0d, 0xb8, 0x00, 0x00, 0x00, 0x00,
+					0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02},
+			},
+
+			&layers.ICMPv6{TypeCode: layers.CreateICMPv6TypeCode(layers.ICMPv6TypeEchoRequest, 0)},
+
+			&layers.ICMPv6Echo{Identifier: 0x1234,
+				SeqNumber: 0x4567 + o.cnt},
+
+			gopacket.Payload([]byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}),
+		)
+		//pkt := buf.Bytes()
+
+		pkt := buf.Bytes()
+		off := 14 + 8
+
+		hopByHop := []byte{58, 0, 0, 0, 1, 2, 3, 4}
+
+		pkt2 := []byte{}
+		pkt2 = append(pkt2, pkt[0:off+40]...)
+		pkt2 = append(pkt2, hopByHop[:]...)
+		pkt2 = append(pkt2, pkt[off+40:]...)
+
+		ipv6 := layers.IPv6Header(pkt2[off : off+40])
+		ipv6[6] = 0
+		ipv6.SetPyloadLength(uint16(len(pkt2) - off - 40))
+
+		binary.BigEndian.PutUint16(pkt2[off+50:off+52], 0)
+		cs := layers.PktChecksumTcpUdpV6(pkt2[off+48:], 0, ipv6, 8, 58)
+		binary.BigEndian.PutUint16(pkt2[off+50:off+52], cs)
+		raw = pkt2
 	}
 
 	o.cnt += 1
 
 	m := o.tctx.MPool.Alloc(uint16(256))
 	m.SetVPort(1)
-	m.Append(buf.Bytes())
+	m.Append(raw)
 	o.tctx.Veth.OnRx(m)
 
 	timerw := o.tctx.GetTimerCtx()
@@ -206,7 +264,7 @@ func TestPluginIcmpv6_1(t *testing.T) {
 
 func TestPluginIcmpv6_2(t *testing.T) {
 	a := &IcmpTestBase{
-		testname:     "icmpv6_1",
+		testname:     "icmpv6_2",
 		monitor:      false,
 		match:        1,
 		capture:      true,
@@ -214,7 +272,7 @@ func TestPluginIcmpv6_2(t *testing.T) {
 		clientsToSim: 1,
 		cb:           Cb4,
 	}
-	a.Run(t, false) // the timestamp making a new json due to the timestamp. skip the it
+	a.Run(t, true) // the timestamp making a new json due to the timestamp. skip the it
 }
 
 func init() {

@@ -212,6 +212,13 @@ func (o *PluginIpv6Ns) HandleRxIpv6Packet(ps *core.ParserPacketState) int {
 		o.stats.pktRxNoClientUnhandled++
 		return 0
 	}
+
+	tome := client.IsUnicastToMe(p)
+	if !tome {
+		o.stats.pktRxNoClientUnhandled++
+		return 0
+	}
+
 	/* multicast */
 	if ipv6.SrcIP()[0] == 0xff {
 		o.stats.pktRxErrMulticastB++

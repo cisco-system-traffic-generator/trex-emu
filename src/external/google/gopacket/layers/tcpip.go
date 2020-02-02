@@ -31,8 +31,8 @@ func getCs(d [12]byte) uint32 {
 	return csum
 }
 
-func PktChecksumTcpUdpV6(data []byte, csum uint32, ipv6 IPv6Header) uint16 {
-	return PktChecksum(data, ipv6.GetPhCs())
+func PktChecksumTcpUdpV6(data []byte, csum uint32, ipv6 IPv6Header, osize uint16, nextH uint8) uint16 {
+	return PktChecksum(data, ipv6.GetPhCs(osize,nextH))
 }
 
 func PktChecksumTcpUdp(data []byte, csum uint32, ipv4 IPv4Header) uint16 {

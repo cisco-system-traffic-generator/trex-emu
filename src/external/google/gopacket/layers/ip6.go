@@ -92,12 +92,12 @@ func getCsv6(d [40]byte) uint32 {
 	return csum
 }
 
-func (o IPv6Header) GetPhCs() uint32 {
+func (o IPv6Header) GetPhCs(osize uint16, nextH uint8) uint32 {
 	var ph [32 + 4 + 4]byte
 	copy(ph[0:16], o.SrcIP())
 	copy(ph[16:32], o.DstIP())
-	binary.BigEndian.PutUint32(ph[32:36], uint32(o.PayloadLength()))
-	ph[39] = o.NextHeader()
+	binary.BigEndian.PutUint32(ph[32:36], uint32(o.PayloadLength()-osize))
+	ph[39] = nextH
 	return getCsv6(ph)
 }
 

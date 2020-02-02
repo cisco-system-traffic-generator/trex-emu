@@ -235,6 +235,13 @@ func (o *PluginIcmpNs) HandleRxIcmpPacket(ps *core.ParserPacketState) int {
 		o.stats.pktRxNoClientUnhandled++
 		return 0
 	}
+
+	tome := client.IsUnicastToMe(p)
+	if !tome {
+		o.stats.pktRxNoClientUnhandled++
+		return 0
+	}
+
 	ipv4Key.SetUint32(ipv4.GetIPSrc())
 
 	/* source ip should be a valid ipv4 */

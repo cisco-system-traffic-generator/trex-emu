@@ -1,6 +1,7 @@
 package core
 
 import (
+	"bytes"
 	"encoding/binary"
 	"external/google/gopacket/layers"
 	"net"
@@ -153,4 +154,15 @@ func (o *CClient) GetIPv4Header(broadcast bool, next uint8) ([]byte, uint16) {
 			Protocol: layers.IPProtocol(next)})
 	l2 = append(l2, ipHeader...)
 	return l2, offsetIPv4
+}
+
+func (o *CClient) IsUnicastToMe(p []byte) bool {
+
+	if len(p) > 6 {
+		res := bytes.Compare(o.Mac[0:6], p[0:6])
+		if res == 0 {
+			return true
+		}
+	}
+	return false
 }
