@@ -7,6 +7,20 @@ import (
 	"runtime"
 )
 
+const (
+	IPV6_HEADER_SIZE    = 40
+	IPV6_EXT_HOP_BY_HOP = 0
+	IPV6_EXT_DST        = 60
+	IPV6_EXT_ROUTING    = 43
+	IPV6_EXT_Fragment   = 44
+	IPV6_EXT_AH         = 51
+	IPV6_EXT_ESP        = 50
+	IPV6_EXT_MOBILE     = 135
+	IPV6_EXT_HOST       = 139
+	IPV6_EXT_SHIM       = 140
+	IPV6_EXT_END        = 59
+)
+
 type ParserPacketState struct {
 	Tctx  *CThreadCtx
 	Tun   *CTunnelKey
@@ -49,6 +63,14 @@ type ParserStats struct {
 	udpBytes              uint64
 	udpCsErr              uint64
 	tcpCsErr              uint64
+	errIPv6TooShort       uint64
+	errIPv6HopLimitDrop   uint64
+	errIPv6Empty          uint64
+	errIcmpv6TooShort     uint64
+	errIcmpv6Cse          uint64
+	errIcmpv6Unsupported  uint64
+	Icmpv6Pkt             uint64
+	Icmpv6Bytes           uint64
 }
 
 func newParserStatsDb(o *ParserStats) *CCounterDb {
@@ -253,6 +275,70 @@ func newParserStatsDb(o *ParserStats) *CCounterDb {
 		DumpZero: false,
 		Info:     ScINFO})
 
+	db.Add(&CCounterRec{
+		Counter:  &o.errIPv6TooShort,
+		Name:     "errIPv6TooShort",
+		Help:     "ipv6 too short",
+		Unit:     "pkts",
+		DumpZero: false,
+		Info:     ScERROR})
+
+	db.Add(&CCounterRec{
+		Counter:  &o.errIPv6HopLimitDrop,
+		Name:     "errIPv6HopLimitDrop",
+		Help:     "ipv6 hop limit",
+		Unit:     "pkts",
+		DumpZero: false,
+		Info:     ScERROR})
+
+	db.Add(&CCounterRec{
+		Counter:  &o.errIPv6Empty,
+		Name:     "errIPv6Empty",
+		Help:     "ipv6 no payload",
+		Unit:     "pkts",
+		DumpZero: false,
+		Info:     ScERROR})
+
+	db.Add(&CCounterRec{
+		Counter:  &o.errIcmpv6TooShort,
+		Name:     "errIcmpv6TooShort",
+		Help:     "icmpv6 too short",
+		Unit:     "pkts",
+		DumpZero: false,
+		Info:     ScERROR})
+
+	db.Add(&CCounterRec{
+		Counter:  &o.errIcmpv6Cse,
+		Name:     "errIcmpv6Cse",
+		Help:     "Icmpv6 checksum error",
+		Unit:     "pkts",
+		DumpZero: false,
+		Info:     ScERROR})
+
+	db.Add(&CCounterRec{
+		Counter:  &o.errIcmpv6Unsupported,
+		Name:     "errIcmpv6Unsupported",
+		Help:     "Icmpv6 unsupported type/code",
+		Unit:     "pkts",
+		DumpZero: false,
+		Info:     ScERROR})
+
+	db.Add(&CCounterRec{
+		Counter:  &o.Icmpv6Pkt,
+		Name:     "Icmpv6Pkt",
+		Help:     "Icmpv6 pkts",
+		Unit:     "pkts",
+		DumpZero: false,
+		Info:     ScINFO})
+
+	db.Add(&CCounterRec{
+		Counter:  &o.Icmpv6Bytes,
+		Name:     "Icmpv6Bytes",
+		Help:     "Icmpv6 bytes",
+		Unit:     "bytes",
+		DumpZero: false,
+		Info:     ScINFO})
+
 	return db
 }
 
@@ -262,13 +348,14 @@ type Parser struct {
 
 	stats ParserStats
 	/* call backs */
-	arp  ParserCb
-	icmp ParserCb
-	igmp ParserCb
-	dhcp ParserCb
-	tcp  ParserCb
-	udp  ParserCb
-	Cdb  *CCounterDb
+	arp    ParserCb
+	icmp   ParserCb
+	igmp   ParserCb
+	dhcp   ParserCb
+	tcp    ParserCb
+	udp    ParserCb
+	icmpv6 ParserCb
+	Cdb    *CCounterDb
 }
 
 func parserNotSupported(ps *ParserPacketState) int {
@@ -288,6 +375,9 @@ func (o *Parser) Register(protocol string) {
 	if protocol == "dhcp" {
 		o.dhcp = getProto("dhcp")
 	}
+	if protocol == "icmpv6" {
+		o.icmpv6 = getProto("icmpv6")
+	}
 }
 
 func (o *Parser) Init(tctx *CThreadCtx) {
@@ -298,11 +388,13 @@ func (o *Parser) Init(tctx *CThreadCtx) {
 	o.dhcp = parserNotSupported
 	o.tcp = parserNotSupported
 	o.udp = parserNotSupported
+	o.icmpv6 = parserNotSupported
 	o.Cdb = newParserStatsDb(&o.stats)
 }
 
 func (o *Parser) parsePacketL4(ps *ParserPacketState,
 	nextHdr uint8, pcs uint32, l4len uint16) int {
+
 	packetSize := ps.M.PktLen()
 	p := ps.M.GetData()
 
@@ -337,7 +429,7 @@ func (o *Parser) parsePacketL4(ps *ParserPacketState,
 		ps.L7Len = l4len - 8
 		udp := layers.UDPHeader(p[ps.L4 : ps.L4+8])
 		if udp.Checksum() > 0 {
-			if layers.PktChecksum(p[ps.L4:], pcs) != 0 {
+			if layers.PktChecksum(p[ps.L4:ps.L4+l4len], pcs) != 0 {
 				o.stats.udpCsErr++
 				return -1
 			}
@@ -353,6 +445,39 @@ func (o *Parser) parsePacketL4(ps *ParserPacketState,
 		o.stats.errUDP++
 		return -1
 	case layers.IPProtocolICMPv6:
+		if packetSize < uint32(ps.L4+4) {
+			o.stats.errIcmpv6TooShort++
+			return -1
+		}
+		if layers.PktChecksum(p[ps.L4:ps.L4+l4len], pcs) != 0 {
+			o.stats.errIcmpv6Cse++
+			return -1
+		}
+		Pkttype := p[ps.L4]
+
+		switch Pkttype {
+
+		case
+			layers.ICMPv6TypeDestinationUnreachable,
+			layers.ICMPv6TypePacketTooBig,
+			layers.ICMPv6TypeTimeExceeded,
+			layers.ICMPv6TypeParameterProblem,
+			layers.ICMPv6TypeEchoRequest,
+			layers.ICMPv6TypeEchoReply,
+			layers.ICMPv6TypeMLDv1MulticastListenerQueryMessage,
+			layers.ICMPv6TypeMLDv1MulticastListenerReportMessage,
+			layers.ICMPv6TypeMLDv1MulticastListenerDoneMessage,
+			layers.ICMPv6TypeRouterSolicitation,
+			layers.ICMPv6TypeRouterAdvertisement,
+			layers.ICMPv6TypeNeighborSolicitation,
+			layers.ICMPv6TypeNeighborAdvertisement:
+			o.stats.Icmpv6Pkt++
+			o.stats.Icmpv6Bytes += uint64(packetSize)
+			return (o.icmpv6(ps))
+		default:
+			o.stats.errIcmpv6Unsupported++
+			return -1
+		}
 		return -1
 	}
 	return (0)
@@ -419,6 +544,10 @@ func (o *Parser) ParsePacket(m *Mbuf) int {
 				return -1
 			}
 			ipv4 := layers.IPv4Header(p[offset : offset+20])
+			if ipv4.Version() != 4 {
+				o.stats.errIPv4HeaderTooShort++
+				return -1
+			}
 			hdr := ipv4.GetHeaderLen()
 			if hdr < 20 {
 				o.stats.errIPv4HeaderTooShort++
@@ -448,10 +577,65 @@ func (o *Parser) ParsePacket(m *Mbuf) int {
 			return o.parsePacketL4(&ps, ipv4.GetNextProtocol(), ipv4.GetPhCs(), l4len)
 		case layers.EthernetTypeIPv6:
 			ps.L3 = offset
-			if packetSize < uint32(offset+20) {
-				/* TO DO erro*/
+			if packetSize < uint32(offset+IPV6_HEADER_SIZE) {
+				o.stats.errIPv6TooShort++
+				return -1
+			}
+			ipv6 := layers.IPv6Header(p[offset : offset+IPV6_HEADER_SIZE])
+			if ipv6.Version() != 6 {
+				o.stats.errIPv6TooShort++
+				return -1
+			}
+			if packetSize < uint32(offset+IPV6_HEADER_SIZE+ipv6.PayloadLength()) {
+				o.stats.errIPv6TooShort++
+				return -1
+			}
+			if ipv6.HopLimit() == 0 {
+				o.stats.errIPv6HopLimitDrop++
+				return -1
 			}
 
+			l4 := ps.L3 + IPV6_HEADER_SIZE
+			l4len := ipv6.PayloadLength()
+			tun.Set(&d)
+
+			nh := ipv6.NextHeader()
+			doloop := true
+			for doloop {
+				switch nh {
+				case IPV6_EXT_HOP_BY_HOP,
+					IPV6_EXT_DST,
+					IPV6_EXT_ROUTING,
+					IPV6_EXT_Fragment,
+					IPV6_EXT_AH,
+					IPV6_EXT_ESP,
+					IPV6_EXT_MOBILE,
+					IPV6_EXT_HOST,
+					IPV6_EXT_SHIM:
+					if l4len < 8 {
+						o.stats.errIPv6TooShort++
+						return -1
+					}
+					ipv6ex := layers.IPv6ExtHeader(p[l4 : l4+2])
+					hl := ipv6ex.HeaderLen()
+					if l4len < hl {
+						o.stats.errIPv6TooShort++
+						return -1
+					}
+					nh = ipv6ex.NextHeader()
+					l4len -= hl
+					l4 += hl
+
+				case IPV6_EXT_END:
+					o.stats.errIPv6Empty++
+					return (0)
+				default:
+					doloop = false
+					break
+				}
+			}
+			ps.L4 = l4
+			return o.parsePacketL4(&ps, ipv6.NextHeader(), ipv6.GetPhCs(), l4len)
 		default:
 		}
 	}

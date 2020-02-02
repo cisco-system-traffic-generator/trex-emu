@@ -25,6 +25,82 @@ const (
 	ipv6MaxPayloadLength = 65535
 )
 
+type IPv6ExtHeader []byte
+
+func (o IPv6ExtHeader) NextHeader() uint8 {
+	return o[0]
+}
+
+func (o IPv6ExtHeader) HeaderLen() uint16 {
+	return (uint16(o[1]) << 3) + 8
+}
+
+type IPv6Header []byte
+
+func (o IPv6Header) SwapSrcDst() {
+	var tmp [16]byte
+	copy(tmp[:], o.SrcIP())
+	copy(o.SrcIP(), o.DstIP())
+	copy(o.DstIP(), tmp[:])
+}
+
+func (o IPv6Header) NextHeader() uint8 {
+	return o[6]
+}
+
+func (o IPv6Header) Version() uint8 {
+	return (o[0] & 0xf0) >> 4
+}
+
+func (o IPv6Header) FlowLabel() uint32 {
+	return (binary.BigEndian.Uint32(o[0:4]) & 0x000FFFFF)
+}
+
+func (o IPv6Header) TOS() uint8 {
+	return uint8((((binary.BigEndian.Uint16(o[0:2])) >> 4) & 0x00ff))
+}
+
+func (o IPv6Header) PayloadLength() uint16 {
+	return (binary.BigEndian.Uint16(o[4:6]))
+}
+
+func (o IPv6Header) SetPyloadLength(len uint16) {
+	binary.BigEndian.PutUint16(o[4:6], len)
+}
+
+func (o IPv6Header) HopLimit() uint8 {
+	return o[7]
+}
+
+func (o IPv6Header) SrcIP() []byte {
+	return o[8:24]
+}
+
+func (o IPv6Header) DstIP() []byte {
+	return o[24:40]
+}
+
+func getCsv6(d [40]byte) uint32 {
+	var csum uint32
+
+	for i := 0; i < 40; i += 2 {
+		// For our test packet, doing this manually is about 25% faster
+		// (740 ns vs. 1000ns) than doing it by calling binary.BigEndian.Uint16.
+		csum += uint32(d[i]) << 8
+		csum += uint32(d[i+1])
+	}
+	return csum
+}
+
+func (o IPv6Header) GetPhCs() uint32 {
+	var ph [32 + 4 + 4]byte
+	copy(ph[0:16], o.SrcIP())
+	copy(ph[16:32], o.DstIP())
+	binary.BigEndian.PutUint32(ph[32:36], uint32(o.PayloadLength()))
+	ph[39] = o.NextHeader()
+	return getCsv6(ph)
+}
+
 // IPv6 is the layer for the IPv6 header.
 type IPv6 struct {
 	// http://www.networksorcery.com/enp/protocol/ipv6.htm

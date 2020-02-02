@@ -57,6 +57,11 @@ func (o IPv4Header) GetPhCs() uint32 {
 	return getCs(ph)
 }
 
+func (o IPv4Header) Version() uint8 {
+	return ((o[0] & 0xf0)>>4)
+}
+
+
 func (o IPv4Header) GetNextProtocol() uint8 {
 	return o[9]
 }
