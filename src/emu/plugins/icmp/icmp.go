@@ -215,7 +215,7 @@ func (o *PluginIcmpNs) HandleRxIcmpPacket(ps *core.ParserPacketState) int {
 
 	if m.PktLen() < uint32(ps.L7) {
 		o.stats.pktRxErrTooShort++
-		return -1
+		return core.PARSER_ERR
 	}
 
 	p := m.GetData()
@@ -223,7 +223,7 @@ func (o *PluginIcmpNs) HandleRxIcmpPacket(ps *core.ParserPacketState) int {
 	err := icmpv4.DecodeFromBytes(p[ps.L4:], o)
 	if err != nil {
 		o.stats.pktRxErrTooShort++
-		return -1
+		return core.PARSER_ERR
 	}
 
 	ipv4 := layers.IPv4Header(p[ps.L3 : ps.L3+20])
@@ -271,11 +271,11 @@ func HandleRxIcmpPacket(ps *core.ParserPacketState) int {
 
 	ns := ps.Tctx.GetNs(ps.Tun)
 	if ns == nil {
-		return -1
+		return core.PARSER_ERR
 	}
 	nsplg := ns.PluginCtx.Get(ICMP_PLUG)
 	if nsplg == nil {
-		return -1
+		return core.PARSER_ERR
 	}
 	icmpPlug := nsplg.Ext.(*PluginIcmpNs)
 	return icmpPlug.HandleRxIcmpPacket(ps)

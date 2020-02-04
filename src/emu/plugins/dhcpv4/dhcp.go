@@ -588,14 +588,14 @@ func (o *PluginDhcpClient) HandleRxDhcpPacket(ps *core.ParserPacketState) int {
 
 	if dhcphlen == 0 {
 		o.stats.pktRxLenErr++
-		return -1
+		return core.PARSER_ERR
 	}
 
 	var dhcph layers.DHCPv4
 	err := dhcph.DecodeFromBytes(p[ps.L7:ps.L7+dhcphlen], gopacket.NilDecodeFeedback)
 	if err != nil {
 		o.stats.pktRxParserErr++
-		return -1
+		return core.PARSER_ERR
 	}
 
 	var dhcpmt layers.DHCPMsgType
@@ -693,12 +693,12 @@ func (o *PluginDhcpNs) HandleRxDhcpPacket(ps *core.ParserPacketState) int {
 	client := o.Ns.CLookupByMac(&mackey)
 
 	if client == nil {
-		return -1
+		return core.PARSER_ERR
 	}
 
 	cplg := client.PluginCtx.Get(DHCP_PLUG)
 	if cplg == nil {
-		return -1
+		return core.PARSER_ERR
 	}
 	dhcpCPlug := cplg.Ext.(*PluginDhcpClient)
 	return dhcpCPlug.HandleRxDhcpPacket(ps)
@@ -708,11 +708,11 @@ func (o *PluginDhcpNs) HandleRxDhcpPacket(ps *core.ParserPacketState) int {
 func HandleRxDhcpPacket(ps *core.ParserPacketState) int {
 	ns := ps.Tctx.GetNs(ps.Tun)
 	if ns == nil {
-		return -1
+		return core.PARSER_ERR
 	}
 	nsplg := ns.PluginCtx.Get(DHCP_PLUG)
 	if nsplg == nil {
-		return -1
+		return core.PARSER_ERR
 	}
 	dhcpPlug := nsplg.Ext.(*PluginDhcpNs)
 	return dhcpPlug.HandleRxDhcpPacket(ps)

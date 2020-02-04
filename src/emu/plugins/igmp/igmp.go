@@ -910,7 +910,7 @@ func (o *PluginIgmpNs) HandleRxIgmpPacket(ps *core.ParserPacketState) int {
 	cs := layers.PktChecksum(igmp, 0)
 	if cs != 0 {
 		o.stats.pktRxBadsum++
-		return -1
+		return core.PARSER_ERR
 	}
 
 	igmph := layers.IGMPHeader(igmp)
@@ -922,7 +922,7 @@ func (o *PluginIgmpNs) HandleRxIgmpPacket(ps *core.ParserPacketState) int {
 	if (igmpType != IGMP_TYPE_DVMRP) &&
 		(ipv4.GetTTL() != 1) {
 		o.stats.pktRxBadttl++
-		return -1
+		return core.PARSER_ERR
 	}
 
 	var queryver int
@@ -981,11 +981,11 @@ func (o *PluginIgmpNs) HandleRxIgmpPacket(ps *core.ParserPacketState) int {
 func HandleRxIgmpPacket(ps *core.ParserPacketState) int {
 	ns := ps.Tctx.GetNs(ps.Tun)
 	if ns == nil {
-		return -1
+		return core.PARSER_ERR
 	}
 	nsplg := ns.PluginCtx.Get(IGMP_PLUG)
 	if nsplg == nil {
-		return -1
+		return core.PARSER_ERR
 	}
 	igmpPlug := nsplg.Ext.(*PluginIgmpNs)
 	return igmpPlug.HandleRxIgmpPacket(ps)

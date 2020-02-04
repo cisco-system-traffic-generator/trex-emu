@@ -22,6 +22,11 @@ const (
 	IPV6_EXT_END        = 59
 )
 
+const (
+	PARSER_ERR = -1
+	PARSER_OK  = 0
+)
+
 type ParserPacketState struct {
 	Tctx  *CThreadCtx
 	Tun   *CTunnelKey
@@ -47,6 +52,7 @@ type ParserStats struct {
 	errToManyDot1q        uint64
 	errIPv4TooShort       uint64
 	errIPv4HeaderTooShort uint64
+	errIPv4Fragment       uint64
 	errIPv4cs             uint64
 	errTCP                uint64
 	errUDP                uint64
@@ -68,11 +74,15 @@ type ParserStats struct {
 	errIPv6HopLimitDrop   uint64
 	errIPv6Empty          uint64
 	errIPv6OptJumbo       uint64
+	errIPv6Fragment       uint64
 	errIcmpv6TooShort     uint64
 	errIcmpv6Cse          uint64
 	errIcmpv6Unsupported  uint64
 	Icmpv6Pkt             uint64
 	Icmpv6Bytes           uint64
+	errL4ProtoUnsupported uint64
+	errL3ProtoUnsupported uint64
+	errPacketIsTooShort   uint64
 }
 
 func newParserStatsDb(o *ParserStats) *CCounterDb {
@@ -349,6 +359,38 @@ func newParserStatsDb(o *ParserStats) *CCounterDb {
 		DumpZero: false,
 		Info:     ScERROR})
 
+	db.Add(&CCounterRec{
+		Counter:  &o.errIPv6Fragment,
+		Name:     "errIPv6Fragment",
+		Help:     "ipv6 fragment is not supported",
+		Unit:     "pkt",
+		DumpZero: false,
+		Info:     ScERROR})
+
+	db.Add(&CCounterRec{
+		Counter:  &o.errIPv4Fragment,
+		Name:     "errIPv4Fragment",
+		Help:     "ipv4 fragment is not supported",
+		Unit:     "pkt",
+		DumpZero: false,
+		Info:     ScERROR})
+
+	db.Add(&CCounterRec{
+		Counter:  &o.errL3ProtoUnsupported,
+		Name:     "errL3ProtoUnsupported",
+		Help:     "L3 proto is not supported",
+		Unit:     "pkt",
+		DumpZero: false,
+		Info:     ScERROR})
+
+	db.Add(&CCounterRec{
+		Counter:  &o.errPacketIsTooShort,
+		Name:     "errPacketIsTooShort",
+		Help:     "packet is too short for parsing",
+		Unit:     "pkt",
+		DumpZero: false,
+		Info:     ScERROR})
+
 	return db
 }
 
@@ -412,7 +454,7 @@ func (o *Parser) parsePacketL4(ps *ParserPacketState,
 	case layers.IPProtocolICMPv4:
 		if packetSize < uint32(ps.L4+8) {
 			o.stats.errIcmpv4TooShort++
-			return -1
+			return PARSER_ERR
 		}
 		o.stats.icmpPkts++
 		o.stats.icmpBytes += uint64(packetSize)
@@ -421,7 +463,7 @@ func (o *Parser) parsePacketL4(ps *ParserPacketState,
 	case layers.IPProtocolIGMP:
 		if packetSize < uint32(ps.L4+8) {
 			o.stats.errIcmpv4TooShort++
-			return -1
+			return PARSER_ERR
 		}
 		o.stats.igmpPkts++
 		o.stats.igmpBytes += uint64(packetSize)
@@ -430,18 +472,18 @@ func (o *Parser) parsePacketL4(ps *ParserPacketState,
 		o.stats.errTCP++
 		o.stats.tcpPkts++
 		o.stats.tcpBytes += uint64(packetSize)
-		return -1
+		return PARSER_ERR
 	case layers.IPProtocolUDP:
 		if packetSize < uint32(ps.L4+8) {
 			o.stats.errUdpTooShort++
-			return (-1)
+			return PARSER_ERR
 		}
 		ps.L7Len = l4len - 8
 		udp := layers.UDPHeader(p[ps.L4 : ps.L4+8])
 		if udp.Checksum() > 0 {
 			if layers.PktChecksum(p[ps.L4:ps.L4+l4len], pcs) != 0 {
 				o.stats.udpCsErr++
-				return -1
+				return PARSER_ERR
 			}
 		}
 		o.stats.udpPkts++
@@ -453,15 +495,15 @@ func (o *Parser) parsePacketL4(ps *ParserPacketState,
 			return o.dhcp(ps)
 		}
 		o.stats.errUDP++
-		return -1
+		return PARSER_ERR
 	case layers.IPProtocolICMPv6:
 		if packetSize < uint32(ps.L4+4) {
 			o.stats.errIcmpv6TooShort++
-			return -1
+			return PARSER_ERR
 		}
 		if layers.PktChecksum(p[ps.L4:ps.L4+l4len], pcs) != 0 {
 			o.stats.errIcmpv6Cse++
-			return -1
+			return PARSER_ERR
 		}
 		Pkttype := p[ps.L4]
 
@@ -486,9 +528,12 @@ func (o *Parser) parsePacketL4(ps *ParserPacketState,
 			return (o.icmpv6(ps))
 		default:
 			o.stats.errIcmpv6Unsupported++
-			return -1
+			return PARSER_ERR
 		}
 		return -1
+	default:
+		o.stats.errL4ProtoUnsupported++
+		return PARSER_ERR
 	}
 	return (0)
 }
@@ -515,6 +560,11 @@ func (o *Parser) ParsePacket(m *Mbuf) int {
 	ps.Tun = &tun
 	ps.M = m
 
+	if packetSize < 14 {
+		o.stats.errPacketIsTooShort++
+		return PARSER_ERR
+	}
+
 	ethHeader := layers.EthernetHeader(p[0:14])
 	var nextHdr layers.EthernetType
 	nextHdr = layers.EthernetType(ethHeader.GetNextProtocol())
@@ -526,7 +576,7 @@ func (o *Parser) ParsePacket(m *Mbuf) int {
 		case layers.EthernetTypeARP:
 			if packetSize < uint32(offset+layers.ARPHeaderSize) {
 				o.stats.errArpTooShort++
-				return -1
+				return PARSER_ERR
 			}
 			ps.L3 = offset
 			tun.Set(&d)
@@ -536,11 +586,11 @@ func (o *Parser) ParsePacket(m *Mbuf) int {
 		case layers.EthernetTypeDot1Q, layers.EthernetTypeQinQ:
 			if packetSize < uint32(offset+4) {
 				o.stats.errDot1qTooShort++
-				return -1
+				return PARSER_ERR
 			}
 			if valnIndex > 1 {
 				o.stats.errToManyDot1q++
-				return -1
+				return PARSER_ERR
 			}
 			val := binary.BigEndian.Uint32(p[offset-2:offset+2]) & 0xffff0fff
 			d.Vlans[valnIndex] = val
@@ -551,25 +601,29 @@ func (o *Parser) ParsePacket(m *Mbuf) int {
 			ps.L3 = offset
 			if packetSize < uint32(offset+20) {
 				o.stats.errIPv4TooShort++
-				return -1
+				return PARSER_ERR
 			}
 			ipv4 := layers.IPv4Header(p[offset : offset+20])
 			if ipv4.Version() != 4 {
 				o.stats.errIPv4HeaderTooShort++
-				return -1
+				return PARSER_ERR
+			}
+			if ipv4.IsFragment() {
+				o.stats.errIPv4Fragment++
+				return PARSER_ERR
 			}
 			hdr := ipv4.GetHeaderLen()
 			if hdr < 20 {
 				o.stats.errIPv4HeaderTooShort++
-				return -1
+				return PARSER_ERR
 			}
 			if packetSize < uint32(offset+hdr) {
 				o.stats.errIPv4HeaderTooShort++
-				return -1
+				return PARSER_ERR
 			}
 			if packetSize < uint32(offset+ipv4.GetLength()) {
 				o.stats.errIPv4TooShort++
-				return -1
+				return PARSER_ERR
 			}
 			if hdr != 20 {
 				ipv4 = layers.IPv4Header(p[offset : offset+hdr])
@@ -577,7 +631,7 @@ func (o *Parser) ParsePacket(m *Mbuf) int {
 
 			if !ipv4.IsValidHeaderChecksum() {
 				o.stats.errIPv4cs++
-				return -1
+				return PARSER_ERR
 			}
 			l4len := ipv4.GetLength() - ipv4.GetHeaderLen()
 			ps.L4 = offset + hdr
@@ -589,20 +643,20 @@ func (o *Parser) ParsePacket(m *Mbuf) int {
 			ps.L3 = offset
 			if packetSize < uint32(offset+IPV6_HEADER_SIZE) {
 				o.stats.errIPv6TooShort++
-				return -1
+				return PARSER_ERR
 			}
 			ipv6 := layers.IPv6Header(p[offset : offset+IPV6_HEADER_SIZE])
 			if ipv6.Version() != 6 {
 				o.stats.errIPv6TooShort++
-				return -1
+				return PARSER_ERR
 			}
 			if packetSize < uint32(offset+IPV6_HEADER_SIZE+ipv6.PayloadLength()) {
 				o.stats.errIPv6TooShort++
-				return -1
+				return PARSER_ERR
 			}
 			if ipv6.HopLimit() == 0 {
 				o.stats.errIPv6HopLimitDrop++
-				return -1
+				return PARSER_ERR
 			}
 
 			l4 := ps.L3 + IPV6_HEADER_SIZE
@@ -617,7 +671,6 @@ func (o *Parser) ParsePacket(m *Mbuf) int {
 				case IPV6_EXT_HOP_BY_HOP,
 					IPV6_EXT_DST,
 					IPV6_EXT_ROUTING,
-					IPV6_EXT_Fragment,
 					IPV6_EXT_AH,
 					IPV6_EXT_ESP,
 					IPV6_EXT_MOBILE,
@@ -625,26 +678,30 @@ func (o *Parser) ParsePacket(m *Mbuf) int {
 					IPV6_EXT_SHIM:
 					if l4len < 8 {
 						o.stats.errIPv6TooShort++
-						return -1
+						return PARSER_ERR
 					}
 					ipv6ex := layers.IPv6ExtHeader(p[l4 : l4+2])
 					hl := ipv6ex.HeaderLen()
 					if l4len < hl {
 						o.stats.errIPv6TooShort++
-						return -1
+						return PARSER_ERR
 					}
 					nh = ipv6ex.NextHeader()
 					l4len -= hl
 					osize += hl
 					l4 += hl
+				case IPV6_EXT_Fragment:
+					o.stats.errIPv6Fragment++
+					return PARSER_ERR
+
 				case IPV6_EXT_JUMBO:
 					// not supported
 					o.stats.errIPv6OptJumbo++
-					return (-1)
+					return PARSER_ERR
 
 				case IPV6_EXT_END:
 					o.stats.errIPv6Empty++
-					return (0)
+					return PARSER_ERR
 				default:
 					doloop = false
 					break
@@ -653,6 +710,8 @@ func (o *Parser) ParsePacket(m *Mbuf) int {
 			ps.L4 = l4
 			return o.parsePacketL4(&ps, nh, ipv6.GetPhCs(osize, nh), l4len)
 		default:
+			o.stats.errL3ProtoUnsupported++
+			return PARSER_ERR
 		}
 	}
 	return 0

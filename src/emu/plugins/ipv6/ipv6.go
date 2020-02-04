@@ -197,7 +197,7 @@ func (o *PluginIpv6Ns) HandleRxIpv6Packet(ps *core.ParserPacketState) int {
 	err := icmpv6.DecodeFromBytes(p[ps.L4:], o)
 	if err != nil {
 		o.stats.pktRxErrTooShort++
-		return -1
+		return core.PARSER_ERR
 	}
 
 	ipv6 := layers.IPv6Header(p[ps.L3 : ps.L3+40])
@@ -242,11 +242,11 @@ func HandleRxIcmpv6Packet(ps *core.ParserPacketState) int {
 
 	ns := ps.Tctx.GetNs(ps.Tun)
 	if ns == nil {
-		return -1
+		return core.PARSER_ERR
 	}
 	nsplg := ns.PluginCtx.Get(IPV6_PLUG)
 	if nsplg == nil {
-		return -1
+		return core.PARSER_ERR
 	}
 	icmpPlug := nsplg.Ext.(*PluginIpv6Ns)
 	return icmpPlug.HandleRxIpv6Packet(ps)

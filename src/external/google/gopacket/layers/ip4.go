@@ -58,9 +58,8 @@ func (o IPv4Header) GetPhCs() uint32 {
 }
 
 func (o IPv4Header) Version() uint8 {
-	return ((o[0] & 0xf0)>>4)
+	return ((o[0] & 0xf0) >> 4)
 }
-
 
 func (o IPv4Header) GetNextProtocol() uint8 {
 	return o[9]
@@ -83,6 +82,15 @@ func (o IPv4Header) GetLength() uint16 {
 // SetTOS update the value
 func (o IPv4Header) SetTOS(tos uint8) {
 	o[1] = tos
+}
+
+func (o IPv4Header) IsFragment() bool {
+	frag := (binary.BigEndian.Uint16(o[6:8]))
+
+	if (frag&0x1FFF) > 0 || (frag&0x2000 == 0x2000) {
+		return true
+	}
+	return false
 }
 
 // GetTOS update the value
