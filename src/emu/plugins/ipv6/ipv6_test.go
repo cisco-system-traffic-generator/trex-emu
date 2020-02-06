@@ -280,8 +280,8 @@ func TestPluginIcmpv6_3(t *testing.T) {
 	a := []byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
 
 	fmt.Printf(" %v %d:%d\n", a, len(a), cap(a))
+	copy(a[3:], a[8:])
 	//a = append(a[0:3], a[9:]...)
-	
 
 	fmt.Printf(" %v %d:%d\n", a, len(a), cap(a))
 

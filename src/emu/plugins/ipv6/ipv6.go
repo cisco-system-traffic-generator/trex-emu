@@ -181,10 +181,7 @@ func (o *PluginIpv6Ns) HandleEcho(ps *core.ParserPacketState, ts bool) {
 			ipv6.SetNextHeader(uint8(layers.IPProtocolICMPv6))
 			pyldbytes := ipv6.PayloadLength() - optionbytes
 			ipv6.SetPyloadLength(pyldbytes)
-			var i uint16
-			for i = 0; i < pyldbytes; i++ {
-				p[ps.L3+40+i] = p[ps.L4+i]
-			}
+			copy(p[ps.L3+40:], p[ps.L4:])
 			mc.Trim(optionbytes)
 			ps.L4 = ps.L3 + 40
 		} else {
