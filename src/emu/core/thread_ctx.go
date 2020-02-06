@@ -22,6 +22,10 @@ const (
 	mBUFS_CACHE = 1024 /* number of mbuf cached per size */
 )
 
+const (
+	PLUGIN_MAX_PPS = 100000
+)
+
 type CTunnelData struct {
 	Vport uint16    // virtual port
 	Vlans [2]uint32 // vlan tags include tpid

@@ -550,7 +550,6 @@ func (o *Parser) ParsePacket(m *Mbuf) int {
 	var tun CTunnelKey
 	var d CTunnelData
 	d.Vport = m.port
-	finished := false
 	valnIndex := 0
 	packetSize := m.PktLen()
 	offset := uint16(14)
@@ -569,9 +568,6 @@ func (o *Parser) ParsePacket(m *Mbuf) int {
 	var nextHdr layers.EthernetType
 	nextHdr = layers.EthernetType(ethHeader.GetNextProtocol())
 	for {
-		if finished {
-			break
-		}
 		switch nextHdr {
 		case layers.EthernetTypeARP:
 			if packetSize < uint32(offset+layers.ARPHeaderSize) {

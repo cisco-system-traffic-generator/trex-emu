@@ -23,9 +23,9 @@ import (
 	"external/google/gopacket/layers"
 	"external/osamingo/jsonrpc"
 	"fmt"
+	"math"
 	"math/rand"
 	"net"
-	"time"
 	"unsafe"
 
 	"github.com/intel-go/fastjson"
@@ -55,6 +55,56 @@ const (
 	IGMP_v2_HOST_MEMBERSHIP_REPORT = 0x16 /* Ver. 2 membership report */
 	IPV4_HEADER_SIZE               = 24   /* plus router alert */
 )
+
+// return ticks (not in time), burst each tick , bool
+// if ticks is zero it is only one shut
+//
+// totalrecords: total number of records to send
+// recordPerPacket: maximum records per packet
+// intervalMsec: total time in msec to spread the total records
+// minTickMsc: the min ticks in msec
+// maxPPS: max pps alowed
+// return:
+// timerTick: howmany ticks each interval(min tickMsec)- 0 mean we have one shut and 1 packet to send
+// pktsPerTick : how many packets (maximum recordPerPacket) should be sent every timer
+// breachMaxRate: true of false. in case it is true the rate won't breach the rate
+func calcTimerInfo(totalrecords uint32,
+	recordPerPacket uint32,
+	intervalMsec uint32,
+	minTickMsec uint32,
+	maxPPS uint32) (timerticks uint32, pktsPerTick uint32, breachMaxRate bool) {
+
+	if recordPerPacket > totalrecords {
+		return 0, 1, false
+	}
+
+	bursts := float32(totalrecords) / float32(recordPerPacket)
+
+	tickMs := float32(intervalMsec) / (bursts)
+
+	ticks := tickMs / float32(minTickMsec)
+
+	if ticks > 1.0 {
+
+		timerticks = uint32(math.Floor(float64(ticks)))
+		pktsPerTick = 1
+		breachMaxRate = false
+	} else {
+		factor := float32(math.Round(1.0/float64(ticks) + 0.5))
+		PPS := factor * 1000.0 / float32(minTickMsec)
+		if PPS > float32(maxPPS) {
+			factor *= float32(maxPPS) / PPS
+			factor := float32(factor - 0.5)
+			if factor < 1.0 {
+				factor = 1.0
+			}
+			breachMaxRate = true
+		}
+		timerticks = 1
+		pktsPerTick = uint32(factor)
+	}
+	return timerticks, pktsPerTick, breachMaxRate
+}
 
 type IgmpNsInit struct {
 	Mtu           uint16         `json:"mtu" validate:"required,gte=256,lte=9000"`
@@ -95,6 +145,8 @@ type IgmpNsStats struct {
 	opsRemove    uint64 /* add mc addr*/
 	opsAddErr    uint64
 	opsRemoveErr uint64
+
+	opsRateIsTooHigh uint64
 }
 
 func NewIgmpNsStatsDb(o *IgmpNsStats) *core.CCounterDb {
@@ -283,6 +335,14 @@ func NewIgmpNsStatsDb(o *IgmpNsStats) *core.CCounterDb {
 		DumpZero: false,
 		Info:     core.ScERROR})
 
+	db.Add(&core.CCounterRec{
+		Counter:  &o.opsRateIsTooHigh,
+		Name:     "opsRateIsTooHigh",
+		Help:     "rate of multicast is too high, duration should be higher",
+		Unit:     "opts",
+		DumpZero: false,
+		Info:     core.ScERROR})
+
 	return db
 }
 
@@ -426,7 +486,8 @@ type PluginIgmpNs struct {
 	cdbv            *core.CCounterDbVec
 	timer           core.CHTimerObj
 	timerCb         PluginIgmpNsTimer
-	tickMsec        uint32
+	ticks           uint32
+	pktPerTick      uint32
 	ipv4pktTemplate []byte
 	ipv4Offset      uint16
 	activeEpocQuery uint32
@@ -551,7 +612,7 @@ func (o *PluginIgmpNs) onTimerUpdate() {
 		o.activeQuery = false
 	} else {
 		// restart the timer
-		o.timerw.Start(&o.timer, time.Duration(o.tickMsec)*time.Millisecond)
+		o.timerw.StartTicks(&o.timer, o.ticks)
 	}
 }
 
@@ -623,24 +684,31 @@ func (o *PluginIgmpNs) startQueryReport() bool {
 	/* up to max ids -- derive from MTU */
 	maxIds := int(o.getMaxIPv4Ids())
 	finish := false
-	vec := []uint32{}
-	for {
-		itr := o.tbl.activeIter
-		if itr == &o.tbl.head {
-			finish = true
-			break
-		}
-		entry := covertToIgmpEntry(itr)
-		if o.IsValidQueryEpoc(entry.epocQuery) {
-			vec = append(vec, entry.Ipv4.Uint32())
-			if len(vec) == maxIds {
-				o.tbl.activeIter = o.tbl.activeIter.Next()
+
+	// send burst of packets
+	for i := 0; i < int(o.pktPerTick); i++ {
+		vec := []uint32{}
+		for {
+			itr := o.tbl.activeIter
+			if itr == &o.tbl.head {
+				finish = true
 				break
 			}
+			entry := covertToIgmpEntry(itr)
+			if o.IsValidQueryEpoc(entry.epocQuery) {
+				vec = append(vec, entry.Ipv4.Uint32())
+				if len(vec) == maxIds {
+					o.tbl.activeIter = o.tbl.activeIter.Next()
+					break
+				}
+			}
+			o.tbl.activeIter = o.tbl.activeIter.Next()
 		}
-		o.tbl.activeIter = o.tbl.activeIter.Next()
+		o.SendMcPacket(vec, false, true)
+		if finish {
+			break
+		}
 	}
-	o.SendMcPacket(vec, false, true)
 	return finish
 }
 
@@ -677,29 +745,38 @@ func (o *PluginIgmpNs) HandleRxIgmpCmn(isGenQuery bool, igmpAddr uint32) int {
 			o.stats.pktRxquerieActiveTimer++
 			return 0
 		}
-		var startMsec uint32
+		var startTick uint32
 		cnt := uint32(len(o.tbl.mapIgmp))
 		if cnt > 0 {
 			maxIds := o.getMaxIPv4Ids()
 			maxRespMsec := o.maxresp * 100
 
-			devPerTick := cnt / uint32(maxIds)
+			timerticks, pktsPerTick, breachMaxRate := calcTimerInfo(cnt, uint32(maxIds),
+				maxRespMsec,
+				o.timerw.MinTickMsec(),
+				core.PLUGIN_MAX_PPS)
 
-			if devPerTick == 0 {
+			if breachMaxRate {
+				o.stats.opsRateIsTooHigh++
+			}
+
+			if timerticks == 0 {
 				/* only one report is needed */
-				startMsec = uint32(rand.Intn(int(maxRespMsec)) + 1)
-				o.tickMsec = 0
+				startTick = uint32(rand.Intn(int(maxRespMsec))+1) / o.timerw.MinTickMsec()
+				o.ticks = 0
+				o.pktPerTick = 1
 			} else {
 				/* more than one report is needed  */
-				o.tickMsec = maxRespMsec / (devPerTick + 1)
-				startMsec = o.tickMsec
+				o.ticks = timerticks
+				o.pktPerTick = pktsPerTick
+				startTick = timerticks
 			}
 			o.activeQuery = true
 			o.started = true
 			if o.timer.IsRunning() {
 				panic(" igmp timer is running ")
 			}
-			o.timerw.Start(&o.timer, time.Duration(startMsec)*time.Millisecond)
+			o.timerw.StartTicks(&o.timer, startTick)
 		}
 
 	} else {

@@ -75,6 +75,11 @@ func (o *TimerCtx) Stop(tmr *CHTimerObj) {
 	o.timerw.Stop(tmr)
 }
 
+//MinTickMsec() return how long take a one tick in msec by default it is 10
+func (o *TimerCtx) MinTickMsec() uint32 {
+	return uint32(o.TickDuration / time.Millisecond)
+}
+
 func (o *TimerCtx) TicksInSec() float64 {
 	return float64(time.Duration(o.Ticks)*o.TickDuration) / 1e9
 }

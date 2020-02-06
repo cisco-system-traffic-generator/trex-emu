@@ -226,6 +226,7 @@ func TestPluginIcmp2(t *testing.T) {
 	a.Run(t, false) // the timestamp making a new json due to the timestamp. skip the it
 }
 
+
 func init() {
 	flag.IntVar(&monitor, "monitor", 0, "monitor")
 }
