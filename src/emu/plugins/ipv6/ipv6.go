@@ -175,6 +175,25 @@ func (o *PluginIpv6Ns) HandleEcho(ps *core.ParserPacketState, ts bool) {
 	ipv6.SwapSrcDst()
 	p[ps.L4] = layers.ICMPv6TypeEchoReply
 
+	if ipv6.NextHeader() != uint8(layers.IPProtocolICMPv6) {
+		if ps.L4-ps.L3 > 40 {
+			optionbytes := ps.L4 - ps.L3 - 40
+			ipv6.SetNextHeader(uint8(layers.IPProtocolICMPv6))
+			pyldbytes := ipv6.PayloadLength() - optionbytes
+			ipv6.SetPyloadLength(pyldbytes)
+			var i uint16
+			for i = 0; i < pyldbytes; i++ {
+				p[ps.L3+40+i] = p[ps.L4+i]
+			}
+			mc.Trim(optionbytes)
+			ps.L4 = ps.L3 + 40
+		} else {
+			o.stats.pktRxErrTooShort++
+			mc.FreeMbuf()
+			return
+		}
+	}
+
 	// update checksum
 	newCs := layers.UpdateInetChecksum(
 		binary.BigEndian.Uint16(p[ps.L4+2:ps.L4+4]),

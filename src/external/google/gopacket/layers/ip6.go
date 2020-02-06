@@ -44,6 +44,10 @@ func (o IPv6Header) SwapSrcDst() {
 	copy(o.DstIP(), tmp[:])
 }
 
+func (o IPv6Header) SetNextHeader(header uint8) {
+	o[6] = header
+}
+
 func (o IPv6Header) NextHeader() uint8 {
 	return o[6]
 }

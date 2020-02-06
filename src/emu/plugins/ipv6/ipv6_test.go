@@ -6,6 +6,7 @@ import (
 	"external/google/gopacket"
 	"external/google/gopacket/layers"
 	"flag"
+	"fmt"
 	"net"
 	"testing"
 	"time"
@@ -275,6 +276,16 @@ func TestPluginIcmpv6_2(t *testing.T) {
 	a.Run(t, true) // the timestamp making a new json due to the timestamp. skip the it
 }
 
+func TestPluginIcmpv6_3(t *testing.T) {
+	a := []byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
+
+	fmt.Printf(" %v %d:%d\n", a, len(a), cap(a))
+	//a = append(a[0:3], a[9:]...)
+	
+
+	fmt.Printf(" %v %d:%d\n", a, len(a), cap(a))
+
+}
 func init() {
 	flag.IntVar(&monitor, "monitor", 0, "monitor")
 }
