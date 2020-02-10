@@ -104,6 +104,25 @@ func (o *CClient) OnRemove() {
 	o.PluginCtx.OnRemove()
 }
 
+func (o *CClient) GetIpv6LocalLink(l6 *Ipv6Key) {
+	l6[0] = 0xFE
+	l6[1] = 0x80
+	l6[2] = 0
+	l6[3] = 0
+	l6[4] = 0
+	l6[5] = 0
+	l6[6] = 0
+	l6[7] = 0
+	l6[8] = o.Mac[0] ^ 0x2
+	l6[9] = o.Mac[1]
+	l6[10] = o.Mac[2]
+	l6[11] = 0xFF
+	l6[12] = 0xFE
+	l6[13] = o.Mac[3]
+	l6[14] = o.Mac[4]
+	l6[15] = o.Mac[5]
+}
+
 func (o *CClient) UpdateDgIPv4(NewDgIpv4 Ipv4Key) error {
 	old := o.DgIpv4
 	o.DgIpv4 = NewDgIpv4

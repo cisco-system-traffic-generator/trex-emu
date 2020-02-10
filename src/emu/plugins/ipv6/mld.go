@@ -466,7 +466,7 @@ type mldNsCtx struct {
 	tbl             IgmpFlowTbl
 	mldVersion      uint16
 	mtu             uint16
-	maxresp         uint32 /* in 1/10ths of a second  */
+	maxresp         uint32 /* in msec  */
 	qqi             uint32 /* interval  */
 	qrv             uint8  /* qrv */
 	activeQuery     bool   /* true in case there is a active query */
@@ -506,7 +506,7 @@ func (o *mldNsCtx) Init(base *PluginIpv6Ns, ctx *core.CThreadCtx, initJson []byt
 	o.mtu = 1500
 	o.qrv = 2
 	o.qqi = 125
-	o.maxresp = 100
+	o.maxresp = 10000
 	o.timerw = ctx.GetTimerCtx()
 	o.timer.SetCB(o, 0, 0) // set the callback to OnEvent
 
@@ -739,7 +739,7 @@ func (o *mldNsCtx) HandleRxMldCmn(isGenQuery bool, mldAddr core.Ipv6Key) int {
 		cnt := uint32(len(o.tbl.mapIgmp))
 		if cnt > 0 {
 			maxIds := o.getMaxIPv6Ids()
-			maxRespMsec := o.maxresp * 100
+			maxRespMsec := o.maxresp
 
 			timerticks, pktsPerTick, breachMaxRate := calcTimerInfo(cnt, uint32(maxIds),
 				maxRespMsec,
@@ -783,11 +783,11 @@ func (o *mldNsCtx) SendMcPacket(vec []core.Ipv6Key, remove bool, query bool) {
 		o.stats.pktNoDesignatorClient++
 		return
 	}
-	if client.Ipv6.IsZero() {
+	/*if client.Ipv6.IsZero() {
 		o.stats.pktNoDesignatorClientIPv6++
 		return
-	}
-
+	}*/
+	
 	rcds := len(vec)
 	if rcds == 0 {
 		/* nothing to do */
@@ -806,6 +806,9 @@ func (o *mldNsCtx) SendMcPacket(vec []core.Ipv6Key, remove bool, query bool) {
 	pktSize := o.getPktSize(uint16(rcds))
 	m := o.base.Tctx.MPool.Alloc(pktSize)
 	m.Append(o.ipv6pktTemplate)
+	var l6 core.Ipv6Key
+	client.GetIpv6LocalLink(&l6)
+
 	dst := [6]byte{0x33, 0x33, 0x00, 0x00, 0x00, 0x16}
 	if o.mldVersion != MLD_VERSION_2 {
 		// TBD
@@ -825,7 +828,7 @@ func (o *mldNsCtx) SendMcPacket(vec []core.Ipv6Key, remove bool, query bool) {
 
 	ipv6 := layers.IPv6Header(p[o.ipv6Offset : o.ipv6Offset+IPV6_HEADER_SIZE])
 
-	copy(ipv6.SrcIP(), client.Ipv6[:])
+	copy(ipv6.SrcIP(), l6[:])
 
 	if o.mldVersion != MLD_VERSION_2 {
 		if remove {
@@ -1060,17 +1063,3 @@ func (o *mldNsCtx) HandleRxMldPacket(ps *core.ParserPacketState) int {
 	}
 	return 0
 }
-
-// HandleRxIgmpPacket Parser call this function with mbuf from the pool
-/*func HandleRxIgmpPacket(ps *core.ParserPacketState) int {
-	ns := ps.Tctx.GetNs(ps.Tun)
-	if ns == nil {
-		return core.PARSER_ERR
-	}
-	nsplg := ns.PluginCtx.Get(IPV6_PLUG)
-	if nsplg == nil {
-		return core.PARSER_ERR
-	}
-	igmpPlug := nsplg.Ext.(*mldNsCtx)
-	return igmpPlug.HandleRxIgmpPacket(ps)
-}*/

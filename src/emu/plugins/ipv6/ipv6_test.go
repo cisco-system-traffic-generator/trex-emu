@@ -276,7 +276,7 @@ func (o *IcmpQueryCtx) OnEvent(a, b interface{}) {
 			},
 			gopacket.Payload([]byte{0x3a, 00, 5, 2, 0, 0, 0, 0,
 				0x82, 00, 00, 00,
-				0x00, 0x10, 0, 0,
+				0x1e, 0x80, 0, 0,
 				0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 				0x02, 0x10, 0, 0,
 			}),
@@ -353,6 +353,20 @@ func TestPluginMldv2_1(t *testing.T) {
 		duration:     1 * time.Minute,
 		clientsToSim: 1,
 		mcToSim:      3,
+		cb:           Cb4,
+	}
+	a.Run(t, true) // the timestamp making a new json due to the timestamp. skip the it
+}
+
+func TestPluginMldv2_2(t *testing.T) {
+	a := &IcmpTestBase{
+		testname:     "mld2_2",
+		monitor:      false,
+		match:        2,
+		capture:      true,
+		duration:     20 * time.Second,
+		clientsToSim: 1,
+		mcToSim:      1000,
 		cb:           Cb4,
 	}
 	a.Run(t, true) // the timestamp making a new json due to the timestamp. skip the it
