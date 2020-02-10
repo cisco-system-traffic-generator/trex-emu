@@ -291,6 +291,51 @@ func (o *IcmpQueryCtx) OnEvent(a, b interface{}) {
 		cs := layers.PktChecksumTcpUdpV6(pkt[off+48:], 0, ipv6, 8, 58)
 		binary.BigEndian.PutUint16(pkt[off+50:off+52], cs)
 		raw = pkt
+	case 3:
+
+		gopacket.SerializeLayers(buf, opts,
+			&layers.Ethernet{
+				SrcMAC:       net.HardwareAddr{0, 0, 0, 2, 0, 0},
+				DstMAC:       net.HardwareAddr{0, 0, 1, 0, 0, 0},
+				EthernetType: layers.EthernetTypeDot1Q,
+			},
+			&layers.Dot1Q{
+				Priority:       uint8(0),
+				VLANIdentifier: uint16(1),
+				Type:           layers.EthernetTypeDot1Q,
+			},
+			&layers.Dot1Q{
+				Priority:       uint8(0),
+				VLANIdentifier: uint16(2),
+				Type:           layers.EthernetTypeIPv6,
+			},
+
+			&layers.IPv6{
+				Version:      6,
+				TrafficClass: 0,
+				FlowLabel:    0,
+				Length:       8,
+				NextHeader:   layers.IPProtocolIPv6HopByHop,
+				HopLimit:     1,
+				SrcIP:        net.IP{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
+				DstIP:        net.IP{0xff, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02},
+			},
+			gopacket.Payload([]byte{0x3a, 00, 5, 2, 0, 0, 0, 0,
+				0x82, 00, 00, 00,
+				0x0e, 0x80, 0, 0,
+				0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+			}),
+		)
+
+		pkt := buf.Bytes()
+		off := 14 + 8
+		ipv6 := layers.IPv6Header(pkt[off : off+40])
+		ipv6.SetPyloadLength(uint16(len(pkt) - off - 40))
+
+		binary.BigEndian.PutUint16(pkt[off+50:off+52], 0)
+		cs := layers.PktChecksumTcpUdpV6(pkt[off+48:], 0, ipv6, 8, 58)
+		binary.BigEndian.PutUint16(pkt[off+50:off+52], cs)
+		raw = pkt
 	}
 
 	o.cnt += 1
@@ -367,6 +412,20 @@ func TestPluginMldv2_2(t *testing.T) {
 		duration:     20 * time.Second,
 		clientsToSim: 1,
 		mcToSim:      1000,
+		cb:           Cb4,
+	}
+	a.Run(t, true) // the timestamp making a new json due to the timestamp. skip the it
+}
+
+func TestPluginMldv1_1(t *testing.T) {
+	a := &IcmpTestBase{
+		testname:     "mld1_1",
+		monitor:      false,
+		match:        3,
+		capture:      true,
+		duration:     1 * time.Minute,
+		clientsToSim: 1,
+		mcToSim:      3,
 		cb:           Cb4,
 	}
 	a.Run(t, true) // the timestamp making a new json due to the timestamp. skip the it
