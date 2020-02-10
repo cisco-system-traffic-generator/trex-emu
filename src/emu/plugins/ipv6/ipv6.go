@@ -138,6 +138,8 @@ type PluginIpv6Ns struct {
 	core.PluginBase
 	stats pingNsStats
 	cdb   *core.CCounterDb
+	cdbv  *core.CCounterDbVec
+	mld   mldNsCtx
 }
 
 func NewIpv6Ns(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
@@ -145,10 +147,15 @@ func NewIpv6Ns(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
 	o.InitPluginBase(ctx, o)
 	o.RegisterEvents(ctx, []string{}, o)
 	o.cdb = NewpingNsStatsDb(&o.stats)
+	o.cdbv = core.NewCCounterDbVec("ipv6")
+	o.cdbv.Add(o.cdb)
+	o.mld.Init(o, o.Tctx, initJson)
+	o.cdbv.Add(o.mld.cdb)
 	return &o.PluginBase
 }
 
 func (o *PluginIpv6Ns) OnRemove(ctx *core.PluginCtx) {
+	o.mld.OnRemove(ctx)
 }
 
 func (o *PluginIpv6Ns) OnEvent(msg string, a, b interface{}) {
@@ -218,32 +225,37 @@ func (o *PluginIpv6Ns) HandleRxIpv6Packet(ps *core.ParserPacketState) int {
 
 	ipv6 := layers.IPv6Header(p[ps.L3 : ps.L3+40])
 
-	var ipv6key core.Ipv6Key
-
-	/* need to look for 2 type of IPvs */
-	copy(ipv6key[:], ipv6.DstIP())
-
-	client := o.Ns.CLookupByIPv6(&ipv6key)
-	if client == nil {
-		o.stats.pktRxNoClientUnhandled++
-		return 0
-	}
-
-	tome := client.IsUnicastToMe(p)
-	if !tome {
-		o.stats.pktRxNoClientUnhandled++
-		return 0
-	}
-
-	/* multicast */
-	if ipv6.SrcIP()[0] == 0xff {
-		o.stats.pktRxErrMulticastB++
-		return 0
-	}
-
 	switch icmpv6.TypeCode {
 	case layers.CreateICMPv6TypeCode(layers.ICMPv6TypeEchoRequest, 0):
+		var ipv6key core.Ipv6Key
+
+		/* need to look for 2 type of IPvs */
+		copy(ipv6key[:], ipv6.DstIP())
+
+		client := o.Ns.CLookupByIPv6(&ipv6key)
+		if client == nil {
+			o.stats.pktRxNoClientUnhandled++
+			return 0
+		}
+
+		tome := client.IsUnicastToMe(p)
+		if !tome {
+			o.stats.pktRxNoClientUnhandled++
+			return 0
+		}
+
+		/* multicast */
+		if ipv6.SrcIP()[0] == 0xff {
+			o.stats.pktRxErrMulticastB++
+			return 0
+		}
+
 		o.HandleEcho(ps, false)
+	case layers.CreateICMPv6TypeCode(layers.ICMPv6TypeMLDv1MulticastListenerQueryMessage, 0),
+		layers.CreateICMPv6TypeCode(layers.ICMPv6TypeMLDv1MulticastListenerReportMessage, 0),
+		layers.CreateICMPv6TypeCode(layers.ICMPv6TypeMLDv1MulticastListenerDoneMessage, 0),
+		layers.CreateICMPv6TypeCode(layers.ICMPv6TypeMLDv2MulticastListenerReportMessageV2, 0):
+		return o.mld.HandleRxMldPacket(ps) // MLD, MLDv2
 	default:
 		o.stats.pktRxErrUnhandled++
 	}

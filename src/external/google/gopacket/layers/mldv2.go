@@ -17,6 +17,36 @@ import (
 	"external/google/gopacket"
 )
 
+type Mldv2Header []byte
+
+func (o Mldv2Header) GetType() uint8 {
+	return o[0]
+}
+
+func (o Mldv2Header) GetCode() uint8 {
+	return o[1]
+}
+
+func (o Mldv2Header) GetGroup() []byte {
+	return o[8 : 8+16]
+}
+
+func (o Mldv2Header) GetMaxResTime() uint16 {
+	return binary.BigEndian.Uint16(o[4:6])
+}
+
+func (o Mldv2Header) GetMisc() uint8 {
+	return o[24]
+}
+
+func (o Mldv2Header) Getqqi() uint8 {
+	return o[25]
+}
+
+func (o Mldv2Header) GetNumSrc() uint16 {
+	return binary.BigEndian.Uint16(o[26:28])
+}
+
 const (
 	// S Flag bit is 1
 	mldv2STrue uint8 = 0x8

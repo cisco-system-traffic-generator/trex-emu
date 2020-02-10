@@ -5,14 +5,18 @@ package ipv6
 */
 
 import (
+	"bytes"
 	"emu/core"
 	"encoding/binary"
+	"external/google/gopacket"
 	"external/google/gopacket/layers"
 	"fmt"
 	"math"
 	"math/rand"
 	"net"
 	"unsafe"
+
+	"github.com/intel-go/fastjson"
 )
 
 const (
@@ -20,11 +24,13 @@ const (
 	MLD_VERSION_2                  = 2
 	IGMP_TYPE_DVMRP                = 0x13
 	IGMP_HEADER_MINLEN             = 8
-	MLD_V2_QUERY_MINLEN            = 8 + 16
+	MLD_V2_QUERY_MINLEN            = 8 + 16 + 4
+	MLD_QUERY_MINLEN               = 8 + 16
 	IGMP_MC_ADDR_MASK              = 0xE0000000
 	IGMP_MC_DEST_HOST              = 0xE0000001
 	IGMP_NULL_HOST                 = 0x00000000
 	MLD_GRPREC_HDRLEN              = 4 + 16
+	MLD_QUERY_ADDR                 = 16
 	IGMP_DO_NOTHING                = 0    /* don't send a record */
 	IGMP_MODE_IS_INCLUDE           = 1    /* MODE_IN */
 	IGMP_MODE_IS_EXCLUDE           = 2    /* MODE_EX */
@@ -37,6 +43,15 @@ const (
 	IPV6_HEADER_SIZE               = 40
 	IPV6_OPTION_ROUTER             = 8 /* plus router alert */
 )
+
+type MldNsInit struct {
+	Mtu           uint16         `json:"mtu" validate:"required,gte=256,lte=9000"`
+	DesignatorMac core.MACKey    `json:"dmac"`
+	Vec           []core.Ipv6Key `json:"vec"` // add mc
+}
+
+var IN6_IS_ADDR_UNSPECIFIED = []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+var MLD2_RESPONSE_ADDR = []byte{0xff, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x16}
 
 // return ticks (not in time), burst each tick , bool
 // if ticks is zero it is only one shut
@@ -120,7 +135,7 @@ type mldNsStats struct {
 	pktRxSndReports           uint64 /* sent membership reports */
 	pktSndAddRemoveReports    uint64 /* explicit reports dur to add/remove command */
 	pktNoDesignatorClient     uint64 /* There is no designator client with this MAC addr */
-	pktNoDesignatorClientIPv4 uint64 /* there designator client does not have valid IPv4 addr */
+	pktNoDesignatorClientIPv6 uint64 /* there designator client does not have valid IPv4 addr */
 
 	opsAdd       uint64 /* add mc addr*/
 	opsRemove    uint64 /* add mc addr*/
@@ -310,8 +325,8 @@ func NewMldNsStatsDb(o *mldNsStats) *core.CCounterDb {
 		Info:     core.ScERROR})
 
 	db.Add(&core.CCounterRec{
-		Counter:  &o.pktNoDesignatorClientIPv4,
-		Name:     "pktNoDesignatorClientIPv4",
+		Counter:  &o.pktNoDesignatorClientIPv6,
+		Name:     "pktNoDesignatorClientIPv6",
 		Help:     "no designator client with this valid IPv4 addr ",
 		Unit:     "pkts",
 		DumpZero: false,
@@ -338,7 +353,7 @@ type MldEntry struct {
 	dlist      core.DList // must be first
 	Ipv6       core.Ipv6Key
 	epocQuery  uint32
-	management bool   /* added by management, could not be added twice */
+	management bool   /* added by management, could not be added twice ref=0, management=1 is for management adding . management=0,ref=1 for clients */
 	refc       uint16 /* ref counter for none management clients.  add ref/remove ref*/
 }
 
@@ -466,9 +481,25 @@ type mldNsCtx struct {
 	rpcIterEpoc     uint32
 	iter            core.DListIterHead
 	iterReady       bool
+	cdb             *core.CCounterDb
+}
+
+// on timer
+func (o *mldNsCtx) OnEvent(a, b interface{}) {
+	var finish bool
+	finish = o.startQueryReport()
+	if finish {
+		o.activeQuery = false
+	} else {
+		// restart the timer
+		o.timerw.StartTicks(&o.timer, o.ticks)
+	}
 }
 
 func (o *mldNsCtx) Init(base *PluginIpv6Ns, ctx *core.CThreadCtx, initJson []byte) {
+	var init MldNsInit
+	err := fastjson.Unmarshal(initJson, &init)
+
 	o.base = base
 	o.tbl.OnCreate(&o.stats)
 	o.mldVersion = MLD_VERSION_2
@@ -477,21 +508,21 @@ func (o *mldNsCtx) Init(base *PluginIpv6Ns, ctx *core.CThreadCtx, initJson []byt
 	o.qqi = 125
 	o.maxresp = 100
 	o.timerw = ctx.GetTimerCtx()
+	o.timer.SetCB(o, 0, 0) // set the callback to OnEvent
+
 	o.preparePacketTemplate()
-	/*
-		  TBD need to fix the init json from master
-		  if err == nil {
-			if init.Mtu > 0 {
-				o.mtu = init.Mtu
-			}
-			if !init.DesignatorMac.IsZero() {
-				o.designatorMac = init.DesignatorMac
-			}
-			if len(init.Vec) > 0 {
-				o.addMc(init.Vec)
-			}
+	o.cdb = NewMldNsStatsDb(&o.stats)
+	if err == nil {
+		if init.Mtu > 0 {
+			o.mtu = init.Mtu
 		}
-	*/
+		if !init.DesignatorMac.IsZero() {
+			o.designatorMac = init.DesignatorMac
+		}
+		if len(init.Vec) > 0 {
+			o.addMc(init.Vec)
+		}
+	}
 }
 
 func (o *mldNsCtx) IterReset() bool {
@@ -538,23 +569,27 @@ func (o *mldNsCtx) GetNext(n uint16) ([]core.Ipv6Key, error) {
 
 func (o *mldNsCtx) preparePacketTemplate() {
 
-	l2 := o.base.Ns.GetL2Header(true, uint16(layers.EthernetTypeIPv4)) // TBD need to fix this
+	l2 := o.base.Ns.GetL2Header(true, uint16(layers.EthernetTypeIPv6)) //
 	o.ipv6Offset = uint16(len(l2))
 
-	igmpHeader := core.PacketUtlBuild(
-		&layers.IPv4{Version: 4, IHL: 6, TTL: 1, Id: 0xcc,
-			SrcIP:    net.IPv4(0, 0, 0, 0),
-			DstIP:    net.IPv4(0, 0, 0, 0),
-			Length:   44,
-			Protocol: layers.IPProtocolIGMP,
-			Options: []layers.IPv4Option{{ /* router alert */
-				OptionType:   0x94,
-				OptionData:   []byte{0, 0},
-				OptionLength: 4},
-			},
+	mldv2Header := core.PacketUtlBuild(
+		&layers.IPv6{
+			Version:      6,
+			TrafficClass: 0,
+			FlowLabel:    0,
+			Length:       8,
+			NextHeader:   layers.IPProtocolIPv6HopByHop,
+			HopLimit:     1,
+			SrcIP:        net.IP{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
+			DstIP:        net.IP{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
 		},
+
+		gopacket.Payload([]byte{0x3a, 0x00, 0x05, 0x02, 0x00, 0x00, 0x00, 0x00,
+			0x8f, 0, 0, 0,
+			0, 0, 0, 0,
+		}),
 	)
-	o.ipv6pktTemplate = append(l2, igmpHeader...)
+	o.ipv6pktTemplate = append(l2, mldv2Header...)
 }
 
 func (o *mldNsCtx) OnRemove(ctx *core.PluginCtx) {
@@ -646,7 +681,7 @@ func (o *mldNsCtx) startQueryReport() bool {
 
 	// send burst of packets
 	for i := 0; i < int(o.pktPerTick); i++ {
-		vec := []uint32{}
+		vec := []core.Ipv6Key{}
 		for {
 			itr := o.tbl.activeIter
 			if itr == &o.tbl.head {
@@ -655,7 +690,7 @@ func (o *mldNsCtx) startQueryReport() bool {
 			}
 			entry := covertToIgmpEntry(itr)
 			if o.IsValidQueryEpoc(entry.epocQuery) {
-				vec = append(vec, entry.Ipv4.Uint32())
+				vec = append(vec, entry.Ipv6)
 				if len(vec) == maxIds {
 					o.tbl.activeIter = o.tbl.activeIter.Next()
 					break
@@ -692,7 +727,7 @@ func (o *mldNsCtx) getMaxIPv6Ids() uint16 {
 	}
 }
 
-func (o *mldNsCtx) HandleRxIgmpCmn(isGenQuery bool, igmpAddr uint32) int {
+func (o *mldNsCtx) HandleRxMldCmn(isGenQuery bool, mldAddr core.Ipv6Key) int {
 
 	if isGenQuery {
 		if o.activeQuery {
@@ -735,7 +770,7 @@ func (o *mldNsCtx) HandleRxIgmpCmn(isGenQuery bool, igmpAddr uint32) int {
 		}
 
 	} else {
-		vec := []uint32{igmpAddr}
+		vec := []core.Ipv6Key{mldAddr}
 		o.SendMcPacket(vec, false, true)
 	}
 	return 0
@@ -743,13 +778,13 @@ func (o *mldNsCtx) HandleRxIgmpCmn(isGenQuery bool, igmpAddr uint32) int {
 
 func (o *mldNsCtx) SendMcPacket(vec []core.Ipv6Key, remove bool, query bool) {
 
-	client := o.Ns.CLookupByMac(&o.designatorMac)
+	client := o.base.Ns.CLookupByMac(&o.designatorMac)
 	if client == nil {
 		o.stats.pktNoDesignatorClient++
 		return
 	}
-	if client.Ipv4.IsZero() {
-		o.stats.pktNoDesignatorClientIPv4++
+	if client.Ipv6.IsZero() {
+		o.stats.pktNoDesignatorClientIPv6++
 		return
 	}
 
@@ -769,47 +804,47 @@ func (o *mldNsCtx) SendMcPacket(vec []core.Ipv6Key, remove bool, query bool) {
 	}
 
 	pktSize := o.getPktSize(uint16(rcds))
-	m := o.Tctx.MPool.Alloc(pktSize)
-	m.Append(o.ipv4pktTemplate)
-	dst := [6]byte{0x01, 0x00, 0x5e, 0x00, 0x00, 0x16}
-	if o.igmpVersion != IGMP_VERSION_3 {
+	m := o.base.Tctx.MPool.Alloc(pktSize)
+	m.Append(o.ipv6pktTemplate)
+	dst := [6]byte{0x33, 0x33, 0x00, 0x00, 0x00, 0x16}
+	if o.mldVersion != MLD_VERSION_2 {
+		// TBD
 		if remove {
 			dst[5] = 2
 		} else {
-			mcid := vec[0]
-			dst[3] = uint8((mcid >> 16) & 0x7f)
-			dst[4] = uint8((mcid >> 8) & 0xff)
-			dst[5] = uint8((mcid) & 0xff)
+			//mcid := vec[0]
+			//TODO
+			//dst[3] = uint8((mcid >> 16) & 0x7f)
+			//dst[4] = uint8((mcid >> 8) & 0xff)
+			//dst[5] = uint8((mcid) & 0xff)
 		}
 	}
 	p := m.GetData()
 	copy(p[0:6], dst[:])
 	copy(p[6:12], o.designatorMac[:])
 
-	ipv4 := layers.IPv4Header(p[o.ipv4Offset : o.ipv4Offset+IPV4_HEADER_SIZE])
+	ipv6 := layers.IPv6Header(p[o.ipv6Offset : o.ipv6Offset+IPV6_HEADER_SIZE])
 
-	ipv4.SetIPSrc(client.Ipv4.Uint32())
-	if o.igmpVersion != IGMP_VERSION_3 {
+	copy(ipv6.SrcIP(), client.Ipv6[:])
+
+	if o.mldVersion != MLD_VERSION_2 {
 		if remove {
-			ipv4.SetIPDst(0xe0000002)
+			//TBD
+			//ipv6.SetIPDst(0xe0000002)
 		} else {
-			ipv4.SetIPDst(vec[0])
+			//TBD
+			//ipv6.SetIPDst(vec[0])
 		}
 	} else {
-		ipv4.SetIPDst(0xe0000016)
+		copy(ipv6.DstIP(), MLD2_RESPONSE_ADDR)
 	}
 
-	if o.igmpVersion == IGMP_VERSION_3 {
-		pyld := IGMP_V3_REPORT_MINLEN + (IGMP_V3_REPORT_MINLEN * rcds)
-		ipv4.SetLength(uint16(IPV4_HEADER_SIZE + pyld))
-		ipv4.UpdateChecksum()
+	if o.mldVersion == MLD_VERSION_2 {
+		pyld := 8 + (MLD_GRPREC_HDRLEN * rcds) + IPV6_OPTION_ROUTER
+		ipv6.SetPyloadLength(uint16(pyld))
 
-		reportHeader := [8]byte{uint8(layers.IGMPMembershipReportV3),
-			0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
-		binary.BigEndian.PutUint16(reportHeader[6:8], uint16(rcds))
-		m.Append(reportHeader[:])
 		for _, mc := range vec {
-			grouprec := [8]byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
+			grouprec := [4]byte{}
 			/* set the type */
 			if query {
 				if remove {
@@ -824,37 +859,51 @@ func (o *mldNsCtx) SendMcPacket(vec []core.Ipv6Key, remove bool, query bool) {
 					grouprec[0] = IGMP_CHANGE_TO_EXCLUDE_MODE
 				}
 			}
-			binary.BigEndian.PutUint32(grouprec[4:8], uint32(mc))
 			m.Append(grouprec[:])
+			m.Append(mc[:])
 		}
 		np := m.GetData()
-		cs := layers.PktChecksum(np[o.ipv4Offset+IPV4_HEADER_SIZE:], 0)
-		binary.BigEndian.PutUint16(np[o.ipv4Offset+IPV4_HEADER_SIZE+2:o.ipv4Offset+IPV4_HEADER_SIZE+4], cs)
+
+		rcof := o.ipv6Offset + IPV6_HEADER_SIZE + IPV6_OPTION_ROUTER
+		binary.BigEndian.PutUint16(np[rcof+6:rcof+8], uint16(rcds)) // set number of ele
+		cs := layers.PktChecksumTcpUdpV6(np[rcof:], 0, ipv6, IPV6_OPTION_ROUTER, 58)
+		binary.BigEndian.PutUint16(np[rcof+2:rcof+4], cs)
 	} else {
 		if rcds > 1 {
 			panic(" mldNsCtx rcds should be 1 for IGMPv2 ")
 		}
-		ipv4.SetLength(IPV4_HEADER_SIZE + IGMP_V3_REPORT_MINLEN)
-		ipv4.UpdateChecksum()
+		//ipv4.SetLength(IPV4_HEADER_SIZE + IGMP_V3_REPORT_MINLEN)
+		//ipv4.UpdateChecksum()
 		grouprec := [8]byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
 		if remove {
 			grouprec[0] = IGMP_HOST_LEAVE_MESSAGE
 		} else {
 			grouprec[0] = IGMP_v2_HOST_MEMBERSHIP_REPORT
 		}
-		binary.BigEndian.PutUint32(grouprec[4:8], uint32(vec[0]))
-		binary.BigEndian.PutUint16(grouprec[2:4], layers.PktChecksum(grouprec[:], 0))
-		m.Append(grouprec[:])
+		//binary.BigEndian.PutUint32(grouprec[4:8], uint32(vec[0]))
+		//binary.BigEndian.PutUint16(grouprec[2:4], layers.PktChecksum(grouprec[:], 0))
+		//m.Append(grouprec[:])
 	}
-	o.Tctx.Veth.Send(m)
+	o.base.Tctx.Veth.Send(m)
 }
 
-func (o *mldNsCtx) HandleRxIgmpV2Query(ps *core.ParserPacketState) int {
+func (o *mldNsCtx) HandleRxMldV1Query(ps *core.ParserPacketState,
+	mldh layers.Mldv2Header,
+	ipv6 layers.IPv6Header,
+	mldlen uint16) int {
+	return 0
+}
+
+/*func (o *mldNsCtx) HandleRxMldV1Query(ps *core.ParserPacketState,
+	mldh layers.Mldv2Header,
+	ipv6 layers.IPv6Header,
+	mldlen uint16) int {
+
 	m := ps.M
 	p := m.GetData()
 	igmp := p[ps.L4:]
 	igmph := layers.IGMPHeader(igmp)
-	ipv4 := layers.IPv4Header(p[ps.L3 : ps.L3+IPV4_HEADER_SIZE-4])
+	ipv4 := layers.IPv4Header(p[ps.L3 : ps.L3+IPV6_HEADER_SIZE])
 	var isGenQuery bool
 	isGenQuery = false
 
@@ -868,13 +917,13 @@ func (o *mldNsCtx) HandleRxIgmpV2Query(ps *core.ParserPacketState) int {
 	} else {
 		o.stats.pktRxgroupQueries++
 	}
-	o.igmpVersion = IGMP_VERSION_2
+	o.mldVersion = MLD_VERSION_2
 	o.maxresp = uint32(igmph.GetCode())
 
-	return o.HandleRxIgmpCmn(isGenQuery, igmph.GetGroup())
-}
+	return o.HandleRxMldCmn(isGenQuery, mldh.GetGroup())
+}*/
 
-func igmpMantExp(v uint8) uint32 {
+func mldMantExp8(v uint8) uint32 {
 
 	if v >= 128 {
 		return uint32((v & 0xf)) << (((v & 0xf0) >> 4) + 3)
@@ -883,31 +932,38 @@ func igmpMantExp(v uint8) uint32 {
 	}
 }
 
-func (o *mldNsCtx) HandleRxIgmpV3Query(ps *core.ParserPacketState) int {
-	m := ps.M
-	p := m.GetData()
-	igmp := p[ps.L4:]
-	igmph := layers.IGMPHeader(igmp)
-	ipv4 := layers.IPv4Header(p[ps.L3 : ps.L3+IPV4_HEADER_SIZE-4])
+func mldMantExp(v uint16) uint32 {
+
+	if v >= 32768 {
+		return (uint32((v & 0x0fff)) | 0x00001000) << ((((v & 0xf000) >> 12) & 0x07) + 3)
+	} else {
+		return uint32(v)
+	}
+}
+
+func (o *mldNsCtx) HandleRxMld2Query(ps *core.ParserPacketState,
+	mldh layers.Mldv2Header,
+	ipv6 layers.IPv6Header,
+	mldlen uint16) int {
 
 	var maxresp, qqi, nsrc uint32
 
-	maxresp = igmpMantExp(igmph.GetCode())
+	maxresp = mldMantExp(mldh.GetMaxResTime())
 
-	qrv := igmph.GetMisc() & 0x7
+	qrv := mldh.GetMisc() & 0x7
 	if qrv < 2 {
 		qrv = 2
 	}
 
-	qqi = igmpMantExp(igmph.Getqqi())
+	qqi = mldMantExp8(mldh.Getqqi())
 
-	nsrc = uint32(igmph.GetNumSrc())
+	nsrc = uint32(mldh.GetNumSrc())
 
 	var isGenQuery bool
 	isGenQuery = false
 
-	if igmph.GetGroup() == IGMP_NULL_HOST {
-		if ipv4.GetIPDst() != IGMP_MC_DEST_HOST {
+	if bytes.Compare(mldh.GetGroup(), IN6_IS_ADDR_UNSPECIFIED) == 0 {
+		if nsrc > 0 {
 			o.stats.pktRxbadQueries++
 			return 0
 		}
@@ -920,39 +976,42 @@ func (o *mldNsCtx) HandleRxIgmpV3Query(ps *core.ParserPacketState) int {
 			o.stats.pktRxgsrQueries++
 		}
 	}
-	o.igmpVersion = IGMP_VERSION_3
+
+	o.mldVersion = MLD_VERSION_2
 	o.qqi = qqi
 	o.qrv = qrv
 	o.maxresp = maxresp
 
-	return o.HandleRxIgmpCmn(isGenQuery, igmph.GetGroup())
+	var mldKey core.Ipv6Key
+	copy(mldKey[:], mldh.GetGroup())
+
+	return o.HandleRxMldCmn(isGenQuery, mldKey)
 }
 
-/* HandleRxIgmpPacket -1 for parser error, 0 valid  */
-func (o *mldNsCtx) HandleRxIgmpPacket(ps *core.ParserPacketState) int {
+/* HandleRxMldPacket -1 for parser error, 0 valid  */
+func (o *mldNsCtx) HandleRxMldPacket(ps *core.ParserPacketState) int {
 
 	m := ps.M
 	p := m.GetData()
 	/* the header is at least 8 bytes*/
 
+	// checksum is checked in diff layer
 	//igmplen := m.PktLen() - uint32(ps.L4)
-	igmp := p[ps.L4:]
+	mld := p[ps.L4:]
 
-	/* checksum */
-	cs := layers.PktChecksum(igmp, 0)
-	if cs != 0 {
-		o.stats.pktRxBadsum++
-		return core.PARSER_ERR
+	mldh := layers.Mldv2Header(mld)
+	ipv6 := layers.IPv6Header(p[ps.L3 : ps.L3+IPV6_HEADER_SIZE])
+
+	var optionbytes uint16
+	if ps.L4-ps.L3 > 40 {
+		optionbytes = ps.L4 - ps.L3 - 40
 	}
+	mldlen := ipv6.PayloadLength() - optionbytes
 
-	igmph := layers.IGMPHeader(igmp)
-	ipv4 := layers.IPv4Header(p[ps.L3 : ps.L3+IPV4_HEADER_SIZE-4])
-	igmplen := uint32(ipv4.GetLength() - ipv4.GetHeaderLen())
+	mldType := mldh.GetType()
 
-	igmpType := igmph.GetType()
-
-	if (igmpType != IGMP_TYPE_DVMRP) &&
-		(ipv4.GetTTL() != 1) {
+	// should have router alert in query
+	if (ipv6.HopLimit() != 1) || ((ps.Flags & core.IPV6_M_RTALERT_ML) == 0) {
 		o.stats.pktRxBadttl++
 		return core.PARSER_ERR
 	}
@@ -960,65 +1019,58 @@ func (o *mldNsCtx) HandleRxIgmpPacket(ps *core.ParserPacketState) int {
 	var queryver int
 	queryver = 0
 
-	igmpcode := igmph.GetCode()
+	mldcode := mldh.GetCode()
 
-	switch igmpType {
-	case uint8(layers.IGMPMembershipQuery):
-		if igmplen == IGMP_HEADER_MINLEN {
-			if igmpcode == 0 {
-				queryver = IGMP_VERSION_1
+	switch mldType {
+	case uint8(layers.ICMPv6TypeMLDv1MulticastListenerQueryMessage):
+		if mldlen == MLD_QUERY_MINLEN {
+			if mldcode == 0 {
+				queryver = MLD_VERSION_1
 			} else {
-				queryver = IGMP_VERSION_2
+				o.stats.pktRxTooshort++
+				return -1
 			}
 		} else {
-			if igmplen >= IGMP_V3_QUERY_MINLEN {
-				queryver = IGMP_VERSION_3
+			if mldlen >= MLD_V2_QUERY_MINLEN {
+				queryver = MLD_VERSION_2
 			} else {
 				o.stats.pktRxTooshort++
 				return -1
 			}
 		}
 		switch queryver {
-		case IGMP_VERSION_1:
-			o.stats.pktRxv1v2Queries++
-			return o.HandleRxIgmpV1Query(ps)
-
-		case IGMP_VERSION_2:
-			o.stats.pktRxv1v2Queries++
-			return o.HandleRxIgmpV2Query(ps)
-		case IGMP_VERSION_3:
-			o.stats.pktRxv3Queries++
-			nsrc := igmph.GetNumSrc()
-			if uint32(nsrc)*4 > (igmplen - IGMP_V3_QUERY_MINLEN) {
+		case MLD_VERSION_1:
+			o.stats.pktRxv1Queries++
+			return o.HandleRxMldV1Query(ps, mldh, ipv6, mldlen)
+		case MLD_VERSION_2:
+			o.stats.pktRxv2Queries++
+			nsrc := mldh.GetNumSrc()
+			if (nsrc * MLD_QUERY_ADDR) > (mldlen - MLD_V2_QUERY_MINLEN) {
 				o.stats.pktRxTooshort++
 				return -1
 			}
-			return o.HandleRxIgmpV3Query(ps)
+			return o.HandleRxMld2Query(ps, mldh, ipv6, mldlen)
 		}
-	case uint8(layers.IGMPMembershipReportV1):
-		// TBD need to add
+	case uint8(layers.ICMPv6TypeMLDv1MulticastListenerReportMessage):
 		o.stats.pktRxReports++
-	case uint8(layers.IGMPMembershipReportV2):
-		// TBD need to add
+	case uint8(layers.ICMPv6TypeMLDv1MulticastListenerDoneMessage):
 		o.stats.pktRxReports++
-	case uint8(layers.IGMPMembershipReportV3):
+	case uint8(layers.ICMPv6TypeMLDv2MulticastListenerReportMessageV2):
 		o.stats.pktRxNora++
-
 	}
-	/* source ip should be a valid ipv4 */
 	return 0
 }
 
 // HandleRxIgmpPacket Parser call this function with mbuf from the pool
-func HandleRxIgmpPacket(ps *core.ParserPacketState) int {
+/*func HandleRxIgmpPacket(ps *core.ParserPacketState) int {
 	ns := ps.Tctx.GetNs(ps.Tun)
 	if ns == nil {
 		return core.PARSER_ERR
 	}
-	nsplg := ns.PluginCtx.Get(IGMP_PLUG)
+	nsplg := ns.PluginCtx.Get(IPV6_PLUG)
 	if nsplg == nil {
 		return core.PARSER_ERR
 	}
 	igmpPlug := nsplg.Ext.(*mldNsCtx)
 	return igmpPlug.HandleRxIgmpPacket(ps)
-}
+}*/

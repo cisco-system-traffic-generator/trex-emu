@@ -27,6 +27,11 @@ const (
 	PARSER_OK  = 0
 )
 
+// FLAGS of IPv6
+const (
+	IPV6_M_RTALERT_ML uint32 = 0x1
+)
+
 type ParserPacketState struct {
 	Tctx  *CThreadCtx
 	Tun   *CTunnelKey
@@ -35,6 +40,7 @@ type ParserPacketState struct {
 	L4    uint16 // offset 0 is not valid (tcp/udp)
 	L7    uint16 // offset
 	L7Len uint16 // 0 if not relevant
+	Flags uint32
 }
 
 /*ParserCb callback function for a protocol. In case the return value is zero, it means the protocol handle the packet
@@ -552,6 +558,7 @@ func (o *Parser) ParsePacket(m *Mbuf) int {
 	d.Vport = m.port
 	valnIndex := 0
 	packetSize := m.PktLen()
+
 	offset := uint16(14)
 	p := m.GetData()
 	var ps ParserPacketState
@@ -664,8 +671,28 @@ func (o *Parser) ParsePacket(m *Mbuf) int {
 			doloop := true
 			for doloop {
 				switch nh {
-				case IPV6_EXT_HOP_BY_HOP,
-					IPV6_EXT_DST,
+				case IPV6_EXT_HOP_BY_HOP:
+					if l4len < 8 {
+						o.stats.errIPv6TooShort++
+						return PARSER_ERR
+					}
+					ipv6ex := layers.IPv6ExtHeader(p[l4 : l4+2])
+					hl := ipv6ex.HeaderLen()
+					if l4len < hl {
+						o.stats.errIPv6TooShort++
+						return PARSER_ERR
+					}
+					nh = ipv6ex.NextHeader()
+
+					if p[l4+2] == 0x5 {
+						// rounter alert
+						ps.Flags |= IPV6_M_RTALERT_ML
+					}
+					l4len -= hl
+					osize += hl
+					l4 += hl
+
+				case IPV6_EXT_DST,
 					IPV6_EXT_ROUTING,
 					IPV6_EXT_AH,
 					IPV6_EXT_ESP,
@@ -683,6 +710,11 @@ func (o *Parser) ParsePacket(m *Mbuf) int {
 						return PARSER_ERR
 					}
 					nh = ipv6ex.NextHeader()
+
+					if p[l4+3] == 0x5 {
+						// rounter alert
+						ps.Flags |= IPV6_M_RTALERT_ML
+					}
 					l4len -= hl
 					osize += hl
 					l4 += hl
