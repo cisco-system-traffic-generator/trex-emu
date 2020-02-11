@@ -1,0 +1,688 @@
+[
+	{
+		"time": 0.1,
+		"meta": "tx",
+		"len": 138,
+		"data": "33|33|00|00|00|16|00|00|01|00|00|00|81|00|00|01|81|00|00|02|86|dd|60|00|00|00|00|4c|00|01|fe|80|00|00|00|00|00|00|02|00|01|ff|fe|00|00|00|ff|02|00|00|00|00|00|00|00|00|00|00|00|00|00|16|3a|00|05|02|00|00|00|00|8f|00|64|d8|00|00|00|03|04|00|00|00|ff|02|00|00|00|00|00|00|00|00|00|01|00|00|00|00|04|00|00|00|ff|02|00|00|00|00|00|00|00|00|00|01|00|00|01|00|04|00|00|00|ff|02|00|00|00|00|00|00|00|00|00|01|00|00|02|00|"
+	},
+	{
+		"rpc-req": {
+			"id": 3,
+			"jsonrpc": "2.0",
+			"method": "ipv6_mld_ns_get_cfg",
+			"params": {
+				"tun": {
+					"tci": [
+						1,
+						2
+					],
+					"vport": 1
+				}
+			}
+		}
+	},
+	{
+		"rpc-res": {
+			"id": 3,
+			"jsonrpc": "2.0",
+			"result": {
+				"dmac": [
+					0,
+					0,
+					1,
+					0,
+					0,
+					0
+				],
+				"mtu": 1500,
+				"version": 2
+			}
+		}
+	},
+	{
+		"rpc-req": {
+			"id": 3,
+			"jsonrpc": "2.0",
+			"method": "ipv6_mld_ns_set_cfg",
+			"params": {
+				"mtu": 10,
+				"tun": {
+					"tci": [
+						1,
+						2
+					],
+					"vport": 1
+				}
+			}
+		}
+	},
+	{
+		"rpc-res": {
+			"error": {
+				"code": -32600,
+				"message": "Key: 'ApiMldSetParams.Mtu' Error:Field validation for 'Mtu' failed on the 'gte' tag"
+			},
+			"id": 3,
+			"jsonrpc": "2.0"
+		}
+	},
+	{
+		"rpc-req": {
+			"id": 3,
+			"jsonrpc": "2.0",
+			"method": "ipv6_mld_ns_set_cfg",
+			"params": {
+				"dmac": [
+					0,
+					0,
+					1,
+					0,
+					0,
+					0
+				],
+				"mtu": 512,
+				"tun": {
+					"tci": [
+						1,
+						2
+					],
+					"vport": 1
+				}
+			}
+		}
+	},
+	{
+		"rpc-res": {
+			"id": 3,
+			"jsonrpc": "2.0"
+		}
+	},
+	{
+		"rpc-req": {
+			"id": 3,
+			"jsonrpc": "2.0",
+			"method": "ipv6_mld_ns_get_cfg",
+			"params": {
+				"tun": {
+					"tci": [
+						1,
+						2
+					],
+					"vport": 1
+				}
+			}
+		}
+	},
+	{
+		"rpc-res": {
+			"id": 3,
+			"jsonrpc": "2.0",
+			"result": {
+				"dmac": [
+					0,
+					0,
+					1,
+					0,
+					0,
+					0
+				],
+				"mtu": 512,
+				"version": 2
+			}
+		}
+	},
+	{
+		"rpc-req": {
+			"id": 3,
+			"jsonrpc": "2.0",
+			"method": "ipv6_ns_cnt",
+			"params": {
+				"meta": true,
+				"tun": {
+					"tci": [
+						1,
+						2
+					],
+					"vport": 1
+				}
+			}
+		}
+	},
+	{
+		"rpc-res": {
+			"id": 3,
+			"jsonrpc": "2.0",
+			"result": {
+				"mld": {
+					"meta": [
+						{
+							"help": "total messages received",
+							"info": 18,
+							"name": "pktRxTotal",
+							"unit": "pkts",
+							"zero": false
+						},
+						{
+							"help": "received with too few bytes",
+							"info": 20,
+							"name": "pktRxTooshort",
+							"unit": "pkts",
+							"zero": false
+						},
+						{
+							"help": "received with ttl other than 1",
+							"info": 20,
+							"name": "pktRxBadttl",
+							"unit": "pkts",
+							"zero": false
+						},
+						{
+							"help": "received with bad checksum",
+							"info": 20,
+							"name": "pktRxBadsum",
+							"unit": "pkts",
+							"zero": false
+						},
+						{
+							"help": "received mld but can't find port,vlan keys",
+							"info": 20,
+							"name": "pktRxNoKey",
+							"unit": "pkts",
+							"zero": false
+						},
+						{
+							"help": "received MLD queries",
+							"info": 18,
+							"name": "pktRxv1Queries",
+							"unit": "pkts",
+							"zero": false
+						},
+						{
+							"help": "received IGMPv2 queries",
+							"info": 18,
+							"name": "pktRxv2Queries",
+							"unit": "pkts",
+							"zero": false
+						},
+						{
+							"help": "received invalid queries",
+							"info": 20,
+							"name": "pktRxbadQueries",
+							"unit": "pkts",
+							"zero": false
+						},
+						{
+							"help": "received general queries",
+							"info": 18,
+							"name": "pktRxgenQueries",
+							"unit": "pkts",
+							"zero": false
+						},
+						{
+							"help": "received group queries",
+							"info": 18,
+							"name": "pktRxgroupQueries",
+							"unit": "pkts",
+							"zero": false
+						},
+						{
+							"help": "received group-source queries",
+							"info": 18,
+							"name": "pktRxgsrQueries",
+							"unit": "pkts",
+							"zero": false
+						},
+						{
+							"help": "dropped group-source queries",
+							"info": 18,
+							"name": "pktRxgsrDropQueries",
+							"unit": "pkts",
+							"zero": false
+						},
+						{
+							"help": "rcv querie while active timer",
+							"info": 18,
+							"name": "pktRxquerieActiveTimer",
+							"unit": "pkts",
+							"zero": false
+						},
+						{
+							"help": "received membership reports",
+							"info": 18,
+							"name": "pktRxReports",
+							"unit": "pkts",
+							"zero": false
+						},
+						{
+							"help": "received w/o Router Alert option ",
+							"info": 18,
+							"name": "pktRxNora",
+							"unit": "pkts",
+							"zero": false
+						},
+						{
+							"help": "explicit reports due to add/remove command",
+							"info": 18,
+							"name": "pktSndAddRemoveReports",
+							"unit": "pkts",
+							"zero": false
+						},
+						{
+							"help": "sent membership reports",
+							"info": 18,
+							"name": "pktRxSndReports",
+							"unit": "pkts",
+							"zero": false
+						},
+						{
+							"help": "add mc ",
+							"info": 18,
+							"name": "opsAdd",
+							"unit": "ops",
+							"zero": false
+						},
+						{
+							"help": "remove mc ",
+							"info": 18,
+							"name": "opsRemove",
+							"unit": "ops",
+							"zero": false
+						},
+						{
+							"help": "add mc with error",
+							"info": 20,
+							"name": "opsAddErr",
+							"unit": "ops",
+							"zero": false
+						},
+						{
+							"help": "remove mc with error ",
+							"info": 20,
+							"name": "opsRemoveErr",
+							"unit": "ops",
+							"zero": false
+						},
+						{
+							"help": "no designator client with this MAC addr ",
+							"info": 20,
+							"name": "pktNoDesignatorClient",
+							"unit": "pkts",
+							"zero": false
+						},
+						{
+							"help": "no designator client with this valid IPv4 addr ",
+							"info": 20,
+							"name": "pktNoDesignatorClientIPv6",
+							"unit": "pkts",
+							"zero": false
+						},
+						{
+							"help": "rate of multicast is too high, duration should be higher",
+							"info": 20,
+							"name": "opsRateIsTooHigh",
+							"unit": "opts",
+							"zero": false
+						}
+					],
+					"name": "mld"
+				},
+				"pingv6": {
+					"meta": [
+						{
+							"help": "rx query",
+							"info": 18,
+							"name": "pktRxIcmpQuery",
+							"unit": "ops",
+							"zero": false
+						},
+						{
+							"help": "tx response",
+							"info": 18,
+							"name": "pktTxIcmpResponse",
+							"unit": "ops",
+							"zero": false
+						},
+						{
+							"help": "tx query",
+							"info": 18,
+							"name": "pktTxIcmpQuery",
+							"unit": "ops",
+							"zero": false
+						},
+						{
+							"help": "rx response",
+							"info": 18,
+							"name": "pktRxIcmpResponse",
+							"unit": "ops",
+							"zero": false
+						},
+						{
+							"help": "rx too short",
+							"info": 18,
+							"name": "pktRxErrTooShort",
+							"unit": "ops",
+							"zero": false
+						},
+						{
+							"help": "rx wrong opcode",
+							"info": 18,
+							"name": "pktRxErrUnhandled",
+							"unit": "ops",
+							"zero": false
+						},
+						{
+							"help": "rx no client ",
+							"info": 18,
+							"name": "pktRxNoClientUnhandled",
+							"unit": "ops",
+							"zero": false
+						},
+						{
+							"help": "src ip is not valid ",
+							"info": 18,
+							"name": "pktRxErrMulticastB",
+							"unit": "ops",
+							"zero": false
+						}
+					],
+					"name": "pingv6"
+				}
+			}
+		}
+	},
+	{
+		"rpc-req": {
+			"id": 3,
+			"jsonrpc": "2.0",
+			"method": "ipv6_ns_cnt",
+			"params": {
+				"meta": false,
+				"tun": {
+					"tci": [
+						1,
+						2
+					],
+					"vport": 1
+				},
+				"zero": false
+			}
+		}
+	},
+	{
+		"rpc-res": {
+			"id": 3,
+			"jsonrpc": "2.0",
+			"result": {
+				"mld": {
+					"opsAdd": 3,
+					"pktSndAddRemoveReports": 1
+				}
+			}
+		}
+	},
+	{
+		"rpc-req": {
+			"id": 3,
+			"jsonrpc": "2.0",
+			"method": "ipv6_mld_ns_add",
+			"params": {
+				"tun": {
+					"tci": [
+						1,
+						2
+					],
+					"vport": 1
+				},
+				"vec": [
+					[
+						251,
+						2,
+						0,
+						0,
+						0,
+						0,
+						0,
+						0,
+						0,
+						0,
+						0,
+						0,
+						0,
+						1,
+						0,
+						0
+					]
+				]
+			}
+		}
+	},
+	{
+		"rpc-res": {
+			"id": 3,
+			"jsonrpc": "2.0"
+		}
+	},
+	{
+		"rpc-req": {
+			"id": 3,
+			"jsonrpc": "2.0",
+			"method": "ipv6_mld_ns_add",
+			"params": {
+				"tun": {
+					"tci": [
+						1,
+						2
+					],
+					"vport": 1
+				},
+				"vec": [
+					[
+						251,
+						2,
+						0,
+						0,
+						0,
+						0,
+						0,
+						0,
+						0,
+						0,
+						0,
+						0,
+						0,
+						1,
+						0,
+						0
+					]
+				]
+			}
+		}
+	},
+	{
+		"rpc-res": {
+			"error": {
+				"code": -32600,
+				"message": " mc-ipv6 [251 2 0 0 0 0 0 0 0 0 0 0 0 1 0 0] already exist by management"
+			},
+			"id": 3,
+			"jsonrpc": "2.0"
+		}
+	},
+	{
+		"rpc-req": {
+			"id": 3,
+			"jsonrpc": "2.0",
+			"method": "ipv6_mld_ns_remove",
+			"params": {
+				"tun": {
+					"tci": [
+						1,
+						2
+					],
+					"vport": 1
+				},
+				"vec": [
+					[
+						251,
+						2,
+						0,
+						0,
+						0,
+						0,
+						0,
+						0,
+						0,
+						0,
+						0,
+						0,
+						0,
+						1,
+						0,
+						0
+					]
+				]
+			}
+		}
+	},
+	{
+		"rpc-res": {
+			"id": 3,
+			"jsonrpc": "2.0"
+		}
+	},
+	{
+		"rpc-req": {
+			"id": 3,
+			"jsonrpc": "2.0",
+			"method": "ipv6_mld_ns_iter",
+			"params": {
+				"count": 99,
+				"reset": true,
+				"tun": {
+					"tci": [
+						1,
+						2
+					],
+					"vport": 1
+				}
+			}
+		}
+	},
+	{
+		"rpc-res": {
+			"id": 3,
+			"jsonrpc": "2.0",
+			"result": {
+				"data": [
+					[
+						255,
+						2,
+						0,
+						0,
+						0,
+						0,
+						0,
+						0,
+						0,
+						0,
+						0,
+						1,
+						0,
+						0,
+						0,
+						0
+					],
+					[
+						255,
+						2,
+						0,
+						0,
+						0,
+						0,
+						0,
+						0,
+						0,
+						0,
+						0,
+						1,
+						0,
+						0,
+						1,
+						0
+					],
+					[
+						255,
+						2,
+						0,
+						0,
+						0,
+						0,
+						0,
+						0,
+						0,
+						0,
+						0,
+						1,
+						0,
+						0,
+						2,
+						0
+					]
+				],
+				"empty": false,
+				"stoped": false
+			}
+		}
+	},
+	{
+		"rpc-req": {
+			"id": 3,
+			"jsonrpc": "2.0",
+			"method": "ipv6_mld_ns_iter",
+			"params": {
+				"count": 100,
+				"reset": false,
+				"tun": {
+					"tci": [
+						1,
+						2
+					],
+					"vport": 1
+				}
+			}
+		}
+	},
+	{
+		"rpc-res": {
+			"id": 3,
+			"jsonrpc": "2.0",
+			"result": {
+				"data": null,
+				"empty": false,
+				"stoped": true
+			}
+		}
+	},
+	{
+		"time": 49.7,
+		"meta": "tx",
+		"len": 98,
+		"data": "33|33|00|00|00|16|00|00|01|00|00|00|81|00|00|01|81|00|00|02|86|dd|60|00|00|00|00|24|00|01|fe|80|00|00|00|00|00|00|02|00|01|ff|fe|00|00|00|ff|02|00|00|00|00|00|00|00|00|00|00|00|00|00|16|3a|00|05|02|00|00|00|00|8f|00|72|0a|00|00|00|01|04|00|00|00|fb|02|00|00|00|00|00|00|00|00|00|00|00|01|00|00|"
+	},
+	{
+		"time": 49.7,
+		"meta": "tx",
+		"len": 98,
+		"data": "33|33|00|00|00|16|00|00|01|00|00|00|81|00|00|01|81|00|00|02|86|dd|60|00|00|00|00|24|00|01|fe|80|00|00|00|00|00|00|02|00|01|ff|fe|00|00|00|ff|02|00|00|00|00|00|00|00|00|00|00|00|00|00|16|3a|00|05|02|00|00|00|00|8f|00|73|0a|00|00|00|01|03|00|00|00|fb|02|00|00|00|00|00|00|00|00|00|00|00|01|00|00|"
+	},
+	{},
+	{
+		"mbufAlloc": 2,
+		"mbufAllocCache": 1,
+		"mbufFreeCache": 3
+	},
+	{
+		"TxBytes": 334,
+		"TxPkts": 3
+	}
+]

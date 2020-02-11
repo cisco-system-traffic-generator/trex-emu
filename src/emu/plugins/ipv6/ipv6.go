@@ -6,6 +6,10 @@ RFC 4443: Internet Control Message Protocol (ICMPv6) for the Internet Protocol V
 RFC 4861: Neighbor Discovery for IP Version 6 (IPv6)
 RFC 4862: IPv6 Stateless Address Autoconfiguration.
 
+not implemented:
+
+RFC4941: random local ipv6 using md5
+
 */
 
 import (
@@ -297,13 +301,49 @@ func (o PluginIpv6NsReg) NewPlugin(ctx *core.PluginCtx, initJson []byte) *core.P
 /*******************************************/
 /* ICMP RPC commands */
 type (
-	/* Get counters metadata */
-	ApiIcmpNsCntMetaHandler struct{}
+	ApiIpv6NsCntHandler struct{}
+	ApiIpv6NsCntParams  struct {
+		Meta bool     `json:"meta"`
+		Zero bool     `json:"zero"`
+		Mask []string `json:"mask"` // get only specific counters blocks if it is empty get all
+	}
 
-	/* Get counters  */
-	ApiIcmpNsCntValueHandler struct{}
-	ApiIcmpNsCntValueParams  struct { /* +tunnel*/
-		Zero bool `json:"zero"` /* dump zero too */
+	/* Get counters metadata */
+	ApiIpv6NsCntMetaHandler struct{}
+
+	ApiMldNsAddHandler struct{}
+	ApiMldNsAddParams  struct {
+		Vec []core.Ipv6Key `json:"vec"`
+	}
+
+	ApiMldNsRemoveHandler struct{}
+	ApiMldNsRemoveParams  struct {
+		Vec []core.Ipv6Key `json:"vec"`
+	}
+
+	ApiMldNsIterHandler struct{}
+	ApiMldNsIterParams  struct {
+		Reset bool   `json:"reset"`
+		Count uint16 `json:"count" validate:"required,gte=0,lte=255"`
+	}
+	ApiMldNsIterResult struct {
+		Empty  bool           `json:"empty"`
+		Stoped bool           `json:"stoped"`
+		Vec    []core.Ipv6Key `json:"data"`
+	}
+
+	ApiMldSetHandler struct{}
+	ApiMldSetParams  struct {
+		Mtu           uint16      `json:"mtu" validate:"required,gte=256,lte=9000"`
+		DesignatorMac core.MACKey `json:"dmac"`
+	}
+
+	ApiMldGetHandler struct{}
+
+	ApiMldGetResult struct {
+		Mtu           uint16      `json:"mtu"`
+		DesignatorMac core.MACKey `json:"dmac"`
+		Version       uint8       `json:"version"`
 	}
 )
 
@@ -339,26 +379,54 @@ func getClient(ctx interface{}, params *fastjson.RawMessage) (*PluginIpv6Client,
 	return icmpClient, nil
 }
 
-func (h ApiIcmpNsCntMetaHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
-
-	icmpNs, err := getNs(ctx, params)
-	if err != nil {
-		return nil, err
-	}
-	return icmpNs.cdb, nil
-}
-
-func (h ApiIcmpNsCntValueHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
-
-	var p ApiIcmpNsCntValueParams
+func (h ApiIpv6NsCntHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
+	var p ApiIpv6NsCntParams
 	tctx := ctx.(*core.CThreadCtx)
 
-	icmpNs, err := getNs(ctx, params)
+	ipv6Ns, err := getNs(ctx, params)
 	if err != nil {
 		return nil, err
 	}
 
 	err1 := tctx.UnmarshalValidate(*params, &p)
+	if err1 != nil {
+		return nil, &jsonrpc.Error{
+			Code:    jsonrpc.ErrorCodeInvalidRequest,
+			Message: err1.Error(),
+		}
+	}
+
+	cdbv := ipv6Ns.cdbv
+
+	if p.Meta {
+		return cdbv.MarshalMeta(), nil
+	}
+
+	if p.Mask == nil || len(p.Mask) == 0 {
+		return cdbv.MarshalValues(p.Zero), nil
+	} else {
+		return cdbv.MarshalValuesMask(p.Zero, p.Mask), nil
+	}
+}
+
+func (h ApiMldNsAddHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
+	var p ApiMldNsAddParams
+	tctx := ctx.(*core.CThreadCtx)
+
+	ipv6Ns, err := getNs(ctx, params)
+	if err != nil {
+		return nil, err
+	}
+
+	err1 := tctx.UnmarshalValidate(*params, &p)
+	if err1 != nil {
+		return nil, &jsonrpc.Error{
+			Code:    jsonrpc.ErrorCodeInvalidRequest,
+			Message: err1.Error(),
+		}
+	}
+
+	err1 = ipv6Ns.mld.addMc(p.Vec)
 
 	if err1 != nil {
 		return nil, &jsonrpc.Error{
@@ -367,7 +435,123 @@ func (h ApiIcmpNsCntValueHandler) ServeJSONRPC(ctx interface{}, params *fastjson
 		}
 	}
 
-	return icmpNs.cdb.MarshalValues(p.Zero), nil
+	return nil, nil
+}
+
+func (h ApiMldNsRemoveHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
+	var p ApiMldNsRemoveParams
+	tctx := ctx.(*core.CThreadCtx)
+
+	ipv6Ns, err := getNs(ctx, params)
+	if err != nil {
+		return nil, err
+	}
+
+	err1 := tctx.UnmarshalValidate(*params, &p)
+	if err1 != nil {
+		return nil, &jsonrpc.Error{
+			Code:    jsonrpc.ErrorCodeInvalidRequest,
+			Message: err1.Error(),
+		}
+	}
+
+	err1 = ipv6Ns.mld.RemoveMc(p.Vec)
+
+	if err1 != nil {
+		return nil, &jsonrpc.Error{
+			Code:    jsonrpc.ErrorCodeInvalidRequest,
+			Message: err1.Error(),
+		}
+	}
+
+	return nil, nil
+}
+
+func (h ApiMldNsIterHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
+
+	var p ApiMldNsIterParams
+	var res ApiMldNsIterResult
+
+	tctx := ctx.(*core.CThreadCtx)
+
+	ipv6Ns, err := getNs(ctx, params)
+	if err != nil {
+		return nil, err
+	}
+
+	err1 := tctx.UnmarshalValidate(*params, &p)
+	if err1 != nil {
+		return nil, &jsonrpc.Error{
+			Code:    jsonrpc.ErrorCodeInvalidRequest,
+			Message: err1.Error(),
+		}
+	}
+
+	if p.Reset {
+		res.Empty = ipv6Ns.mld.IterReset()
+	}
+	if res.Empty {
+		return &res, nil
+	}
+	if ipv6Ns.mld.IterIsStopped() {
+		res.Stoped = true
+		return &res, nil
+	}
+
+	keys, err2 := ipv6Ns.mld.GetNext(p.Count)
+	if err2 != nil {
+		return nil, &jsonrpc.Error{
+			Code:    jsonrpc.ErrorCodeInvalidRequest,
+			Message: err2.Error(),
+		}
+	}
+	res.Vec = keys
+	return &res, nil
+}
+
+func (h ApiMldSetHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
+
+	var p ApiMldSetParams
+
+	tctx := ctx.(*core.CThreadCtx)
+
+	ipv6Ns, err := getNs(ctx, params)
+	if err != nil {
+		return nil, err
+	}
+
+	err1 := tctx.UnmarshalValidate(*params, &p)
+	if err1 != nil {
+		return nil, &jsonrpc.Error{
+			Code:    jsonrpc.ErrorCodeInvalidRequest,
+			Message: err1.Error(),
+		}
+	}
+
+	if p.Mtu > 0 {
+		ipv6Ns.mld.mtu = p.Mtu
+	}
+
+	if !p.DesignatorMac.IsZero() {
+		ipv6Ns.mld.designatorMac = p.DesignatorMac
+	}
+	return nil, nil
+}
+
+func (h ApiMldGetHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
+
+	var res ApiMldGetResult
+
+	ipv6Ns, err := getNs(ctx, params)
+	if err != nil {
+		return nil, err
+	}
+
+	res.Mtu = ipv6Ns.mld.mtu
+	res.DesignatorMac = ipv6Ns.mld.designatorMac
+	res.Version = uint8(ipv6Ns.mld.mldVersion)
+
+	return &res, nil
 }
 
 func init() {
@@ -392,9 +576,14 @@ func init() {
 
 	  aa - misc
 	*/
-	//core.RegisterCB("icmp_ns_get_cnt_meta", ApiIcmpNsCntMetaHandler{}, true)
-	//core.RegisterCB("icmp_ns_get_cnt_val", ApiIcmpNsCntValueHandler{}, true)
+
+	core.RegisterCB("ipv6_ns_cnt", ApiIpv6NsCntHandler{}, false)          // get counter mld/icmp/nd
+	core.RegisterCB("ipv6_mld_ns_add", ApiMldNsAddHandler{}, false)       // mld add
+	core.RegisterCB("ipv6_mld_ns_remove", ApiMldNsRemoveHandler{}, false) // mld remove
+	core.RegisterCB("ipv6_mld_ns_iter", ApiMldNsIterHandler{}, false)     // mld iterator
+	core.RegisterCB("ipv6_mld_ns_get_cfg", ApiMldGetHandler{}, false)     // mld Get
+	core.RegisterCB("ipv6_mld_ns_set_cfg", ApiMldSetHandler{}, false)     // mld Set
 
 	/* register callback for rx side*/
-	core.ParserRegister("icmpv6", HandleRxIcmpv6Packet)
+	core.ParserRegister("icmpv6", HandleRxIcmpv6Packet) // support mld/icmp/nd
 }

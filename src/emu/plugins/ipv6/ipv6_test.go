@@ -429,6 +429,154 @@ func TestPluginMldv1_1(t *testing.T) {
 		cb:           Cb4,
 	}
 	a.Run(t, true) // the timestamp making a new json due to the timestamp. skip the it
+
+}
+
+type ipv6RpcCtx struct {
+	tctx  *core.CThreadCtx
+	timer core.CHTimerObj
+	test  *IcmpTestBase
+}
+
+func rpcQueue(tctx *core.CThreadCtx, test *IcmpTestBase) int {
+	timerw := tctx.GetTimerCtx()
+	ticks := timerw.DurationToTicks(50 * time.Second)
+	var tstctx ipv6RpcCtx
+	tstctx.timer.SetCB(&tstctx, test.cbArg1, test.cbArg2)
+	tstctx.tctx = tctx
+	tstctx.test = test
+	timerw.StartTicks(&tstctx.timer, ticks)
+	return 0
+}
+
+func Ipv6SA(s string) string {
+	ip := net.ParseIP(s)
+	if len(ip) != 16 {
+		panic(" not ipv6 addr")
+	}
+	return fmt.Sprintf("%v", []byte(ip))
+}
+
+func (o *ipv6RpcCtx) OnEvent(a, b interface{}) {
+	fmt.Printf("add request %v %v \n", a, b)
+	if a.(int) == 2 {
+
+		buf := gopacket.NewSerializeBuffer()
+		opts := gopacket.SerializeOptions{FixLengths: true,
+			ComputeChecksums: true}
+
+		gopacket.SerializeLayers(buf, opts,
+			&layers.Ethernet{
+				SrcMAC:       net.HardwareAddr{0, 0, 0, 2, 0, 0},
+				DstMAC:       net.HardwareAddr{0x01, 0x00, 0x5e, 0x00, 0x00, 0x01},
+				EthernetType: layers.EthernetTypeDot1Q,
+			},
+			&layers.Dot1Q{
+				Priority:       uint8(0),
+				VLANIdentifier: uint16(1),
+				Type:           layers.EthernetTypeDot1Q,
+			},
+			&layers.Dot1Q{
+				Priority:       uint8(0),
+				VLANIdentifier: uint16(2),
+				Type:           layers.EthernetTypeIPv4,
+			},
+
+			&layers.IPv4{Version: 4, IHL: 6, TTL: 1, Id: 0xcc,
+				SrcIP:    net.IPv4(16, 0, 0, 10),
+				DstIP:    net.IPv4(224, 0, 0, 1),
+				Length:   44,
+				Protocol: layers.IPProtocolIGMP,
+				Options: []layers.IPv4Option{{ /* router alert */
+					OptionType:   0x94,
+					OptionData:   []byte{0, 0},
+					OptionLength: 4},
+				}},
+
+			gopacket.Payload([]byte{0x11, 0x18, 0xec, 0xd3, 0x00, 0x00, 0x00, 0x00, 0x02, 0x14, 0x00, 0x00}),
+		)
+		m := o.tctx.MPool.Alloc(uint16(256))
+		m.SetVPort(1)
+		m.Append(buf.Bytes())
+		//core.PacketUtl("arp1", buf.Bytes())
+		o.tctx.Veth.OnRx(m)
+
+		r1 := fmt.Sprintf(`{"jsonrpc": "2.0",
+		"method":"igmp_ns_remove",
+		"params": {"tun": {"vport":1,"tci":[1,2]}, "vec": [ %s,%s ] },
+		"id": 3 }`, Ipv6SA("FE08::01"), Ipv6SA("FE08::02"))
+
+		o.tctx.Veth.AppendSimuationRPC([]byte(r1))
+	}
+
+	o.tctx.Veth.AppendSimuationRPC([]byte(`{"jsonrpc": "2.0", 
+	"method":"ipv6_mld_ns_get_cfg", 
+	"params": {"tun": {"vport":1,"tci":[1,2]} }, 
+	"id": 3 }`))
+
+	o.tctx.Veth.AppendSimuationRPC([]byte(`{"jsonrpc": "2.0", 
+	"method":"ipv6_mld_ns_set_cfg", 
+	"params": {"tun": {"vport":1,"tci":[1,2]}, "mtu":10 }, "id": 3 }`))
+
+	o.tctx.Veth.AppendSimuationRPC([]byte(`{"jsonrpc": "2.0", 
+	"method":"ipv6_mld_ns_set_cfg", 
+	"params": {"tun": {"vport":1,"tci":[1,2]}, "mtu":512 ,"dmac":[0,0,1,0,0,0] }, "id": 3 }`))
+
+	o.tctx.Veth.AppendSimuationRPC([]byte(`{"jsonrpc": "2.0", 
+	"method":"ipv6_mld_ns_get_cfg", 
+	"params": {"tun": {"vport":1,"tci":[1,2]} }, 
+	"id": 3 }`))
+
+	o.tctx.Veth.AppendSimuationRPC([]byte(`{"jsonrpc": "2.0", 
+	"method":"ipv6_ns_cnt", 
+	"params": {"tun": {"vport":1,"tci":[1,2]}, "meta":true }, 
+	"id": 3 }`))
+
+	o.tctx.Veth.AppendSimuationRPC([]byte(`{"jsonrpc": "2.0", 
+	"method":"ipv6_ns_cnt", 
+	"params": {"tun": {"vport":1,"tci":[1,2]}, "meta":false, "zero":false }, 
+	"id": 3 }`))
+
+	o.tctx.Veth.AppendSimuationRPC([]byte(`{"jsonrpc": "2.0",
+	"method":"ipv6_mld_ns_add",
+	"params": {"tun": {"vport":1,"tci":[1,2]}, "vec": [ [251, 2, 0,0, 0,0,0,0, 0,0,0,0, 0,1,0,0 ] ] } ,
+	"id": 3 }`))
+
+	o.tctx.Veth.AppendSimuationRPC([]byte(`{"jsonrpc": "2.0",
+	"method":"ipv6_mld_ns_add",
+	"params": {"tun": {"vport":1,"tci":[1,2]}, "vec": [ [251, 2, 0,0, 0,0,0,0, 0,0,0,0, 0,1,0,0 ] ] } ,
+	"id": 3 }`))
+
+	o.tctx.Veth.AppendSimuationRPC([]byte(`{"jsonrpc": "2.0",
+	"method":"ipv6_mld_ns_remove",
+	"params": {"tun": {"vport":1,"tci":[1,2]}, "vec": [ [251, 2, 0,0, 0,0,0,0, 0,0,0,0, 0,1,0,0 ] ] } ,
+	"id": 3 }`))
+
+	o.tctx.Veth.AppendSimuationRPC([]byte(`{"jsonrpc": "2.0",
+	"method":"ipv6_mld_ns_iter",
+	"params": {"tun": {"vport":1,"tci":[1,2]}, "reset": true, "count" : 99},
+	"id": 3 }`))
+	o.tctx.Veth.AppendSimuationRPC([]byte(`{"jsonrpc": "2.0",
+	"method":"ipv6_mld_ns_iter",
+	"params": {"tun": {"vport":1,"tci":[1,2]}, "reset": false, "count" : 100},
+	"id": 3 }`))
+
+}
+
+func TestPluginMldv2_rpc1(t *testing.T) {
+
+	a := &IcmpTestBase{
+		testname:     "mld2_rpc1",
+		monitor:      false,
+		match:        3,
+		capture:      true,
+		duration:     1 * time.Minute,
+		clientsToSim: 1,
+		mcToSim:      3,
+		cb:           rpcQueue,
+		cbArg1:       1,
+	}
+	a.Run(t, true) // the timestamp making a new json due to the timestamp. skip the it
 }
 
 func init() {

@@ -184,7 +184,7 @@ func NewMldNsStatsDb(o *mldNsStats) *core.CCounterDb {
 	db.Add(&core.CCounterRec{
 		Counter:  &o.pktRxNoKey,
 		Name:     "pktRxNoKey",
-		Help:     "received igmp but can't find port,vlan keys",
+		Help:     "received mld but can't find port,vlan keys",
 		Unit:     "pkts",
 		DumpZero: false,
 		Info:     core.ScERROR})
@@ -360,7 +360,7 @@ type MldEntry struct {
 
 type MapIgmp map[core.Ipv6Key]*MldEntry
 
-//IgmpFlowTbl  map/dlist of the igmp entries
+//IgmpFlowTbl  map/dlist of the mld entries
 type IgmpFlowTbl struct {
 	mapIgmp    MapIgmp
 	head       core.DList
@@ -771,7 +771,7 @@ func (o *mldNsCtx) HandleRxMldCmn(isGenQuery bool, mldAddr core.Ipv6Key) int {
 			o.activeQuery = true
 			o.started = true
 			if o.timer.IsRunning() {
-				panic(" igmp timer is running ")
+				panic(" mld timer is running ")
 			}
 			o.timerw.StartTicks(&o.timer, startTick)
 		}
@@ -1012,9 +1012,6 @@ func (o *mldNsCtx) HandleRxMldPacket(ps *core.ParserPacketState) int {
 	m := ps.M
 	p := m.GetData()
 	/* the header is at least 8 bytes*/
-
-	// checksum is checked in diff layer
-	//igmplen := m.PktLen() - uint32(ps.L4)
 	mld := p[ps.L4:]
 
 	mldh := layers.Mldv2Header(mld)
