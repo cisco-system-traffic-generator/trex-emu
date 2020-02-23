@@ -44,31 +44,43 @@ func castDlistClient(dlist *DList) *CClient {
 	return (*CClient)(unsafe.Pointer(uintptr(unsafe.Pointer(dlist))))
 }
 
-// CClientDgIPv4 default GW
-type CClientDgIPv4 struct {
-	Ipv4dgResolved bool   // bool in case it is resolved
-	Ipv4dgMac      MACKey // default
+// CClientDg default GW
+type CClientDg struct {
+	IpdgResolved bool   // bool in case it is resolved
+	IpdgMac      MACKey // default
+}
+
+//CClientIpv6Nd information from learned from router
+type CClientIpv6Nd struct {
+	MTU        uint16 // MTU in L3 1500 by default
+	DgMac      MACKey // router dg
+	PrefixIpv6 Ipv6Key
+	PrefixLen  uint8
 }
 
 // CClient represent one client
 type CClient struct {
 	dlist  DList   // for adding into list
 	Ns     *CNSCtx // pointer to a namespace
-	Ipv6   Ipv6Key // set the self ipv6
-	DgIpv6 Ipv6Key // default gateway
 	Ipv4   Ipv4Key // source ipv4
 	Maskv4 Ipv4Key // mask default 0xffffffff
 	DgIpv4 Ipv4Key // default gateway for ipv4
 	Mac    MACKey  // immutable over lifetime of client
 	MTU    uint16  // MTU in L3 1500 by default
 
-	DGW            *CClientDgIPv4 /* resolve by ARP */
-	ForceDGW       bool           /* true in case we want to enforce default gateway MAC */
+	DGW            *CClientDg /* resolve by ARP */
+	Ipv6Router     *CClientIpv6Nd
+	Ipv6DGW        *CClientDg /* resolve by ipv6 */
+	Ipv6           Ipv6Key    // set the self ipv6
+	DgIpv6         Ipv6Key    // default gateway if provided would be in highest priorty
+	Dhcpv6         Ipv6Key    // the dhcpv6 ipv6, another ipv6 would be the one that was learned from the router
+	Ipv6ForceDGW   bool       /* true in case we want to enforce default gateway MAC */
+	Ipv6ForcedgMac MACKey
+
+	ForceDGW       bool /* true in case we want to enforce default gateway MAC */
 	Ipv4ForcedgMac MACKey
 
-	Ipv6dgMac      MACKey // default
-	Ipv6dgResolved bool   // bool in case it is resolved
-	PluginCtx      *PluginCtx
+	PluginCtx *PluginCtx
 }
 
 type CClientCmd struct {

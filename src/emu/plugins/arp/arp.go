@@ -35,7 +35,7 @@ type ArpFlow struct {
 	index  uint8
 	touch  bool
 	refc   uint32
-	action core.CClientDgIPv4
+	action core.CClientDg
 }
 
 type MapArpTbl map[core.Ipv4Key]*ArpFlow
@@ -296,8 +296,8 @@ func (o *ArpFlowTable) OnDeleteFlow(flow *ArpFlow) {
 		panic(" ARP ref counter should be zero ")
 	}
 	o.head.RemoveNode(&flow.dlist)
-	flow.action.Ipv4dgResolved = false
-	flow.action.Ipv4dgMac.Clear()
+	flow.action.IpdgResolved = false
+	flow.action.IpdgMac.Clear()
 	_, ok := o.tbl[flow.ipv4]
 	if ok {
 		delete(o.tbl, flow.ipv4)
@@ -327,7 +327,7 @@ func (o *ArpFlowTable) AssociateWithClient(flow *ArpFlow) bool {
 // AddNew in case it does not found
 // state could be  stateLearnedor incomplete
 func (o *ArpFlowTable) AddNew(ipv4 core.Ipv4Key,
-	Ipv4dgMac *core.MACKey, state uint8) *ArpFlow {
+	IpdgMac *core.MACKey, state uint8) *ArpFlow {
 	_, ok := o.tbl[ipv4]
 	if ok {
 		panic(" arpflow  already exits   ")
@@ -339,11 +339,11 @@ func (o *ArpFlowTable) AddNew(ipv4 core.Ipv4Key,
 	flow.ipv4 = ipv4
 	flow.state = state
 	flow.head.SetSelf()
-	if Ipv4dgMac != nil {
-		flow.action.Ipv4dgResolved = true
-		flow.action.Ipv4dgMac = *Ipv4dgMac
+	if IpdgMac != nil {
+		flow.action.IpdgResolved = true
+		flow.action.IpdgMac = *IpdgMac
 	} else {
-		flow.action.Ipv4dgResolved = false
+		flow.action.IpdgResolved = false
 	}
 	flow.timer.SetCB(o, flow, 0)
 
@@ -392,8 +392,8 @@ func (o *ArpFlowTable) MoveToComplete(flow *ArpFlow) {
 
 func (o *ArpFlowTable) ArpLearn(flow *ArpFlow, mac *core.MACKey) {
 
-	flow.action.Ipv4dgResolved = true
-	flow.action.Ipv4dgMac = *mac
+	flow.action.IpdgResolved = true
+	flow.action.IpdgMac = *mac
 	switch flow.state {
 	case stateLearned:
 		flow.touch = true
@@ -454,8 +454,8 @@ func (o *ArpFlowTable) handleRefreshState(flow *ArpFlow) {
 		/* don't use the old data */
 		flow.state = stateIncomplete
 		o.stats.moveIncompleteAfterRefresh++
-		flow.action.Ipv4dgResolved = false
-		flow.action.Ipv4dgMac.Clear()
+		flow.action.IpdgResolved = false
+		flow.action.IpdgMac.Clear()
 	}
 }
 

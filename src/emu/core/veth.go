@@ -146,7 +146,7 @@ func (o *VethIFSimulator) SendBuffer(unicast bool, c *CClient, b []byte) {
 			o.stats.TxDropNotResolve++
 			return
 		}
-		if !c.DGW.Ipv4dgResolved {
+		if !c.DGW.IpdgResolved {
 			m.FreeMbuf()
 			o.stats.TxDropNotResolve++
 			return

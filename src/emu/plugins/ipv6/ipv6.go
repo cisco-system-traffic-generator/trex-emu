@@ -144,6 +144,7 @@ type PluginIpv6Ns struct {
 	cdb   *core.CCounterDb
 	cdbv  *core.CCounterDbVec
 	mld   mldNsCtx
+	nd    NdNsCtx
 }
 
 func NewIpv6Ns(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
@@ -152,9 +153,12 @@ func NewIpv6Ns(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
 	o.RegisterEvents(ctx, []string{}, o)
 	o.cdb = NewpingNsStatsDb(&o.stats)
 	o.cdbv = core.NewCCounterDbVec("ipv6")
-	o.cdbv.Add(o.cdb)
 	o.mld.Init(o, o.Tctx, initJson)
+	o.nd.Init(o, o.Tctx, initJson)
+
+	o.cdbv.Add(o.cdb)
 	o.cdbv.Add(o.mld.cdb)
+	o.cdbv.Add(o.nd.cdb)
 	return &o.PluginBase
 }
 
@@ -260,6 +264,14 @@ func (o *PluginIpv6Ns) HandleRxIpv6Packet(ps *core.ParserPacketState) int {
 		layers.CreateICMPv6TypeCode(layers.ICMPv6TypeMLDv1MulticastListenerDoneMessage, 0),
 		layers.CreateICMPv6TypeCode(layers.ICMPv6TypeMLDv2MulticastListenerReportMessageV2, 0):
 		return o.mld.HandleRxMldPacket(ps) // MLD, MLDv2
+
+	case layers.CreateICMPv6TypeCode(layers.ICMPv6TypeRouterSolicitation, 0),
+		layers.CreateICMPv6TypeCode(layers.ICMPv6TypeRouterAdvertisement, 0),
+		layers.CreateICMPv6TypeCode(layers.ICMPv6TypeNeighborSolicitation, 0),
+		layers.CreateICMPv6TypeCode(layers.ICMPv6TypeNeighborAdvertisement, 0),
+		layers.CreateICMPv6TypeCode(layers.ICMPv6TypeRedirect, 0):
+		return o.nd.HandleRxIpv6NdPacket(ps, icmpv6.TypeCode) // MLD, MLDv2
+
 	default:
 		o.stats.pktRxErrUnhandled++
 	}
