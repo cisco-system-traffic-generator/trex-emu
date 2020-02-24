@@ -149,29 +149,29 @@ func castDlistNSCtx(dlist *DList) *CNSCtx {
 
 // CNSCtx network namespace context
 type CNSCtx struct {
-	dlist      DList //for thread  ctx dlist
-	ThreadCtx  *CThreadCtx
-	Key        CTunnelKey // the key tunnel of this namespace
-	mapIpv6    MapClientIPv6
-	mapIpv4    MapClientIPv4
-	mapMAC     MapClientMAC
-	clientHead DList // list of ns
-	stats      CNSCtxStats
-	PluginCtx  *PluginCtx
-	epoc       uint32
-	iterEpoc   uint32
-	iterReady  bool
-	iter       DListIterHead
-	cdb        *CCounterDb
+	dlist          DList //for thread  ctx dlist
+	ThreadCtx      *CThreadCtx
+	Key            CTunnelKey // the key tunnel of this namespace
+	mapIpv6        MapClientIPv6
+	mapIpv4        MapClientIPv4
+	mapMAC         MapClientMAC
+	clientHead     DList // list of ns
+	stats          CNSCtxStats
+	PluginCtx      *PluginCtx
+	epoc           uint32
+	iterEpoc       uint32
+	iterReady      bool
+	iter           DListIterHead
+	cdb            *CCounterDb
 	DefClientPlugs MapJsonPlugs // Default plugins for each new client
 }
 
 type CNsInfo struct {
-	Port uint16    `json:"vport" validate:"required"`
-	Tci  [2]uint16 `json:"tpid"`
-	Tpid [2]uint16 `json:"tci"`
-	ActiveClients uint64 `json:"active_clients"`
-	PluginsCount  uint64 `json:"plugins_count"`
+	Port          uint16    `json:"vport"`
+	Tci           [2]uint16 `json:"tpid"`
+	Tpid          [2]uint16 `json:"tci"`
+	ActiveClients uint64    `json:"active_clients"`
+	PluginsCount  uint64    `json:"plugins_count"`
 	// TODO add more later ..
 }
 
@@ -426,14 +426,14 @@ func (o *CNSCtx) GetNext(n uint16) ([]*MACKey, error) {
 func (o *CNSCtx) GetInfo() *CNsInfo {
 	var info CNsInfo
 	o.stats.PreUpdate()
-	
+
 	var d CTunnelDataJson
 	o.Key.GetJson(&d)
-	info.Port          = d.Vport
-	info.Tci           = d.Tci
-	info.Tpid          = d.Tpid
+	info.Port = d.Vport
+	info.Tci = d.Tci
+	info.Tpid = d.Tpid
 	info.ActiveClients = o.stats.activeClient
-	info.PluginsCount  = uint64(len(o.PluginCtx.mapPlugins))
+	info.PluginsCount = uint64(len(o.PluginCtx.mapPlugins))
 	return &info
 }
 

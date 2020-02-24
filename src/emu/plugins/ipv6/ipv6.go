@@ -430,7 +430,7 @@ func (h ApiMldNsAddHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMe
 		return nil, &jsonrpc.Error{
 			Code:    jsonrpc.ErrorCodeInvalidRequest,
 			Message: err.Error(),
-		}	
+		}
 	}
 
 	err1 := tctx.UnmarshalValidate(*params, &p)
@@ -571,7 +571,7 @@ func (h ApiMldGetHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMess
 		return nil, &jsonrpc.Error{
 			Code:    jsonrpc.ErrorCodeInvalidRequest,
 			Message: err.Error(),
-		}	
+		}
 	}
 
 	res.Mtu = ipv6Ns.mld.mtu
@@ -613,4 +613,8 @@ func init() {
 
 	/* register callback for rx side*/
 	core.ParserRegister("icmpv6", HandleRxIcmpv6Packet) // support mld/icmp/nd
+}
+
+func Register(ctx *core.CThreadCtx) {
+	ctx.RegisterParserCb("icmpv6")
 }

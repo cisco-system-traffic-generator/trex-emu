@@ -29,6 +29,7 @@ const (
 const (
 	DEF_TPID = 0x8100
 )
+
 type CTunnelData struct {
 	Vport uint16    // virtual port
 	Vlans [2]uint32 // vlan tags include tpid
@@ -36,9 +37,9 @@ type CTunnelData struct {
 
 /* CTunnelDataJson json representation of tunnel data */
 type CTunnelDataJson struct {
-	Vport uint16   `json:"vport" validate:"required"`
+	Vport uint16    `json:"vport"`
 	Tpid  [2]uint16 `json:"tpid"`
-	Tci   [2]uint16 `json:"tci"   validate:"required" `
+	Tci   [2]uint16 `json:"tci"`
 }
 
 type RpcCmdTunnel struct {
@@ -109,7 +110,7 @@ func (o *CTunnelKey) SetJson(d *CTunnelDataJson) {
 	for i := 0; i < 2; i++ {
 		if d.Tci[i] > 0 {
 			tpid := uint16(DEF_TPID)
-			if d.Tpid[i] > 1 {
+			if d.Tpid[i] > 0 {
 				tpid = d.Tpid[i]
 			}
 			t.Vlans[i] = (uint32(tpid) << 16) + uint32((d.Tci[i] & 0xfff))
@@ -190,7 +191,7 @@ type CThreadCtx struct {
 	simRecorder []interface{} // record event for simulation
 	cdbv        *CCounterDbVec
 	clientStats CClientStats
-	DefNsPlugs     MapJsonPlugs // Default plugins for each new namespace
+	DefNsPlugs  MapJsonPlugs // Default plugins for each new namespace
 }
 
 func NewThreadCtx(Id uint32, serverPort uint16, simulation bool, simRx *VethIFSim) *CThreadCtx {
@@ -437,7 +438,7 @@ func (o *CThreadCtx) RemoveNsRpcSlice(params *fastjson.RawMessage) error {
 			return err
 		}
 	}
-	
+
 	return nil
 }
 
@@ -484,7 +485,7 @@ func (o *CThreadCtx) AddNsRpcSlice(params *fastjson.RawMessage) error {
 		if err != nil {
 			return err
 		}
-		
+
 		if err = o.addPluginsNs(ns, p); err != nil {
 			return err
 		}
@@ -506,7 +507,7 @@ func (o *CThreadCtx) addPluginsNs(ns *CNSCtx, p ApiNsAddParams) error {
 		}
 		if err = ns.PluginCtx.addPlugin(plName, *data); err != nil {
 			return err
-		}			
+		}
 	}
 
 	/* add plugins from params we haven't added yet */
@@ -514,7 +515,7 @@ func (o *CThreadCtx) addPluginsNs(ns *CNSCtx, p ApiNsAddParams) error {
 		if _, ok := o.DefNsPlugs[plName]; !ok {
 			if err = ns.PluginCtx.addPlugin(plName, *plData); err != nil {
 				return err
-			}	
+			}
 		}
 	}
 	return nil

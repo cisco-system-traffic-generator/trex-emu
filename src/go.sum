@@ -1,3 +1,5 @@
+github.com/akamensky/argparse v1.2.0 h1:0QUdYhn/6MAvIH5XHgZDt9sHKLq24KyMWgi77NJZDbM=
+github.com/akamensky/argparse v1.2.0/go.mod h1:S5kwC7IuDcEr5VeXtGPRVZ5o/FdhcMlQz4IZQuw64xA=
 github.com/alecthomas/jsonschema v0.0.0-20191017121752-4bb6e3fae4f2 h1:swGeCLPiUQ647AIRnFxnAHdzlg6IPpmU6QdkOPZINt8=
 github.com/alecthomas/jsonschema v0.0.0-20191017121752-4bb6e3fae4f2/go.mod h1:Juc2PrI3wtNfUwptSvAIeNx+HrETwHQs6nf+TkOJlOA=
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=

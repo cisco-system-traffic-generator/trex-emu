@@ -824,3 +824,7 @@ func init() {
 	/* register callback for rx side*/
 	core.ParserRegister("dhcp", HandleRxDhcpPacket)
 }
+
+func Register(ctx *core.CThreadCtx) {
+	ctx.RegisterParserCb("dhcp")
+}
