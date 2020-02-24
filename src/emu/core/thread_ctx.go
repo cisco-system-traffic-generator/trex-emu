@@ -26,6 +26,9 @@ const (
 	PLUGIN_MAX_PPS = 100000
 )
 
+const (
+	DEF_TPID = 0x8100
+)
 type CTunnelData struct {
 	Vport uint16    // virtual port
 	Vlans [2]uint32 // vlan tags include tpid
@@ -34,8 +37,8 @@ type CTunnelData struct {
 /* CTunnelDataJson json representation of tunnel data */
 type CTunnelDataJson struct {
 	Vport uint16   `json:"vport" validate:"required"`
-	Tpid  []uint16 `json:"tpid"`
-	Tci   []uint16 `json:"tci"   validate:"required" `
+	Tpid  [2]uint16 `json:"tpid"`
+	Tci   [2]uint16 `json:"tci"   validate:"required" `
 }
 
 type RpcCmdTunnel struct {
@@ -103,20 +106,14 @@ func (o *CTunnelKey) SetJson(d *CTunnelDataJson) {
 
 	t.Vport = d.Vport
 
-	if len(d.Tci) > 0 {
-		tpid := uint16(0x8100)
-		if len(d.Tpid) > 0 {
-			tpid = d.Tpid[0]
+	for i := 0; i < 2; i++ {
+		if d.Tci[i] > 0 {
+			tpid := uint16(DEF_TPID)
+			if d.Tpid[i] > 1 {
+				tpid = d.Tpid[i]
+			}
+			t.Vlans[i] = (uint32(tpid) << 16) + uint32((d.Tci[i] & 0xfff))
 		}
-		t.Vlans[0] = (uint32(tpid) << 16) + uint32((d.Tci[0] & 0xfff))
-	}
-
-	if len(d.Tci) > 1 {
-		tpid := uint16(0x8100)
-		if len(d.Tpid) > 1 {
-			tpid = d.Tpid[1]
-		}
-		t.Vlans[1] = (uint32(tpid) << 16) + uint32((d.Tci[1] & 0xfff))
 	}
 
 	o.Set(&t)
@@ -608,24 +605,24 @@ func (o *CThreadCtx) RemoveNs(key *CTunnelKey) error {
 }
 
 // GetNsPlugin gets the wanted plugin object named `plugName`
-func (o *CThreadCtx) GetNsPlugin(params *fastjson.RawMessage, plugName string) (interface{}, error) {
+func (o *CThreadCtx) GetNsPlugin(params *fastjson.RawMessage, plugin string) (*PluginBase, error) {
 	var key CTunnelKey
 	err := o.UnmarshalTunnel(*params, &key)
 	if err != nil {
 		return nil, err
 	}
-	ns := o.GetNs(&key)	
+	ns := o.GetNs(&key)
 	if ns == nil {
-		err = fmt.Errorf(" error there is not a valid namespace for this tunnel: %v", key)
+		err = fmt.Errorf(" error there is valid namespace for this tunnel ")
 		return nil, err
 	}
-	plug := ns.PluginCtx.Get(plugName)
+	plug := ns.PluginCtx.Get(plugin)
 	if plug == nil {
-		err = fmt.Errorf(" error there isn't a valid plugin %s for this tunnel: %v ", plugName, key)
+		err = fmt.Errorf(" error there is valid plugin %s for this tunnel ", plugin)
 		return nil, err
 	}
 
-	return plug.Ext, nil
+	return plug, nil
 }
 
 // IterReset save the rpc epoc and operate only if there wasn't a change

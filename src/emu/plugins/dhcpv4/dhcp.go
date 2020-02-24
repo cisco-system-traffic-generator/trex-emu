@@ -753,7 +753,7 @@ func getNs(ctx interface{}, params *fastjson.RawMessage) (*PluginDhcpNs, *jsonrp
 		}
 	}
 
-	arpNs := plug.(*PluginDhcpNs)
+	arpNs := plug.Ext.(*PluginDhcpNs)
 
 	return arpNs, nil
 }

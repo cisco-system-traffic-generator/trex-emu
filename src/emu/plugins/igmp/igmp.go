@@ -1132,7 +1132,7 @@ func getNsPlugin(ctx interface{}, params *fastjson.RawMessage) (*PluginIgmpNs, e
 	if err != nil {
 		return nil, err
 	}
-	igmpPlug := nsPlug.(*PluginIgmpNs)
+	igmpPlug := nsPlug.Ext.(*PluginIgmpNs)
 	return igmpPlug, nil
 }
 

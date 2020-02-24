@@ -324,7 +324,7 @@ func getNsPlugin(ctx interface{}, params *fastjson.RawMessage) (*PluginIcmpNs, e
 		return nil, err
 	}
 
-	icmpNs := plug.(*PluginIcmpNs)
+	icmpNs := plug.Ext.(*PluginIcmpNs)
 
 	return icmpNs, nil
 }
