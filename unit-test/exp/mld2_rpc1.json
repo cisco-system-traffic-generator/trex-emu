@@ -6,6 +6,30 @@
 		"data": "33|33|00|00|00|16|00|00|01|00|00|00|81|00|00|01|81|00|00|02|86|dd|60|00|00|00|00|4c|00|01|fe|80|00|00|00|00|00|00|02|00|01|ff|fe|00|00|00|ff|02|00|00|00|00|00|00|00|00|00|00|00|00|00|16|3a|00|05|02|00|00|00|00|8f|00|64|d8|00|00|00|03|04|00|00|00|ff|02|00|00|00|00|00|00|00|00|00|01|00|00|00|00|04|00|00|00|ff|02|00|00|00|00|00|00|00|00|00|01|00|00|01|00|04|00|00|00|ff|02|00|00|00|00|00|00|00|00|00|01|00|00|02|00|"
 	},
 	{
+		"time": 10.1,
+		"meta": "tx",
+		"len": 70,
+		"data": "33|33|00|00|00|02|00|00|01|00|00|00|81|00|00|01|81|00|00|02|86|dd|60|00|00|00|00|08|3a|ff|00|00|00|00|00|00|00|00|00|00|00|00|00|00|00|00|ff|02|00|00|00|00|00|00|00|00|00|00|00|00|00|02|85|00|7b|b8|00|00|00|00|"
+	},
+	{
+		"time": 20.1,
+		"meta": "tx",
+		"len": 70,
+		"data": "33|33|00|00|00|02|00|00|01|00|00|00|81|00|00|01|81|00|00|02|86|dd|60|00|00|00|00|08|3a|ff|00|00|00|00|00|00|00|00|00|00|00|00|00|00|00|00|ff|02|00|00|00|00|00|00|00|00|00|00|00|00|00|02|85|00|7b|b8|00|00|00|00|"
+	},
+	{
+		"time": 30.1,
+		"meta": "tx",
+		"len": 70,
+		"data": "33|33|00|00|00|02|00|00|01|00|00|00|81|00|00|01|81|00|00|02|86|dd|60|00|00|00|00|08|3a|ff|00|00|00|00|00|00|00|00|00|00|00|00|00|00|00|00|ff|02|00|00|00|00|00|00|00|00|00|00|00|00|00|02|85|00|7b|b8|00|00|00|00|"
+	},
+	{
+		"time": 40.1,
+		"meta": "tx",
+		"len": 70,
+		"data": "33|33|00|00|00|02|00|00|01|00|00|00|81|00|00|01|81|00|00|02|86|dd|60|00|00|00|00|08|3a|ff|00|00|00|00|00|00|00|00|00|00|00|00|00|00|00|00|ff|02|00|00|00|00|00|00|00|00|00|00|00|00|00|02|85|00|7b|b8|00|00|00|00|"
+	},
+	{
 		"rpc-req": {
 			"id": 3,
 			"jsonrpc": "2.0",
@@ -153,6 +177,242 @@
 			"id": 3,
 			"jsonrpc": "2.0",
 			"result": {
+				"ipv6nd": {
+					"meta": [
+						{
+							"help": "change src ipv6 events",
+							"info": 18,
+							"name": "eventsChangeSrc",
+							"unit": "ops",
+							"zero": false
+						},
+						{
+							"help": "change dgw ipv6 events",
+							"info": 18,
+							"name": "eventsChangeDgIPv6",
+							"unit": "ops",
+							"zero": false
+						},
+						{
+							"help": "timer events learn",
+							"info": 18,
+							"name": "timerEventLearn",
+							"unit": "ops",
+							"zero": false
+						},
+						{
+							"help": "timer events incomplete",
+							"info": 18,
+							"name": "timerEventIncomplete",
+							"unit": "ops",
+							"zero": false
+						},
+						{
+							"help": "timer events complete",
+							"info": 18,
+							"name": "timerEventComplete",
+							"unit": "ops",
+							"zero": false
+						},
+						{
+							"help": "timer events refresh",
+							"info": 18,
+							"name": "timerEventRefresh",
+							"unit": "ops",
+							"zero": false
+						},
+						{
+							"help": "add learn to table ",
+							"info": 18,
+							"name": "addLearn",
+							"unit": "ops",
+							"zero": false
+						},
+						{
+							"help": "add incomplete to table ",
+							"info": 18,
+							"name": "addIncomplete",
+							"unit": "ops",
+							"zero": false
+						},
+						{
+							"help": "move incomplete after refresh  ",
+							"info": 18,
+							"name": "moveIncompleteAfterRefresh",
+							"unit": "ops",
+							"zero": false
+						},
+						{
+							"help": "move complete ",
+							"info": 18,
+							"name": "moveComplete",
+							"unit": "ops",
+							"zero": false
+						},
+						{
+							"help": "move learn ",
+							"info": 18,
+							"name": "moveLearned",
+							"unit": "ops",
+							"zero": false
+						},
+						{
+							"help": "rx error packet is too short",
+							"info": 20,
+							"name": "pktRxErrTooShort",
+							"unit": "pkts",
+							"zero": false
+						},
+						{
+							"help": "rx error packet is no broadcast",
+							"info": 20,
+							"name": "pktRxErrNoBroadcast",
+							"unit": "pkts",
+							"zero": false
+						},
+						{
+							"help": "rx error packet with wrong opcode",
+							"info": 20,
+							"name": "pktRxErrWrongOp",
+							"unit": "pkts",
+							"zero": false
+						},
+						{
+							"help": "rx ipv6 nd query ",
+							"info": 18,
+							"name": "pktRxArpQuery",
+							"unit": "pkts",
+							"zero": false
+						},
+						{
+							"help": "rx ipv6 nd query not for our clients",
+							"info": 18,
+							"name": "pktRxArpQueryNotForUs",
+							"unit": "pkts",
+							"zero": false
+						},
+						{
+							"help": "rx ipv6 nd reply",
+							"info": 18,
+							"name": "pktRxArpReply",
+							"unit": "pkts",
+							"zero": false
+						},
+						{
+							"help": "tx ipv6 nd query",
+							"info": 18,
+							"name": "pktTxNdQuery",
+							"unit": "pkts",
+							"zero": false
+						},
+						{
+							"help": "tx ipv6 nd garp",
+							"info": 18,
+							"name": "pktTxNd",
+							"unit": "pkts",
+							"zero": false
+						},
+						{
+							"help": "tx ipv6 nd reply",
+							"info": 18,
+							"name": "pktTxReply",
+							"unit": "pkts",
+							"zero": false
+						},
+						{
+							"help": "ipv6 nd table active",
+							"info": 18,
+							"name": "tblActive",
+							"unit": "entries",
+							"zero": false
+						},
+						{
+							"help": "ipv6 nd table add",
+							"info": 18,
+							"name": "tblAdd",
+							"unit": "ops",
+							"zero": false
+						},
+						{
+							"help": "ipv6 nd table remove",
+							"info": 18,
+							"name": "tblRemove",
+							"unit": "ops",
+							"zero": false
+						},
+						{
+							"help": "associate with client",
+							"info": 18,
+							"name": "associateWithClient",
+							"unit": "ops",
+							"zero": false
+						},
+						{
+							"help": "disassociate with client",
+							"info": 18,
+							"name": "disasociateWithClient",
+							"unit": "ops",
+							"zero": false
+						},
+						{
+							"help": "rx neighbor solicitation",
+							"info": 18,
+							"name": "pktRxNeighborSolicitation",
+							"unit": "pkts",
+							"zero": false
+						},
+						{
+							"help": "Rx neighbor advertisement",
+							"info": 18,
+							"name": "pktRxNeighborAdvertisement",
+							"unit": "pkts",
+							"zero": false
+						},
+						{
+							"help": "Rx router advertisement",
+							"info": 18,
+							"name": "pktRxRouterAdvertisement",
+							"unit": "pkts",
+							"zero": false
+						},
+						{
+							"help": "Rx router solicitation",
+							"info": 18,
+							"name": "pktRxRouterSolicitation",
+							"unit": "pkts",
+							"zero": false
+						},
+						{
+							"help": "router advertisement not from local link",
+							"info": 20,
+							"name": "pktRxErrRouternotLinklocal",
+							"unit": "pkts",
+							"zero": false
+						},
+						{
+							"help": "router advertisement lifetime is too big",
+							"info": 20,
+							"name": "pktRxErrRouterLifetimeTooBig",
+							"unit": "pkts",
+							"zero": false
+						},
+						{
+							"help": "router advertisement lifetime is zero not selected router",
+							"info": 18,
+							"name": "pktRxRouterLifetimeZero",
+							"unit": "pkts",
+							"zero": false
+						},
+						{
+							"help": "ipv6 hop limit should be 255",
+							"info": 20,
+							"name": "pktRxErrWrongHopLimit",
+							"unit": "pkts",
+							"zero": false
+						}
+					],
+					"name": "ipv6nd"
+				},
 				"mld": {
 					"meta": [
 						{
@@ -677,12 +937,12 @@
 	},
 	{},
 	{
-		"mbufAlloc": 2,
-		"mbufAllocCache": 1,
-		"mbufFreeCache": 3
+		"mbufAlloc": 3,
+		"mbufAllocCache": 4,
+		"mbufFreeCache": 7
 	},
 	{
-		"TxBytes": 334,
-		"TxPkts": 3
+		"TxBytes": 614,
+		"TxPkts": 7
 	}
 ]

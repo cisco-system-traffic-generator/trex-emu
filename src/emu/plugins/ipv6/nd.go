@@ -574,12 +574,10 @@ func pluginArpClientCastfromDlist(o *core.DList) *NdClientCtx {
 
 // NdClientCtx nd information per client
 type NdClientCtx struct {
-	base  *PluginIpv6Client
-	dlist core.DList /* to link to NdCacheFlow */
-	//arpPktTemplate []byte           // template packet with
-	//arpHeader      layers.ArpHeader // point to template packet
-	//pktOffset      uint16
+	base   *PluginIpv6Client
+	dlist  core.DList /* to link to NdCacheFlow */
 	nsPlug *NdNsCtx
+	mld    *mldNsCtx
 }
 
 func (o *NdClientCtx) preparePacketTemplate() {
@@ -600,14 +598,17 @@ func (o *NdClientCtx) preparePacketTemplate() {
 	o.arpHeader = layers.ArpHeader(o.arpPktTemplate[arpOffset : arpOffset+28])*/
 }
 
-func (o *NdClientCtx) Init(base *PluginIpv6Client, ctx *core.CThreadCtx, initJson []byte) {
+func (o *NdClientCtx) Init(base *PluginIpv6Client,
+	nsPlug *NdNsCtx,
+	ctx *core.CThreadCtx,
+	mld *mldNsCtx,
+	initJson []byte) {
 	o.base = base
+	o.mld = mld
 	o.dlist.SetSelf()
 	o.preparePacketTemplate()
-	//nsplg := o.Ns.PluginCtx.GetOrCreate(ARP_PLUG)
-	//o.arpNsPlug = nsplg.Ext.(*PluginArpNs)
+	o.nsPlug = nsPlug
 	o.OnCreate()
-
 }
 
 /*OnEvent support event change of IP  */
@@ -660,6 +661,18 @@ func (o *NdClientCtx) OnChangeDGSrcIPv6(oldDgIpv6 core.Ipv6Key,
 	}
 }
 
+func (o *NdClientCtx) OnPrePreRemove(ctx *core.PluginCtx) {
+
+}
+
+func (o *NdClientCtx) OnPreRemove(ctx *core.PluginCtx) {
+
+}
+
+func (o *NdClientCtx) OnPostCreate(ctx *core.PluginCtx) {
+	o.mld.flushAddCache()
+}
+
 func (o *NdClientCtx) OnRemove(ctx *core.PluginCtx) {
 	/* force removing the link to the client */
 	o.OnChangeDGSrcIPv6(o.base.Client.DgIpv6,
@@ -670,14 +683,33 @@ func (o *NdClientCtx) OnRemove(ctx *core.PluginCtx) {
 }
 
 func (o *NdClientCtx) OnCreate() {
+
+	mac := o.base.Client.Mac
+	// set des
+	if o.mld.designatorMac.IsZero() {
+		o.mld.designatorMac = mac
+	}
+	// all nodes
+	o.mld.addMcCache(core.Ipv6Key{0xff, 0x02, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1})
+	// solicited node addr
+	o.mld.addMcCache(core.Ipv6Key{0xff, 0x02, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0xff, mac[3], mac[4], mac[5]})
+
+	if !o.nsPlug.IsRouterSolActive() {
+		// if it is not, start it
+		o.nsPlug.StartRouterSol(mac)
+	}
+
+	// resolve the current default GW if exits
 	if o.base.Client.Ipv6ForceDGW {
 		return
 	}
-	var oldDgIpv6 core.Ipv6Key
+
+	// resolve the ipv6 default gateway if exits
+	/*var oldDgIpv6 core.Ipv6Key
 	o.OnChangeDGSrcIPv6(oldDgIpv6,
 		o.base.Client.DgIpv6,
 		false,
-		!o.base.Client.Ipv6.IsZero())
+		!o.base.Client.Ipv6.IsZero())*/
 }
 
 func (o *NdClientCtx) SendGArp() {

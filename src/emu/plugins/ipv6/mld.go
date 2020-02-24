@@ -388,18 +388,18 @@ func (o *IgmpFlowTbl) OnCreate(stats *mldNsStats) {
 	o.stats = stats
 }
 
-func (o *IgmpFlowTbl) addMc(ipv6 core.Ipv6Key, man bool) error {
+func (o *IgmpFlowTbl) addMc(ipv6 core.Ipv6Key, man bool) (error, bool) {
 	obj, ok := o.mapIgmp[ipv6]
 	if ok {
 		if !man {
 			obj.refc++
-			return nil
+			return nil, false
 		} else {
 			if !obj.management {
 				obj.management = true
-				return nil
+				return nil, false
 			} else {
-				return fmt.Errorf(" mc-ipv6 %v already exist by management", ipv6)
+				return fmt.Errorf(" mc-ipv6 %v already exist by management", ipv6), false
 			}
 		}
 	}
@@ -414,7 +414,7 @@ func (o *IgmpFlowTbl) addMc(ipv6 core.Ipv6Key, man bool) error {
 		e.refc = 1
 	}
 	o.head.AddLast(&e.dlist)
-	return nil
+	return nil, true
 }
 
 func (o *IgmpFlowTbl) removeMc(ipv6 core.Ipv6Key, man bool) (bool, error) {
@@ -485,6 +485,8 @@ type mldNsCtx struct {
 	iter            core.DListIterHead
 	iterReady       bool
 	cdb             *core.CCounterDb
+	addCacheVec     []core.Ipv6Key
+	removeCacheVec  []core.Ipv6Key
 }
 
 // on timer
@@ -512,6 +514,8 @@ func (o *mldNsCtx) Init(base *PluginIpv6Ns, ctx *core.CThreadCtx, initJson []byt
 	o.maxresp = 10000
 	o.timerw = ctx.GetTimerCtx()
 	o.timer.SetCB(o, 0, 0) // set the callback to OnEvent
+	o.addCacheVec = []core.Ipv6Key{}
+	o.removeCacheVec = []core.Ipv6Key{}
 
 	o.preparePacketTemplate()
 	o.cdb = NewMldNsStatsDb(&o.stats)
@@ -614,38 +618,84 @@ func (o *mldNsCtx) onTimerUpdate() {
 	}
 }
 
+// add to a temporary location for burst
+func (o *mldNsCtx) addMcCache(ipv6 core.Ipv6Key) {
+	o.addCacheVec = append(o.addCacheVec, ipv6)
+}
+
+// flush the cache
+func (o *mldNsCtx) flushAddCache() {
+	if len(o.addCacheVec) > 0 {
+		o.addMcInternal(o.addCacheVec) // add client information
+		o.addCacheVec = o.addCacheVec[:0]
+	}
+}
+
+// add to a temporary location for burst
+func (o *mldNsCtx) removeMcCache(ipv6 core.Ipv6Key) {
+	o.removeCacheVec = append(o.removeCacheVec, ipv6)
+}
+
+// flush the cache
+func (o *mldNsCtx) flushRemoveCache() {
+	if len(o.removeCacheVec) > 0 {
+		o.removeMcInternal(o.removeCacheVec) // add client information
+		o.removeCacheVec = o.removeCacheVec[:0]
+	}
+}
+
+func (o *mldNsCtx) addMcInternal(vecIpv6 []core.Ipv6Key) error {
+	return o.addMcVec(vecIpv6, false)
+}
+
 func (o *mldNsCtx) addMc(vecIpv6 []core.Ipv6Key) error {
+	return o.addMcVec(vecIpv6, true)
+}
+
+func (o *mldNsCtx) addMcVec(vecIpv6 []core.Ipv6Key, man bool) error {
 
 	var err error
+	var add bool
+
 	vec := []core.Ipv6Key{}
 	maxIds := int(o.getMaxIPv6Ids())
 	o.tbl.epoc++
 	for _, ipv6 := range vecIpv6 {
-		err = o.tbl.addMc(ipv6, true)
+		err, add = o.tbl.addMc(ipv6, man)
 		if err != nil {
 			o.stats.opsAddErr++
 			o.SendMcPacket(vec, false, false)
 			return err
 		}
-		o.stats.opsAdd++
-		vec = append(vec, ipv6)
-		if len(vec) == maxIds {
-			o.SendMcPacket(vec, false, false)
-			vec = vec[:0]
+		if add {
+			o.stats.opsAdd++
+			vec = append(vec, ipv6)
+			if len(vec) == maxIds {
+				o.SendMcPacket(vec, false, false)
+				vec = vec[:0]
+			}
 		}
 	}
 	o.SendMcPacket(vec, false, false)
 	return nil
 }
 
+func (o *mldNsCtx) removeMcInternal(vecIpv6 []core.Ipv6Key) error {
+	return o.removeMcVec(vecIpv6, false)
+}
+
 func (o *mldNsCtx) RemoveMc(vecIpv6 []core.Ipv6Key) error {
+	return o.removeMcVec(vecIpv6, true)
+}
+
+func (o *mldNsCtx) removeMcVec(vecIpv6 []core.Ipv6Key, man bool) error {
 	var err error
 	var r bool
 	vec := []core.Ipv6Key{}
 	o.tbl.epoc++
 	maxIds := int(o.getMaxIPv6Ids())
 	for _, ipv6 := range vecIpv6 {
-		r, err = o.tbl.removeMc(ipv6, true)
+		r, err = o.tbl.removeMc(ipv6, man)
 		if err != nil {
 			o.stats.opsRemoveErr++
 			o.SendMcPacket(vec, true, false)
@@ -663,6 +713,7 @@ func (o *mldNsCtx) RemoveMc(vecIpv6 []core.Ipv6Key) error {
 	o.SendMcPacket(vec, true, false)
 	return nil
 }
+
 func (o *mldNsCtx) IsValidQueryEpoc(v uint32) bool {
 	var d uint32
 	d = o.activeEpocQuery - v

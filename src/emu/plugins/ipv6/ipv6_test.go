@@ -22,6 +22,7 @@ type IcmpTestBase struct {
 	duration     time.Duration
 	clientsToSim int
 	mcToSim      int
+	flush        int
 	cb           IcmpTestCb
 	cbArg1       interface{}
 	cbArg2       interface{}
@@ -37,7 +38,7 @@ func (o *IcmpTestBase) Run(t *testing.T, compare bool) {
 	if o.match > 0 {
 		simVeth.match = o.match
 	}
-	tctx, _ := createSimulationEnv(&simrx, o.clientsToSim, o.mcToSim)
+	tctx, _ := createSimulationEnv(&simrx, o.clientsToSim, o.mcToSim, o)
 	if o.cb != nil {
 		o.cb(tctx, o)
 	}
@@ -70,7 +71,7 @@ func (o *IcmpTestBase) Run(t *testing.T, compare bool) {
 	}
 }
 
-func createSimulationEnv(simRx *core.VethIFSim, num int, mcSim int) (*core.CThreadCtx, *core.CClient) {
+func createSimulationEnv(simRx *core.VethIFSim, num int, mcSim int, test *IcmpTestBase) (*core.CThreadCtx, *core.CClient) {
 	tctx := core.NewThreadCtx(0, 4510, true, simRx)
 	var key core.CTunnelKey
 	key.Set(&core.CTunnelData{Vport: 1, Vlans: [2]uint32{0x81000001, 0x81000002}})
@@ -95,6 +96,10 @@ func createSimulationEnv(simRx *core.VethIFSim, num int, mcSim int) (*core.CThre
 			ns.PluginCtx.CreatePlugins([]string{"ipv6"}, [][]byte{[]byte(`{"dmac" :[0, 0, 1, 0, 0, 0]  } `)})
 		}
 		client.PluginCtx.CreatePlugins([]string{"ipv6"}, [][]byte{})
+		// simulate new API of RPC
+		if test.flush > 0 {
+			client.PluginCtx.CallCallback("OnPostCreate")
+		}
 	}
 	tctx.RegisterParserCb("icmpv6")
 
@@ -651,6 +656,7 @@ func TestPluginNd_adv1(t *testing.T) {
 		duration:     1 * time.Minute,
 		clientsToSim: 1,
 		cb:           Cb4,
+		flush:        1,
 	}
 	a.Run(t, true) // the timestamp making a new json due to the timestamp. skip the it
 }

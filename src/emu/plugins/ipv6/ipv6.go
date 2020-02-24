@@ -102,6 +102,7 @@ func NewpingNsStatsDb(o *pingNsStats) *core.CCounterDb {
 type PluginIpv6Client struct {
 	core.PluginBase
 	ipv6NsPlug *PluginIpv6Ns
+	nd         NdClientCtx
 }
 
 var icmpEvents = []string{}
@@ -111,10 +112,24 @@ func NewIpv6Client(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
 	o := new(PluginIpv6Client)
 	o.InitPluginBase(ctx, o)             /* init base object*/
 	o.RegisterEvents(ctx, icmpEvents, o) /* register events, only if exits*/
+	o.RegisterEx1Event(ctx, o)
 	nsplg := o.Ns.PluginCtx.GetOrCreate(IPV6_PLUG)
 	o.ipv6NsPlug = nsplg.Ext.(*PluginIpv6Ns)
+	o.nd.Init(o, &o.ipv6NsPlug.nd, o.Tctx, &o.ipv6NsPlug.mld, initJson)
 	o.OnCreate()
 	return &o.PluginBase
+}
+
+func (o *PluginIpv6Client) OnPostCreate(ctx *core.PluginCtx) {
+	o.nd.OnPostCreate(ctx)
+}
+
+func (o *PluginIpv6Client) OnPrePreRemove(ctx *core.PluginCtx) {
+	o.nd.OnPrePreRemove(ctx)
+}
+
+func (o *PluginIpv6Client) OnPreRemove(ctx *core.PluginCtx) {
+	o.nd.OnPreRemove(ctx)
 }
 
 /*OnEvent support event change of IP  */
