@@ -2,10 +2,12 @@ package core
 
 import (
 	"encoding/json"
+	"external/osamingo/jsonrpc"
 	"fmt"
 	"reflect"
 	"unsafe"
-	"external/osamingo/jsonrpc"
+
+	"github.com/intel-go/fastjson"
 )
 
 /* CCounter Type */
@@ -278,7 +280,26 @@ func (o *CCounterDbVec) MarshalMeta() map[string]interface{} {
 }
 
 //GeneralCounters function for all types of counters i.e: ctx, arp, igmp..
-func (o *CCounterDbVec) GeneralCounters(p *ApiCntParams) (interface{}, *jsonrpc.Error) {
+func (o *CCounterDbVec) GeneralCounters(ns error,
+	tctx *CThreadCtx,
+	params *fastjson.RawMessage,
+	p *ApiCntParams) (interface{}, *jsonrpc.Error) {
+
+	if ns != nil {
+		return nil, &jsonrpc.Error{
+			Code:    jsonrpc.ErrorCodeInvalidRequest,
+			Message: ns.Error(),
+		}
+	}
+
+	err := tctx.UnmarshalValidate(*params, p)
+
+	if err != nil {
+		return nil, &jsonrpc.Error{
+			Code:    jsonrpc.ErrorCodeInvalidRequest,
+			Message: err.Error(),
+		}
+	}
 
 	if p.Clear {
 		o.ClearValues()

@@ -737,9 +737,6 @@ func (o PluginDhcpNsReg) NewPlugin(ctx *core.PluginCtx, initJson []byte) *core.P
 /*  RPC commands */
 type (
 	ApiDhcpClientCntHandler struct{}
-	ApiDhcpClientCntParams  struct {
-		core.ApiCntParams
-	} /* [key tunnel] */
 )
 
 func getNs(ctx interface{}, params *fastjson.RawMessage) (*PluginDhcpNs, *jsonrpc.Error) {
@@ -777,23 +774,10 @@ func getClientPlugin(ctx interface{}, params *fastjson.RawMessage) (*PluginDhcpC
 
 func (h ApiDhcpClientCntHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
 
-	var p ApiDhcpClientCntParams
-
+	var p core.ApiCntParams
 	tctx := ctx.(*core.CThreadCtx)
 	c, err := getClientPlugin(ctx, params)
-	if err != nil {
-		return nil, err
-	}
-
-	err1 := tctx.UnmarshalValidate(*params, &p)
-	if err1 != nil {
-		return nil, &jsonrpc.Error{
-			Code:    jsonrpc.ErrorCodeInvalidRequest,
-			Message: err1.Error(),
-		}
-	}
-
-	return c.cdbv.GeneralCounters(&p.ApiCntParams)
+	return c.cdbv.GeneralCounters(err, tctx, params, &p)
 }
 
 func init() {

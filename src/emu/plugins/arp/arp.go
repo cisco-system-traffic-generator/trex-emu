@@ -861,11 +861,7 @@ type (
 
 	ApiArpNsGetCfgHandler struct{}
 
-	ApiArpNsCntHandler struct {}
-	ApiArpNsCntParams struct {
-		core.ApiCntParams
-	} /* [key tunnel] */
-
+	ApiArpNsCntHandler struct{}
 
 	ApiArpCCmdQueryHandler struct{} /* +tunnel*/
 	ApiArpCCmdQueryParams  struct {
@@ -942,27 +938,12 @@ func (h ApiArpNsGetCfgHandler) ServeJSONRPC(ctx interface{}, params *fastjson.Ra
 
 func (h ApiArpNsCntHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
 
-	var p ApiArpNsCntParams
+	var p core.ApiCntParams
 	tctx := ctx.(*core.CThreadCtx)
 
 	arpNsPlug, err := getNsPlugin(ctx, params)
-	if err != nil {
-		return nil, &jsonrpc.Error{
-			Code:    jsonrpc.ErrorCodeInvalidRequest,
-			Message: err.Error(),
-		}
-	}
 
-	err = tctx.UnmarshalValidate(*params, &p)
-
-	if err != nil {
-		return nil, &jsonrpc.Error{
-			Code:    jsonrpc.ErrorCodeInvalidRequest,
-			Message: err.Error(),
-		}
-	}
-
-	return arpNsPlug.cdbv.GeneralCounters(&p.ApiCntParams)
+	return arpNsPlug.cdbv.GeneralCounters(err, tctx, params, &p)
 }
 
 func (h ApiArpCCmdQueryHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {

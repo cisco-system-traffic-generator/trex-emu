@@ -1086,9 +1086,6 @@ func (o PluginIgmpNsReg) NewPlugin(ctx *core.PluginCtx, initJson []byte) *core.P
 /* ICMP RPC commands */
 type (
 	ApiIgmpNsCntHandler struct{}
-	ApiIgmpNsCntParams  struct {
-		core.ApiCntParams
-	} /* [key tunnel] */
 
 	ApiIgmpNsAddHandler struct{}
 	ApiIgmpNsAddParams  struct {
@@ -1206,26 +1203,11 @@ func (h ApiIgmpGetHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMes
 
 func (h ApiIgmpNsCntHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
 
-	var p ApiIgmpNsCntParams
+	var p core.ApiCntParams
 	tctx := ctx.(*core.CThreadCtx)
+	c, err := getNsPlugin(ctx, params)
+	return c.cdbv.GeneralCounters(err, tctx, params, &p)
 
-	igmpPlug, err := getNsPlugin(ctx, params)
-	if err != nil {
-		return nil, &jsonrpc.Error{
-			Code:    jsonrpc.ErrorCodeInvalidRequest,
-			Message: err.Error(),
-		}
-	}
-
-	err = tctx.UnmarshalValidate(*params, &p)
-	if err != nil {
-		return nil, &jsonrpc.Error{
-			Code:    jsonrpc.ErrorCodeInvalidRequest,
-			Message: err.Error(),
-		}
-	}
-
-	return igmpPlug.cdbv.GeneralCounters(&p.ApiCntParams)
 }
 
 func (h ApiIgmpNsAddHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {

@@ -153,6 +153,7 @@ func (o *VethIFSimulator) SendBuffer(unicast bool, c *CClient, b []byte) {
 		}
 		p := m.GetData()
 		copy(p[6:12], c.Mac[:])
+		copy(p[0:6], c.DGW.IpdgMac[:])
 	}
 	o.Send(m)
 }
@@ -249,7 +250,8 @@ func (o *VethIFSimulator) GetCdb() *CCounterDb {
 	return o.cdb
 }
 
-type VethSink struct {}
+type VethSink struct{}
+
 func (o *VethSink) ProcessTxToRx(m *Mbuf) *Mbuf {
 	m.FreeMbuf()
 	return nil

@@ -329,9 +329,6 @@ func (o PluginIpv6NsReg) NewPlugin(ctx *core.PluginCtx, initJson []byte) *core.P
 /* ICMP RPC commands */
 type (
 	ApiIpv6NsCntHandler struct{}
-	ApiIpv6NsCntParams  struct {
-		core.ApiCntParams
-	} /* [key tunnel] */
 
 	ApiMldNsAddHandler struct{}
 	ApiMldNsAddParams  struct {
@@ -399,26 +396,11 @@ func getClient(ctx interface{}, params *fastjson.RawMessage) (*PluginIpv6Client,
 }
 
 func (h ApiIpv6NsCntHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
-	var p ApiIpv6NsCntParams
+
+	var p core.ApiCntParams
 	tctx := ctx.(*core.CThreadCtx)
-
-	ipv6Ns, err := getNsPlugin(ctx, params)
-	if err != nil {
-		return nil, &jsonrpc.Error{
-			Code:    jsonrpc.ErrorCodeInvalidRequest,
-			Message: err.Error(),
-		}
-	}
-
-	err = tctx.UnmarshalValidate(*params, &p)
-	if err != nil {
-		return nil, &jsonrpc.Error{
-			Code:    jsonrpc.ErrorCodeInvalidRequest,
-			Message: err.Error(),
-		}
-	}
-
-	return ipv6Ns.cdbv.GeneralCounters(&p.ApiCntParams)
+	c, err := getNsPlugin(ctx, params)
+	return c.cdbv.GeneralCounters(err, tctx, params, &p)
 }
 
 func (h ApiMldNsAddHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
