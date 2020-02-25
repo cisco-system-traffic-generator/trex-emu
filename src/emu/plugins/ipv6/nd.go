@@ -686,9 +686,6 @@ func (o *NdClientCtx) OnCreate() {
 
 	mac := o.base.Client.Mac
 	// set des
-	if o.mld.designatorMac.IsZero() {
-		o.mld.designatorMac = mac
-	}
 	// all nodes
 	o.mld.addMcCache(core.Ipv6Key{0xff, 0x02, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1})
 	// solicited node addr

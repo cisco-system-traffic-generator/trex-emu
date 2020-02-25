@@ -92,7 +92,7 @@ func createSimulationEnv(simRx *core.VethIFSim, num int, mcSim int, test *IcmpTe
 				0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02},
 			dg)
 		ns.AddClient(client)
-		if mcSim > 0 {
+		if mcSim > 0 || test.flush > 0 {
 			ns.PluginCtx.CreatePlugins([]string{"ipv6"}, [][]byte{[]byte(`{"dmac" :[0, 0, 1, 0, 0, 0]  } `)})
 		}
 		client.PluginCtx.CreatePlugins([]string{"ipv6"}, [][]byte{})
