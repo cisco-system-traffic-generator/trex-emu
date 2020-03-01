@@ -86,11 +86,17 @@ func createSimulationEnv(simRx *core.VethIFSim, num int, mcSim int, test *IcmpTe
 		} else {
 			dg = core.Ipv4Key{16, 1, a, b}
 		}
-		client := core.NewClient(ns, core.MACKey{0, 0, 1, 0, a, b},
+		var client *core.CClient
+		client = core.NewClient(ns, core.MACKey{0, 0, 1, 0, a, b},
 			core.Ipv4Key{16, 0, a, b},
 			core.Ipv6Key{0x20, 0x01, 0x0d, 0xb8, 0x00, 0x00, 0x00, 0x00,
 				0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02},
 			dg)
+
+		if test.match == 7 {
+			client.DgIpv6 = core.Ipv6Key{0x20, 0x01, 0x0d, 0xb8, 0x00, 0x00, 0x00, 0x00,
+				0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03}
+		}
 		ns.AddClient(client)
 		if mcSim > 0 || test.flush > 0 {
 			ns.PluginCtx.CreatePlugins([]string{"ipv6"}, [][]byte{[]byte(`{"dmac" :[0, 0, 1, 0, 0, 0]  } `)})
@@ -513,14 +519,74 @@ func (o *IcmpQueryCtx) OnEvent(a, b interface{}) {
 		binary.BigEndian.PutUint16(pkt[icmppyof+2:icmppyof+4], cs)
 		raw = pkt
 
+	case 7:
+		gopacket.SerializeLayers(buf, opts,
+			&layers.Ethernet{
+				SrcMAC:       net.HardwareAddr{0, 0, 0, 2, 0, 0},
+				DstMAC:       net.HardwareAddr{0x33, 0x33, 0, 0, 0, 1},
+				EthernetType: layers.EthernetTypeDot1Q,
+			},
+			&layers.Dot1Q{
+				Priority:       uint8(0),
+				VLANIdentifier: uint16(1),
+				Type:           layers.EthernetTypeDot1Q,
+			},
+			&layers.Dot1Q{
+				Priority:       uint8(0),
+				VLANIdentifier: uint16(2),
+				Type:           layers.EthernetTypeIPv6,
+			},
+
+			&layers.IPv6{
+				Version:      6,
+				TrafficClass: 0,
+				FlowLabel:    0,
+				Length:       8,
+				NextHeader:   layers.IPProtocolICMPv6,
+				HopLimit:     255,
+				SrcIP:        net.IP{0x20, 0x01, 0x0d, 0xb8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0, 0x0, 0x0, 0x00, 0x03},
+				DstIP:        net.IP{0xff, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0xff, 0x00, 0x00, 0x03},
+			},
+
+			&layers.ICMPv6{TypeCode: layers.CreateICMPv6TypeCode(layers.ICMPv6TypeNeighborAdvertisement, 0)},
+
+			&layers.ICMPv6NeighborAdvertisement{
+				Flags:         0x60,
+				TargetAddress: net.IP{0x20, 0x01, 0x0d, 0xb8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0, 0x0, 0x0, 0x00, 0x03},
+			},
+			gopacket.Payload([]byte{0x02, 0x01, 0x0, 0x00, 0x0, 0x0, 0x01, 0x01}),
+
+			//gopacket.Payload([]byte{0x01, 0x01, 0xc2, 0x00, 0x54, 0xf5, 0x00, 0x00}),
+			//gopacket.Payload([]byte{0x05, 0x01, 0x00, 0x00, 0x00, 0x00, 0x05, 0xdc}),
+
+			//gopacket.Payload([]byte{0x03, 0x04, 0x40, 0xc0, 0x00, 0x27, 0x8d, 0x00, 0x00, 0x09, 0x3a, 0x80, 0x00, 0x00, 0x00, 0x00,
+			//0x20, 0x01, 0x0d, 0xb8, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}),
+			// ),
+		)
+
+		pkt := buf.Bytes()
+		off := 14 + 8
+		ipv6Optionsize := 0
+		icmppyof := off + 40 + ipv6Optionsize
+
+		ipv6 := layers.IPv6Header(pkt[off : off+40])
+		ipv6.SetPyloadLength(uint16(len(pkt) - off - 40))
+
+		binary.BigEndian.PutUint16(pkt[icmppyof+2:icmppyof+4], 0)
+		cs := layers.PktChecksumTcpUdpV6(pkt[icmppyof:], 0, ipv6, 0, 58)
+		binary.BigEndian.PutUint16(pkt[icmppyof+2:icmppyof+4], cs)
+		raw = pkt
+
 	}
 
 	o.cnt += 1
 
-	m := o.tctx.MPool.Alloc(uint16(256))
-	m.SetVPort(1)
-	m.Append(raw)
-	o.tctx.Veth.OnRx(m)
+	if len(raw) > 0 {
+		m := o.tctx.MPool.Alloc(uint16(256))
+		m.SetVPort(1)
+		m.Append(raw)
+		o.tctx.Veth.OnRx(m)
+	}
 
 	timerw := o.tctx.GetTimerCtx()
 	ticks := timerw.DurationToTicks(10 * time.Second)
@@ -812,6 +878,22 @@ func TestPluginNd_adv3(t *testing.T) {
 		testname:     "ipv6nd_3",
 		monitor:      false,
 		match:        6,
+		capture:      true,
+		duration:     1 * time.Minute,
+		clientsToSim: 1,
+		cb:           Cb4,
+		flush:        1,
+	}
+	a.Run(t, true) // the timestamp making a new json due to the timestamp. skip the it
+}
+
+// send default gateway and resolve it
+func TestPluginNd_adv4(t *testing.T) {
+
+	a := &IcmpTestBase{
+		testname:     "ipv6nd_4",
+		monitor:      false,
+		match:        7,
 		capture:      true,
 		duration:     1 * time.Minute,
 		clientsToSim: 1,
