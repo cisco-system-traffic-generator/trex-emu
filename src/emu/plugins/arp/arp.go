@@ -4,6 +4,7 @@ import (
 	"emu/core"
 	"external/google/gopacket/layers"
 	"external/osamingo/jsonrpc"
+	"fmt"
 	"time"
 	"unsafe"
 
@@ -36,6 +37,18 @@ type ArpFlow struct {
 	touch  bool
 	refc   uint32
 	action core.CClientDg
+}
+
+func covertToArpFlow(dlist *core.DList) *ArpFlow {
+	return (*ArpFlow)(unsafe.Pointer(dlist))
+}
+
+type ArpCacheRec struct {
+	Ipv4    core.Ipv4Key `json:"ipv6"`
+	Refc    uint32       `json:"refc"`
+	State   uint8        `json:"state"`
+	Resolve bool         `json:"resolve"`
+	Mac     core.MACKey  `json:"mac"`
 }
 
 type MapArpTbl map[core.Ipv4Key]*ArpFlow
@@ -263,8 +276,10 @@ type ArpFlowTable struct {
 	head          core.DList
 	completeTicks uint32 /* timer to send query */
 	learnTimer    uint32
-	second        uint32 /* timer to remove */
+	second        uint32      /* timer to remove */
+	activeIter    *core.DList /* iterator */
 	stats         *ArpNsStats
+	iterReady     bool
 }
 
 func (o *ArpFlowTable) Create(timerw *core.TimerCtx) {
@@ -295,6 +310,11 @@ func (o *ArpFlowTable) OnDeleteFlow(flow *ArpFlow) {
 	if flow.refc != 0 {
 		panic(" ARP ref counter should be zero ")
 	}
+	if o.activeIter == &flow.dlist {
+		// it is going to be removed
+		o.activeIter = flow.dlist.Next()
+	}
+
 	o.head.RemoveNode(&flow.dlist)
 	flow.action.IpdgResolved = false
 	flow.action.IpdgMac.Clear()
@@ -493,6 +513,53 @@ func (o *ArpFlowTable) OnEvent(a, b interface{}) {
 	default:
 		panic("Arp on event  ")
 	}
+}
+
+func (o *ArpFlowTable) IterReset() bool {
+	o.activeIter = o.head.Next()
+	if o.head.IsEmpty() {
+		o.iterReady = false
+		return true
+	}
+	o.iterReady = true
+	return false
+}
+
+func (o *ArpFlowTable) IterIsStopped() bool {
+	return !o.iterReady
+}
+
+func (o *ArpFlowTable) GetNext(n uint16) ([]ArpCacheRec, error) {
+	r := make([]ArpCacheRec, 0)
+
+	if !o.iterReady {
+		return r, fmt.Errorf(" Iterator is not ready- reset the iterator")
+	}
+
+	cnt := 0
+	for {
+
+		if o.activeIter == &o.head {
+			o.iterReady = false // require a new reset
+			break
+		}
+		cnt++
+		if cnt > int(n) {
+			break
+		}
+
+		ent := covertToArpFlow(o.activeIter)
+		var jsone ArpCacheRec
+		jsone.Ipv4 = ent.ipv4
+		jsone.Refc = ent.refc
+		jsone.State = ent.state
+		jsone.Resolve = ent.action.IpdgResolved
+		jsone.Mac = ent.action.IpdgMac
+
+		r = append(r, jsone)
+		o.activeIter = o.activeIter.Next()
+	}
+	return r, nil
 }
 
 func pluginArpClientCastfromDlist(o *core.DList) *PluginArpClient {
@@ -867,6 +934,17 @@ type (
 	ApiArpCCmdQueryParams  struct {
 		Garp bool `json:"garp"`
 	}
+
+	ApiArpNsIterHandler struct{} // iterate on the nd ipv6 cache table
+	ApiArpNsIterParams  struct {
+		Reset bool   `json:"reset"`
+		Count uint16 `json:"count" validate:"required,gte=0,lte=255"`
+	}
+	ApiArpNsIterResult struct {
+		Empty  bool          `json:"empty"`
+		Stoped bool          `json:"stoped"`
+		Vec    []ArpCacheRec `json:"data"`
+	}
 )
 
 func getNsPlugin(ctx interface{}, params *fastjson.RawMessage) (*PluginArpNs, error) {
@@ -973,6 +1051,51 @@ func (h ApiArpCCmdQueryHandler) ServeJSONRPC(ctx interface{}, params *fastjson.R
 	return nil, nil
 }
 
+func (h ApiArpNsIterHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
+
+	var p ApiArpNsIterParams
+	var res ApiArpNsIterResult
+
+	tctx := ctx.(*core.CThreadCtx)
+
+	ns, err := getNsPlugin(ctx, params)
+	if err != nil {
+		return nil, &jsonrpc.Error{
+			Code:    jsonrpc.ErrorCodeInvalidRequest,
+			Message: err.Error(),
+		}
+	}
+
+	err1 := tctx.UnmarshalValidate(*params, &p)
+	if err1 != nil {
+		return nil, &jsonrpc.Error{
+			Code:    jsonrpc.ErrorCodeInvalidRequest,
+			Message: err1.Error(),
+		}
+	}
+
+	if p.Reset {
+		res.Empty = ns.tbl.IterReset()
+	}
+	if res.Empty {
+		return &res, nil
+	}
+	if ns.tbl.IterIsStopped() {
+		res.Stoped = true
+		return &res, nil
+	}
+
+	keys, err2 := ns.tbl.GetNext(p.Count)
+	if err2 != nil {
+		return nil, &jsonrpc.Error{
+			Code:    jsonrpc.ErrorCodeInvalidRequest,
+			Message: err2.Error(),
+		}
+	}
+	res.Vec = keys
+	return &res, nil
+}
+
 func init() {
 
 	/* register of plugins callbacks for ns,c level  */
@@ -999,6 +1122,7 @@ func init() {
 	core.RegisterCB("arp_ns_get_cfg", ApiArpNsGetCfgHandler{}, true)
 	core.RegisterCB("arp_ns_cnt", ApiArpNsCntHandler{}, true)
 	core.RegisterCB("arp_c_cmd_query", ApiArpCCmdQueryHandler{}, true)
+	core.RegisterCB("arp_ns_iter", ApiArpNsIterHandler{}, true)
 
 	/* register callback for rx side*/
 	core.ParserRegister("arp", HandleRxArpPacket)
