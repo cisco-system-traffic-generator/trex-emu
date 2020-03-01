@@ -502,9 +502,7 @@ type mldNsCtx struct {
 }
 
 func (o *mldNsCtx) onCacheTimerUpdate(b interface{}) {
-	fmt.Printf(" onCacheTimerUpdate \n")
 	val := b.(int)
-
 	if val == 0 {
 		// add
 		o.flushAddCache()
