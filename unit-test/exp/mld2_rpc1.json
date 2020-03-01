@@ -2,8 +2,38 @@
 	{
 		"time": 0.1,
 		"meta": "tx",
+		"len": 86,
+		"data": "33|33|ff|00|00|00|00|00|01|00|00|00|81|00|00|01|81|00|00|02|86|dd|60|00|00|00|00|18|3a|ff|00|00|00|00|00|00|00|00|00|00|00|00|00|00|00|00|ff|02|00|00|00|00|00|00|00|00|00|01|ff|00|00|00|87|00|7a|27|00|00|00|00|fe|80|00|00|00|00|00|00|02|00|01|ff|fe|00|00|00|"
+	},
+	{
+		"time": 0.1,
+		"meta": "tx",
+		"len": 94,
+		"data": "33|33|00|00|00|01|00|00|01|00|00|00|81|00|00|01|81|00|00|02|86|dd|60|00|00|00|00|20|3a|ff|fe|80|00|00|00|00|00|00|02|00|01|ff|fe|00|00|00|ff|02|00|00|00|00|00|00|00|00|00|00|00|00|00|01|88|00|54|9e|20|00|00|00|fe|80|00|00|00|00|00|00|02|00|01|ff|fe|00|00|00|02|01|00|00|01|00|00|00|"
+	},
+	{
+		"time": 0.1,
+		"meta": "tx",
+		"len": 86,
+		"data": "33|33|ff|00|00|02|00|00|01|00|00|00|81|00|00|01|81|00|00|02|86|dd|60|00|00|00|00|18|3a|ff|00|00|00|00|00|00|00|00|00|00|00|00|00|00|00|00|ff|02|00|00|00|00|00|00|00|00|00|01|ff|00|00|02|87|00|4c|eb|00|00|00|00|20|01|0d|b8|00|00|00|00|00|00|00|00|00|00|00|02|"
+	},
+	{
+		"time": 0.1,
+		"meta": "tx",
+		"len": 94,
+		"data": "33|33|00|00|00|01|00|00|01|00|00|00|81|00|00|01|81|00|00|02|86|dd|60|00|00|00|00|20|3a|ff|20|01|0d|b8|00|00|00|00|00|00|00|00|00|00|00|02|ff|02|00|00|00|00|00|00|00|00|00|00|00|00|00|01|88|00|fa|29|20|00|00|00|20|01|0d|b8|00|00|00|00|00|00|00|00|00|00|00|02|02|01|00|00|01|00|00|00|"
+	},
+	{
+		"time": 0.1,
+		"meta": "tx",
 		"len": 138,
 		"data": "33|33|00|00|00|16|00|00|01|00|00|00|81|00|00|01|81|00|00|02|86|dd|60|00|00|00|00|4c|00|01|fe|80|00|00|00|00|00|00|02|00|01|ff|fe|00|00|00|ff|02|00|00|00|00|00|00|00|00|00|00|00|00|00|16|3a|00|05|02|00|00|00|00|8f|00|64|d8|00|00|00|03|04|00|00|00|ff|02|00|00|00|00|00|00|00|00|00|01|00|00|00|00|04|00|00|00|ff|02|00|00|00|00|00|00|00|00|00|01|00|00|01|00|04|00|00|00|ff|02|00|00|00|00|00|00|00|00|00|01|00|00|02|00|"
+	},
+	{
+		"time": 0.2,
+		"meta": "tx",
+		"len": 138,
+		"data": "33|33|00|00|00|16|00|00|01|00|00|00|81|00|00|01|81|00|00|02|86|dd|60|00|00|00|00|4c|00|01|fe|80|00|00|00|00|00|00|02|00|01|ff|fe|00|00|00|ff|02|00|00|00|00|00|00|00|00|00|00|00|00|00|16|3a|00|05|02|00|00|00|00|8f|00|69|d4|00|00|00|03|04|00|00|00|ff|02|00|00|00|00|00|00|00|00|00|00|00|00|00|01|04|00|00|00|ff|02|00|00|00|00|00|00|00|00|00|01|ff|00|00|00|04|00|00|00|ff|02|00|00|00|00|00|00|00|00|00|01|ff|00|00|02|"
 	},
 	{
 		"time": 10.1,
@@ -118,7 +148,8 @@
 	{
 		"rpc-res": {
 			"id": 3,
-			"jsonrpc": "2.0"
+			"jsonrpc": "2.0",
+			"result": true
 		}
 	},
 	{
@@ -179,6 +210,13 @@
 			"result": {
 				"ipv6nd": {
 					"meta": [
+						{
+							"help": "change dhcp src ipv6 events",
+							"info": 18,
+							"name": "eventsChangeDHCPSrc",
+							"unit": "ops",
+							"zero": false
+						},
 						{
 							"help": "change src ipv6 events",
 							"info": 18,
@@ -278,48 +316,6 @@
 							"zero": false
 						},
 						{
-							"help": "rx ipv6 nd query ",
-							"info": 18,
-							"name": "pktRxArpQuery",
-							"unit": "pkts",
-							"zero": false
-						},
-						{
-							"help": "rx ipv6 nd query not for our clients",
-							"info": 18,
-							"name": "pktRxArpQueryNotForUs",
-							"unit": "pkts",
-							"zero": false
-						},
-						{
-							"help": "rx ipv6 nd reply",
-							"info": 18,
-							"name": "pktRxArpReply",
-							"unit": "pkts",
-							"zero": false
-						},
-						{
-							"help": "tx ipv6 nd query",
-							"info": 18,
-							"name": "pktTxNdQuery",
-							"unit": "pkts",
-							"zero": false
-						},
-						{
-							"help": "tx ipv6 nd garp",
-							"info": 18,
-							"name": "pktTxNd",
-							"unit": "pkts",
-							"zero": false
-						},
-						{
-							"help": "tx ipv6 nd reply",
-							"info": 18,
-							"name": "pktTxReply",
-							"unit": "pkts",
-							"zero": false
-						},
-						{
 							"help": "ipv6 nd table active",
 							"info": 18,
 							"name": "tblActive",
@@ -407,6 +403,111 @@
 							"help": "ipv6 hop limit should be 255",
 							"info": 20,
 							"name": "pktRxErrWrongHopLimit",
+							"unit": "pkts",
+							"zero": false
+						},
+						{
+							"help": "ipv6 neighbor solicitation parse error",
+							"info": 20,
+							"name": "pktRxNeighborSolicitationParserErr",
+							"unit": "pkts",
+							"zero": false
+						},
+						{
+							"help": "ipv6 neighbor solicitation wrong option",
+							"info": 20,
+							"name": "pktRxNeighborSolicitationWrongOption",
+							"unit": "pkts",
+							"zero": false
+						},
+						{
+							"help": "ipv6 neighbor solicitation wrong source link",
+							"info": 20,
+							"name": "pktRxNeighborSolicitationWrongSourceLink",
+							"unit": "pkts",
+							"zero": false
+						},
+						{
+							"help": "ipv6 neighbor solicitation wrong destination addr",
+							"info": 20,
+							"name": "pktRxNeighborSolicitationWrongDestination",
+							"unit": "pkts",
+							"zero": false
+						},
+						{
+							"help": "ipv6 neighbor solicitation wrong target addr",
+							"info": 20,
+							"name": "pktRxNeighborSolicitationWrongTarget",
+							"unit": "pkts",
+							"zero": false
+						},
+						{
+							"help": "ipv6 neighbor solicitation not found ip",
+							"info": 18,
+							"name": "pktRxNeighborSolicitationLocalIpNotFound",
+							"unit": "pkts",
+							"zero": false
+						},
+						{
+							"help": "ipv6 tx neighbor solicitation answer",
+							"info": 18,
+							"name": "pktTxNeighborAdvUnicast",
+							"unit": "pkts",
+							"zero": false
+						},
+						{
+							"help": "ipv6 tx neighbor solicitation DAD answer",
+							"info": 20,
+							"name": "pktTxNeighborDADError",
+							"unit": "pkts",
+							"zero": false
+						},
+						{
+							"help": "ipv6 rx neighbor advertisements parse",
+							"info": 20,
+							"name": "pktRxNeighborAdvParserErr",
+							"unit": "pkts",
+							"zero": false
+						},
+						{
+							"help": "ipv6 rx neighbor advertisements wrong option",
+							"info": 20,
+							"name": "pktRxNeighborAdvWrongOption",
+							"unit": "pkts",
+							"zero": false
+						},
+						{
+							"help": "ipv6 rx neighbor advertisements own addr",
+							"info": 20,
+							"name": "pktRxNeighborAdvWithOwnAddr",
+							"unit": "pkts",
+							"zero": false
+						},
+						{
+							"help": "ipv6 rx neighbor advertisements learn",
+							"info": 18,
+							"name": "pktRxNeighborAdvLearn",
+							"unit": "pkts",
+							"zero": false
+						},
+						{
+							"help": "ipv6 rx neighbor unsolicited ",
+							"info": 18,
+							"name": "pktTxNeighborUnsolicitedNA",
+							"unit": "pkts",
+							"zero": false
+						},
+						{
+							"help": "ipv6 rx neighbor DAD ",
+							"info": 18,
+							"name": "pktTxNeighborUnsolicitedDAD",
+							"unit": "pkts",
+							"zero": false
+						},
+						{
+							"help": "ipv6 rx neighbor solicited query ",
+							"info": 18,
+							"name": "pktTxNeighborUnsolicitedQuery",
 							"unit": "pkts",
 							"zero": false
 						}
@@ -673,9 +774,13 @@
 			"id": 3,
 			"jsonrpc": "2.0",
 			"result": {
+				"ipv6nd": {
+					"pktTxNeighborUnsolicitedDAD": 2,
+					"pktTxNeighborUnsolicitedNA": 2
+				},
 				"mld": {
-					"opsAdd": 3,
-					"pktSndAddRemoveReports": 1
+					"opsAdd": 6,
+					"pktSndAddRemoveReports": 2
 				}
 			}
 		}
@@ -719,7 +824,8 @@
 	{
 		"rpc-res": {
 			"id": 3,
-			"jsonrpc": "2.0"
+			"jsonrpc": "2.0",
+			"result": true
 		}
 	},
 	{
@@ -807,7 +913,8 @@
 	{
 		"rpc-res": {
 			"id": 3,
-			"jsonrpc": "2.0"
+			"jsonrpc": "2.0",
+			"result": true
 		}
 	},
 	{
@@ -887,6 +994,60 @@
 						0,
 						2,
 						0
+					],
+					[
+						255,
+						2,
+						0,
+						0,
+						0,
+						0,
+						0,
+						0,
+						0,
+						0,
+						0,
+						0,
+						0,
+						0,
+						0,
+						1
+					],
+					[
+						255,
+						2,
+						0,
+						0,
+						0,
+						0,
+						0,
+						0,
+						0,
+						0,
+						0,
+						1,
+						255,
+						0,
+						0,
+						0
+					],
+					[
+						255,
+						2,
+						0,
+						0,
+						0,
+						0,
+						0,
+						0,
+						0,
+						0,
+						0,
+						1,
+						255,
+						0,
+						0,
+						2
 					]
 				],
 				"empty": false,
@@ -937,12 +1098,12 @@
 	},
 	{},
 	{
-		"mbufAlloc": 3,
-		"mbufAllocCache": 4,
-		"mbufFreeCache": 7
+		"mbufAlloc": 6,
+		"mbufAllocCache": 6,
+		"mbufFreeCache": 12
 	},
 	{
-		"TxBytes": 614,
-		"TxPkts": 7
+		"TxBytes": 1112,
+		"TxPkts": 12
 	}
 ]

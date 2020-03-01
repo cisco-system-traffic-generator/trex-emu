@@ -462,34 +462,59 @@ func (o *IgmpFlowTbl) dumpAll() {
 	}
 }
 
-type mldNsCtx struct {
-	base            *PluginIpv6Ns
-	designatorMac   core.MACKey // designator MAC key to client id
-	timerw          *core.TimerCtx
-	tbl             IgmpFlowTbl
-	mldVersion      uint16
-	mtu             uint16
-	maxresp         uint32 /* in msec  */
-	qqi             uint32 /* interval  */
-	qrv             uint8  /* qrv */
-	activeQuery     bool   /* true in case there is a active query */
-	started         bool
-	stats           mldNsStats
-	timer           core.CHTimerObj
-	ticks           uint32
-	pktPerTick      uint32
-	ipv6pktTemplate []byte
-	ipv6Offset      uint16
-	activeEpocQuery uint32
-	rpcIterEpoc     uint32
-	iter            core.DListIterHead
-	iterReady       bool
-	cdb             *core.CCounterDb
-	addCacheVec     []core.Ipv6Key
-	removeCacheVec  []core.Ipv6Key
+type mldCacheNsTimer struct {
 }
 
-// on timer
+func (o *mldCacheNsTimer) OnEvent(a, b interface{}) {
+	obj := a.(*mldNsCtx)
+	obj.onCacheTimerUpdate(b)
+}
+
+type mldNsCtx struct {
+	base             *PluginIpv6Ns
+	designatorMac    core.MACKey // designator MAC key to client id
+	timerw           *core.TimerCtx
+	tbl              IgmpFlowTbl
+	mldVersion       uint16
+	mtu              uint16
+	maxresp          uint32 /* in msec  */
+	qqi              uint32 /* interval  */
+	qrv              uint8  /* qrv */
+	activeQuery      bool   /* true in case there is a active query */
+	started          bool
+	stats            mldNsStats
+	timer            core.CHTimerObj
+	ticks            uint32
+	pktPerTick       uint32
+	ipv6pktTemplate  []byte
+	ipv6Offset       uint16
+	activeEpocQuery  uint32
+	rpcIterEpoc      uint32
+	iter             core.DListIterHead
+	iterReady        bool
+	cdb              *core.CCounterDb
+	addCacheVec      []core.Ipv6Key
+	addTimerCache    core.CHTimerObj // timer for batching add
+	addCacheCB       mldCacheNsTimer
+	removeCacheVec   []core.Ipv6Key
+	removeTimerCache core.CHTimerObj // timer for batching remove
+	removeCacheCB    mldCacheNsTimer
+}
+
+func (o *mldNsCtx) onCacheTimerUpdate(b interface{}) {
+	fmt.Printf(" onCacheTimerUpdate \n")
+	val := b.(int)
+
+	if val == 0 {
+		// add
+		o.flushAddCache()
+	} else {
+		// remove
+		o.flushRemoveCache()
+	}
+}
+
+// on main timer
 func (o *mldNsCtx) OnEvent(a, b interface{}) {
 	var finish bool
 	finish = o.startQueryReport()
@@ -516,6 +541,9 @@ func (o *mldNsCtx) Init(base *PluginIpv6Ns, ctx *core.CThreadCtx, initJson []byt
 	o.timer.SetCB(o, 0, 0) // set the callback to OnEvent
 	o.addCacheVec = []core.Ipv6Key{}
 	o.removeCacheVec = []core.Ipv6Key{}
+
+	o.addTimerCache.SetCB(&o.addCacheCB, o, 0)
+	o.removeTimerCache.SetCB(&o.removeCacheCB, o, 1)
 
 	o.preparePacketTemplate()
 	o.cdb = NewMldNsStatsDb(&o.stats)
@@ -601,26 +629,26 @@ func (o *mldNsCtx) preparePacketTemplate() {
 }
 
 func (o *mldNsCtx) OnRemove(ctx *core.PluginCtx) {
+	// stop timers
 	if o.timer.IsRunning() {
 		o.timerw.Stop(&o.timer)
 	}
-}
-
-/*OnTimerUpdate called on timer expiration */
-func (o *mldNsCtx) onTimerUpdate() {
-	var finish bool
-	finish = o.startQueryReport()
-	if finish {
-		o.activeQuery = false
-	} else {
-		// restart the timer
-		o.timerw.StartTicks(&o.timer, o.ticks)
+	if o.removeTimerCache.IsRunning() {
+		o.timerw.Stop(&o.removeTimerCache)
+		o.flushRemoveCache()
+	}
+	if o.addTimerCache.IsRunning() {
+		o.timerw.Stop(&o.addTimerCache)
+		o.flushAddCache()
 	}
 }
 
 // add to a temporary location for burst
 func (o *mldNsCtx) addMcCache(ipv6 core.Ipv6Key) {
 	o.addCacheVec = append(o.addCacheVec, ipv6)
+	if !o.addTimerCache.IsRunning() {
+		o.timerw.StartTicks(&o.addTimerCache, 1)
+	}
 }
 
 // flush the cache
@@ -634,6 +662,9 @@ func (o *mldNsCtx) flushAddCache() {
 // add to a temporary location for burst
 func (o *mldNsCtx) removeMcCache(ipv6 core.Ipv6Key) {
 	o.removeCacheVec = append(o.removeCacheVec, ipv6)
+	if !o.removeTimerCache.IsRunning() {
+		o.timerw.StartTicks(&o.removeTimerCache, 1)
+	}
 }
 
 // flush the cache

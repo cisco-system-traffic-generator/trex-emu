@@ -3,11 +3,14 @@ package ipv6
 import (
 	"emu/core"
 	"encoding/binary"
+	"external/google/gopacket"
 	"external/google/gopacket/layers"
 	"net"
 	"time"
 	"unsafe"
 )
+
+/* nd flow table is based on ARP cache table, some minor changes vs the RFC */
 
 var defaultRetryTimerSec = [...]uint8{1, 1, 1, 1, 3, 5, 7, 17}
 
@@ -18,6 +21,7 @@ const (
 	stateIncomplete      = 17
 	stateComplete        = 18
 	stateRefresh         = 19 /* re-query wait for results to get back to stateQuery */
+	hoplimitmax          = 255
 )
 
 // refresh the time here
@@ -39,8 +43,10 @@ type NdCacheFlow struct {
 type MapNdTbl map[core.Ipv6Key]*NdCacheFlow
 
 type Ipv6NsStats struct {
-	eventsChangeSrc      uint64
-	eventsChangeDgIPv6   uint64
+	eventsChangeDHCPSrc uint64
+	eventsChangeSrc     uint64
+	eventsChangeDgIPv6  uint64
+
 	timerEventLearn      uint64
 	timerEventIncomplete uint64
 	timerEventComplete   uint64
@@ -64,12 +70,25 @@ type Ipv6NsStats struct {
 	pktRxNeighborAdvertisement   uint64
 	pktRxNeighborSolicitation    uint64
 
-	pktRxArpQuery         uint64
-	pktRxArpQueryNotForUs uint64
-	pktRxArpReply         uint64
-	pktTxArpQuery         uint64
-	pktTxGArp             uint64
-	pktTxReply            uint64
+	pktRxNeighborSolicitationParserErr        uint64
+	pktRxNeighborSolicitationWrongOption      uint64
+	pktRxNeighborSolicitationWrongSourceLink  uint64
+	pktRxNeighborSolicitationWrongDestination uint64
+	pktRxNeighborSolicitationWrongTarget      uint64
+	pktRxNeighborSolicitationLocalIpNotFound  uint64
+
+	pktTxNeighborAdvUnicast uint64
+	pktTxNeighborDADError   uint64
+
+	pktRxNeighborAdvParserErr   uint64
+	pktRxNeighborAdvWrongOption uint64
+	pktRxNeighborAdvWithOwnAddr uint64
+	pktRxNeighborAdvLearn       uint64
+	pktTxNeighborUnsolicitedNA  uint64
+
+	pktTxNeighborUnsolicitedDAD   uint64
+	pktTxNeighborUnsolicitedQuery uint64
+
 	tblActive             uint64
 	tblAdd                uint64
 	tblRemove             uint64
@@ -79,6 +98,15 @@ type Ipv6NsStats struct {
 
 func NewIpv6NsStatsDb(o *Ipv6NsStats) *core.CCounterDb {
 	db := core.NewCCounterDb("ipv6nd")
+
+	db.Add(&core.CCounterRec{
+		Counter:  &o.eventsChangeDHCPSrc,
+		Name:     "eventsChangeDHCPSrc",
+		Help:     "change dhcp src ipv6 events",
+		Unit:     "ops",
+		DumpZero: false,
+		Info:     core.ScINFO})
+
 	db.Add(&core.CCounterRec{
 		Counter:  &o.eventsChangeSrc,
 		Name:     "eventsChangeSrc",
@@ -93,6 +121,7 @@ func NewIpv6NsStatsDb(o *Ipv6NsStats) *core.CCounterDb {
 		Unit:     "ops",
 		DumpZero: false,
 		Info:     core.ScINFO})
+
 	db.Add(&core.CCounterRec{
 		Counter:  &o.timerEventLearn,
 		Name:     "timerEventLearn",
@@ -178,50 +207,6 @@ func NewIpv6NsStatsDb(o *Ipv6NsStats) *core.CCounterDb {
 		DumpZero: false,
 		Info:     core.ScERROR})
 
-	db.Add(&core.CCounterRec{
-		Counter:  &o.pktRxArpQuery,
-		Name:     "pktRxArpQuery",
-		Help:     "rx ipv6 nd query ",
-		Unit:     "pkts",
-		DumpZero: false,
-		Info:     core.ScINFO})
-	db.Add(&core.CCounterRec{
-		Counter:  &o.pktRxArpQueryNotForUs,
-		Name:     "pktRxArpQueryNotForUs",
-		Help:     "rx ipv6 nd query not for our clients",
-		Unit:     "pkts",
-		DumpZero: false,
-		Info:     core.ScINFO})
-	db.Add(&core.CCounterRec{
-		Counter:  &o.pktRxArpReply,
-		Name:     "pktRxArpReply",
-		Help:     "rx ipv6 nd reply",
-		Unit:     "pkts",
-		DumpZero: false,
-		Info:     core.ScINFO})
-
-	db.Add(&core.CCounterRec{
-		Counter:  &o.pktTxArpQuery,
-		Name:     "pktTxNdQuery",
-		Help:     "tx ipv6 nd query",
-		Unit:     "pkts",
-		DumpZero: false,
-		Info:     core.ScINFO})
-	db.Add(&core.CCounterRec{
-		Counter:  &o.pktTxGArp,
-		Name:     "pktTxNd",
-		Help:     "tx ipv6 nd garp",
-		Unit:     "pkts",
-		DumpZero: false,
-		Info:     core.ScINFO})
-
-	db.Add(&core.CCounterRec{
-		Counter:  &o.pktTxReply,
-		Name:     "pktTxReply",
-		Help:     "tx ipv6 nd reply",
-		Unit:     "pkts",
-		DumpZero: false,
-		Info:     core.ScINFO})
 	db.Add(&core.CCounterRec{
 		Counter:  &o.tblActive,
 		Name:     "tblActive",
@@ -324,6 +309,126 @@ func NewIpv6NsStatsDb(o *Ipv6NsStats) *core.CCounterDb {
 		DumpZero: false,
 		Info:     core.ScERROR})
 
+	db.Add(&core.CCounterRec{
+		Counter:  &o.pktRxNeighborSolicitationParserErr,
+		Name:     "pktRxNeighborSolicitationParserErr",
+		Help:     "ipv6 neighbor solicitation parse error",
+		Unit:     "pkts",
+		DumpZero: false,
+		Info:     core.ScERROR})
+
+	db.Add(&core.CCounterRec{
+		Counter:  &o.pktRxNeighborSolicitationWrongOption,
+		Name:     "pktRxNeighborSolicitationWrongOption",
+		Help:     "ipv6 neighbor solicitation wrong option",
+		Unit:     "pkts",
+		DumpZero: false,
+		Info:     core.ScERROR})
+
+	db.Add(&core.CCounterRec{
+		Counter:  &o.pktRxNeighborSolicitationWrongSourceLink,
+		Name:     "pktRxNeighborSolicitationWrongSourceLink",
+		Help:     "ipv6 neighbor solicitation wrong source link",
+		Unit:     "pkts",
+		DumpZero: false,
+		Info:     core.ScERROR})
+
+	db.Add(&core.CCounterRec{
+		Counter:  &o.pktRxNeighborSolicitationWrongDestination,
+		Name:     "pktRxNeighborSolicitationWrongDestination",
+		Help:     "ipv6 neighbor solicitation wrong destination addr",
+		Unit:     "pkts",
+		DumpZero: false,
+		Info:     core.ScERROR})
+
+	db.Add(&core.CCounterRec{
+		Counter:  &o.pktRxNeighborSolicitationWrongTarget,
+		Name:     "pktRxNeighborSolicitationWrongTarget",
+		Help:     "ipv6 neighbor solicitation wrong target addr",
+		Unit:     "pkts",
+		DumpZero: false,
+		Info:     core.ScERROR})
+
+	db.Add(&core.CCounterRec{
+		Counter:  &o.pktRxNeighborSolicitationLocalIpNotFound,
+		Name:     "pktRxNeighborSolicitationLocalIpNotFound",
+		Help:     "ipv6 neighbor solicitation not found ip",
+		Unit:     "pkts",
+		DumpZero: false,
+		Info:     core.ScINFO})
+
+	db.Add(&core.CCounterRec{
+		Counter:  &o.pktTxNeighborAdvUnicast,
+		Name:     "pktTxNeighborAdvUnicast",
+		Help:     "ipv6 tx neighbor solicitation answer",
+		Unit:     "pkts",
+		DumpZero: false,
+		Info:     core.ScINFO})
+
+	db.Add(&core.CCounterRec{
+		Counter:  &o.pktTxNeighborDADError,
+		Name:     "pktTxNeighborDADError",
+		Help:     "ipv6 tx neighbor solicitation DAD answer",
+		Unit:     "pkts",
+		DumpZero: false,
+		Info:     core.ScERROR})
+
+	db.Add(&core.CCounterRec{
+		Counter:  &o.pktRxNeighborAdvParserErr,
+		Name:     "pktRxNeighborAdvParserErr",
+		Help:     "ipv6 rx neighbor advertisements parse",
+		Unit:     "pkts",
+		DumpZero: false,
+		Info:     core.ScERROR})
+
+	db.Add(&core.CCounterRec{
+		Counter:  &o.pktRxNeighborAdvWrongOption,
+		Name:     "pktRxNeighborAdvWrongOption",
+		Help:     "ipv6 rx neighbor advertisements wrong option",
+		Unit:     "pkts",
+		DumpZero: false,
+		Info:     core.ScERROR})
+
+	db.Add(&core.CCounterRec{
+		Counter:  &o.pktRxNeighborAdvWithOwnAddr,
+		Name:     "pktRxNeighborAdvWithOwnAddr",
+		Help:     "ipv6 rx neighbor advertisements own addr",
+		Unit:     "pkts",
+		DumpZero: false,
+		Info:     core.ScERROR})
+
+	db.Add(&core.CCounterRec{
+		Counter:  &o.pktRxNeighborAdvLearn,
+		Name:     "pktRxNeighborAdvLearn",
+		Help:     "ipv6 rx neighbor advertisements learn",
+		Unit:     "pkts",
+		DumpZero: false,
+		Info:     core.ScINFO})
+
+	db.Add(&core.CCounterRec{
+		Counter:  &o.pktTxNeighborUnsolicitedNA,
+		Name:     "pktTxNeighborUnsolicitedNA",
+		Help:     "ipv6 rx neighbor unsolicited ",
+		Unit:     "pkts",
+		DumpZero: false,
+		Info:     core.ScINFO})
+
+	db.Add(&core.CCounterRec{
+		Counter:  &o.pktTxNeighborUnsolicitedDAD,
+		Name:     "pktTxNeighborUnsolicitedDAD",
+		Help:     "ipv6 rx neighbor DAD ",
+		Unit:     "pkts",
+		DumpZero: false,
+		Info:     core.ScINFO})
+
+	db.Add(&core.CCounterRec{
+		Counter:  &o.pktTxNeighborUnsolicitedQuery,
+		Name:     "pktTxNeighborUnsolicitedQuery",
+		Help:     "ipv6 rx neighbor solicited query ",
+		Unit:     "pkts",
+		DumpZero: false,
+		Info:     core.ScINFO})
+
 	return db
 }
 
@@ -382,7 +487,7 @@ func (o *Ipv6NsCacheFlow) OnDeleteFlow(flow *NdCacheFlow) {
 }
 
 /*AssociateWithClient  associate the flow with a client
-and return if this is the first and require to send GARP and Query*/
+and return if this is the first and require to send query*/
 func (o *Ipv6NsCacheFlow) AssociateWithClient(flow *NdCacheFlow) bool {
 	if flow.state == stateLearned {
 		if flow.refc != 0 {
@@ -498,7 +603,7 @@ func (o *Ipv6NsCacheFlow) SendQuery(flow *NdCacheFlow) {
 		}
 		/* take the first and query */
 		cplg := pluginArpClientCastfromDlist(flow.head.Next())
-		cplg.SendQuery()
+		cplg.ResolveDG()
 	} else {
 		panic("SendQuery in not valid state ")
 	}
@@ -574,28 +679,88 @@ func pluginArpClientCastfromDlist(o *core.DList) *NdClientCtx {
 
 // NdClientCtx nd information per client
 type NdClientCtx struct {
-	base   *PluginIpv6Client
-	dlist  core.DList /* to link to NdCacheFlow */
-	nsPlug *NdNsCtx
-	mld    *mldNsCtx
+	base             *PluginIpv6Client
+	dlist            core.DList /* to link to NdCacheFlow */
+	nsPlug           *NdNsCtx
+	mld              *mldNsCtx
+	pktOffset        uint16
+	naPktTemplate    []byte
+	nsPktTemplate    []byte // with source option
+	nsDadPktTemplate []byte // no option for DAD
 }
 
 func (o *NdClientCtx) preparePacketTemplate() {
-	//l2 := o.base.Client.GetL2Header(true, uint16(layers.EthernetTypeARP))
-	//arpOffset := len(l2)
-	/*o.pktOffset = uint16(arpOffset)
-	arpHeader := core.PacketUtlBuild(&layers.ARP{
-		AddrType:          0x1,
-		Protocol:          0x800,
-		HwAddressSize:     0x6,
-		ProtAddressSize:   0x4,
-		Operation:         layers.ARPRequest,
-		SourceHwAddress:   o.Client.Mac[:],
-		SourceProtAddress: []uint8{0x0, 0x0, 0x0, 0x0},
-		DstHwAddress:      []uint8{0x0, 0x0, 0x0, 0x0, 0x0, 0x0},
-		DstProtAddress:    []uint8{0x00, 0x00, 0x00, 0x00}})
-	o.arpPktTemplate = append(l2, arpHeader...)
-	o.arpHeader = layers.ArpHeader(o.arpPktTemplate[arpOffset : arpOffset+28])*/
+	l2 := o.base.Client.GetL2Header(true, uint16(layers.EthernetTypeIPv6))
+	o.pktOffset = uint16(len(l2))
+
+	IcmpHeader := core.PacketUtlBuild(
+		&layers.IPv6{
+			Version:      6,
+			TrafficClass: 0,
+			FlowLabel:    0,
+			Length:       32,
+			NextHeader:   layers.IPProtocolICMPv6,
+			HopLimit:     255,
+			SrcIP:        net.IP{00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0, 0x0, 0x0, 0x00, 0x00},
+			DstIP:        net.IP{0x0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
+		},
+
+		&layers.ICMPv6{TypeCode: layers.CreateICMPv6TypeCode(layers.ICMPv6TypeNeighborAdvertisement, 0)},
+
+		&layers.ICMPv6NeighborAdvertisement{
+			Flags:         0,
+			TargetAddress: net.IP{0x0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0, 0x0, 0x0, 0x00, 0x00},
+		},
+		gopacket.Payload([]byte{0x02, 0x01, 0x0, 0x00, 0x0, 0x0, 0x00, 0x00}),
+	)
+
+	o.naPktTemplate = append(l2, IcmpHeader...)
+	ipv6 := layers.IPv6Header(o.naPktTemplate[o.pktOffset : o.pktOffset+40])
+	var l6 core.Ipv6Key
+	o.base.Client.GetIpv6LocalLink(&l6)
+	copy(ipv6.SrcIP()[:], l6[:])
+
+	dadHeader := core.PacketUtlBuild(
+		&layers.IPv6{
+			Version:      6,
+			TrafficClass: 0,
+			FlowLabel:    0,
+			Length:       24,
+			NextHeader:   layers.IPProtocolICMPv6,
+			HopLimit:     255,
+			SrcIP:        net.IP{00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0, 0x0, 0x0, 0x00, 0x00},
+			DstIP:        net.IP{0xFF, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01},
+		},
+
+		&layers.ICMPv6{TypeCode: layers.CreateICMPv6TypeCode(layers.ICMPv6TypeNeighborSolicitation, 0)},
+
+		&layers.ICMPv6NeighborSolicitation{
+			TargetAddress: net.IP{0x0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0, 0x0, 0x0, 0x00, 0x00},
+		},
+	)
+	o.nsDadPktTemplate = append(l2, dadHeader...)
+
+	nsHeader := core.PacketUtlBuild(
+		&layers.IPv6{
+			Version:      6,
+			TrafficClass: 0,
+			FlowLabel:    0,
+			Length:       32,
+			NextHeader:   layers.IPProtocolICMPv6,
+			HopLimit:     255,
+			SrcIP:        net.IP{00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0, 0x0, 0x0, 0x00, 0x00},
+			DstIP:        net.IP{0x0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
+		},
+
+		&layers.ICMPv6{TypeCode: layers.CreateICMPv6TypeCode(layers.ICMPv6TypeNeighborSolicitation, 0)},
+
+		&layers.ICMPv6NeighborSolicitation{
+			TargetAddress: net.IP{0x0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0, 0x0, 0x0, 0x00, 0x00},
+		},
+		gopacket.Payload([]byte{0x01, 0x01, 0x0, 0x00, 0x0, 0x0, 0x00, 0x00}),
+	)
+
+	o.nsPktTemplate = append(l2, nsHeader...)
 }
 
 func (o *NdClientCtx) Init(base *PluginIpv6Client,
@@ -611,75 +776,112 @@ func (o *NdClientCtx) Init(base *PluginIpv6Client,
 	o.OnCreate()
 }
 
+//add Mc
+func (o *NdClientCtx) addMc(addr *core.Ipv6Key) {
+	var ipv6mc core.Ipv6Key
+	IPv6SolicitationMcAddr(addr, &ipv6mc)
+	o.mld.addMcInternal([]core.Ipv6Key{ipv6mc})
+}
+
+// in case of add
+func (o *NdClientCtx) addMcCache(addr *core.Ipv6Key) {
+	var ipv6mc core.Ipv6Key
+	IPv6SolicitationMcAddr(addr, &ipv6mc)
+	o.mld.addMcCache(ipv6mc)
+}
+
+//remove Mc
+func (o *NdClientCtx) removeMc(addr *core.Ipv6Key) {
+	var ipv6mc core.Ipv6Key
+	IPv6SolicitationMcAddr(addr, &ipv6mc)
+	o.mld.removeMcInternal([]core.Ipv6Key{ipv6mc})
+}
+
 /*OnEvent support event change of IP  */
 func (o *NdClientCtx) OnEvent(msg string, a, b interface{}) {
-	/*
-		switch msg {
-		case core.MSG_UPDATE_IPV6_ADDR:
-			oldIPv6 := a.(core.Ipv6Key)
-			newIPv6 := b.(core.Ipv6Key)
-			if newIPv6.IsZero() != oldIPv6.IsZero() {
-				o.NdNsCtx.stats.eventsChangeSrc++
-				o.OnChangeDGSrcIPv4(o.Client.DgIpv4,
-					o.Client.DgIpv6,
-					!oldIPv6.IsZero(),
-					!newIPv6.IsZero())
+
+	switch msg {
+	case core.MSG_UPDATE_DIPV6_ADDR:
+		oldIPv6 := a.(core.Ipv6Key)
+		newIPv6 := b.(core.Ipv6Key)
+		if newIPv6 != oldIPv6 {
+			if !oldIPv6.IsZero() {
+				o.removeMc(&oldIPv6)
 			}
 
-		case core.MSG_UPDATE_DGIPV6_ADDR:
-			oldIPv6 := a.(core.Ipv6Key)
-			newIPv6 := b.(core.Ipv6Key)
-			if newIPv6 != oldIPv6 {
-				o.NdNsCtx.stats.eventsChangeDgIPv6++
-				o.OnChangeDGSrcIPv4(oldIPv6,
-					newIPv6,
-					!o.Client.Ipv6.IsZero(),
-					!o.Client.Ipv6.IsZero()) // TBD which IPv6 I need to take
+			o.nsPlug.stats.eventsChangeDHCPSrc++
+			if !newIPv6.IsZero() {
+				o.addMc(&newIPv6) // add it to MC
+				var l6 core.Ipv6Key
+				l6 = newIPv6
+				// send unsolicitate message
+				pmac := &o.base.Client.Mac
+				o.SendUnsolicitedNaIpv6(&l6, nil, pmac)
+				o.SendNS(true, nil, &l6) // dad, not by RFC. assuming it is ok
 			}
-
 		}
-	*/
 
+	case core.MSG_UPDATE_IPV6_ADDR:
+		oldIPv6 := a.(core.Ipv6Key)
+		newIPv6 := b.(core.Ipv6Key)
+		if !oldIPv6.IsZero() {
+			o.removeMc(&oldIPv6)
+		}
+		if newIPv6 != oldIPv6 {
+			o.nsPlug.stats.eventsChangeSrc++
+			if !newIPv6.IsZero() {
+				o.addMc(&newIPv6)
+				o.SendUnsolicitedNA()
+			}
+		}
+
+	case core.MSG_UPDATE_DGIPV6_ADDR:
+		oldIPv6 := a.(core.Ipv6Key)
+		newIPv6 := b.(core.Ipv6Key)
+		if newIPv6 != oldIPv6 {
+			o.nsPlug.stats.eventsChangeDgIPv6++
+			o.OnChangeDGSrcIPv6(oldIPv6,
+				newIPv6)
+		}
+
+	}
 }
 
-var arpEvents = []string{core.MSG_UPDATE_IPV6_ADDR, core.MSG_UPDATE_DGIPV6_ADDR}
-
-/*OnChangeDGSrcIPv4 - called in case there is a change in DG or srcIPv4 */
+/*OnChangeDGSrcIPv6 - called in case there is a change in Client.DgIpv6 ,
+it is called after the change with the old values*/
 func (o *NdClientCtx) OnChangeDGSrcIPv6(oldDgIpv6 core.Ipv6Key,
-	newDgIpv6 core.Ipv6Key,
-	oldIsSrcIPv6 bool,
-	NewIsSrcIPv6 bool) {
-	if oldIsSrcIPv6 && !oldDgIpv6.IsZero() {
-		// remove
-		//TBD need to fix
-		//o.arpNsPlug.DisassociateClient(o, oldDgIpv4)
+	newDgIpv6 core.Ipv6Key) {
+
+	if !oldDgIpv6.IsZero() {
+		o.nsPlug.DisassociateClient(o, oldDgIpv6)
 	}
-	if NewIsSrcIPv6 && !newDgIpv6.IsZero() {
-		//there is a valid src IPv4 and valid new DG
-		//TBD need to fix
-		//o.arpNsPlug.AssociateClient(o)
+
+	if !newDgIpv6.IsZero() {
+		o.nsPlug.AssociateClient(o)
 	}
-}
-
-func (o *NdClientCtx) OnPrePreRemove(ctx *core.PluginCtx) {
-
-}
-
-func (o *NdClientCtx) OnPreRemove(ctx *core.PluginCtx) {
-
-}
-
-func (o *NdClientCtx) OnPostCreate(ctx *core.PluginCtx) {
-	o.mld.flushAddCache()
 }
 
 func (o *NdClientCtx) OnRemove(ctx *core.PluginCtx) {
 	/* force removing the link to the client */
-	o.OnChangeDGSrcIPv6(o.base.Client.DgIpv6,
-		o.base.Client.DgIpv6,
-		!o.base.Client.Ipv6.IsZero(),
-		false)
-	//ctx.UnregisterEvents(&o.PluginBase, arpEvents)
+	// default gateway if provided would be in highest priority
+	mac := o.base.Client.Mac
+
+	o.mld.removeMcCache(core.Ipv6Key{0xff, 0x02, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1})
+	// solicited node addr
+	o.mld.removeMcCache(core.Ipv6Key{0xff, 0x02, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0xff, mac[3], mac[4], mac[5]})
+
+	// in case of static IPv6
+	if !o.base.Client.Ipv6.IsZero() {
+		o.mld.removeMcCache(o.base.Client.Ipv6)
+	}
+
+	if !o.base.Client.DgIpv6.IsZero() {
+		o.nsPlug.DisassociateClient(o, o.base.Client.DgIpv6)
+	}
+}
+
+func IPv6SolicitationMcAddr(ipv6 *core.Ipv6Key, ipv6mc *core.Ipv6Key) {
+	*ipv6mc = core.Ipv6Key{0xff, 0x02, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0xff, ipv6[13], ipv6[14], ipv6[15]}
 }
 
 func (o *NdClientCtx) OnCreate() {
@@ -696,60 +898,171 @@ func (o *NdClientCtx) OnCreate() {
 		o.nsPlug.StartRouterSol(mac)
 	}
 
-	// resolve the current default GW if exits
-	if o.base.Client.Ipv6ForceDGW {
-		return
+	// in case of static IPv6
+	if !o.base.Client.Ipv6.IsZero() {
+		o.addMcCache(&o.base.Client.Ipv6)
+		o.SendUnsolicitedNA()
 	}
 
-	// resolve the ipv6 default gateway if exits
-	/*var oldDgIpv6 core.Ipv6Key
-	o.OnChangeDGSrcIPv6(oldDgIpv6,
-		o.base.Client.DgIpv6,
-		false,
-		!o.base.Client.Ipv6.IsZero())*/
+	// resolve the current default GW if exits
+	if !o.base.Client.Ipv6ForceDGW {
+		if !o.base.Client.DgIpv6.IsZero() {
+			// resolve the ipv6 default gateway if exits
+			o.nsPlug.AssociateClient(o)
+		}
+	}
+
 }
 
-func (o *NdClientCtx) SendGArp() {
-	/*
-		if !o.Client.Ipv4.IsZero() {
-			o.arpNsPlug.stats.pktTxGArp++
-			o.arpHeader.SetOperation(1)
-			o.arpHeader.SetSrcIpAddress(o.Client.Ipv4.Uint32())
-			o.arpHeader.SetDstIpAddress(o.Client.Ipv4.Uint32())
-			o.arpHeader.SetDestAddress([]byte{0, 0, 0, 0, 0, 0})
-			o.Tctx.Veth.SendBuffer(false, o.Client, o.arpPktTemplate)
-		} else {
-			panic("  SendGArp() arp wasn't sent ")
-		}*/
-}
+// send node solicitation
+func (o *NdClientCtx) SendNS(dad bool, sourceipv6 *core.Ipv6Key, target *core.Ipv6Key) {
+	mac := o.base.Client.Mac
+	if dad {
+		// no sourceTarget option
+		m := o.base.Tctx.MPool.Alloc(uint16(len(o.nsDadPktTemplate)))
+		m.Append(o.nsDadPktTemplate)
+		p := m.GetData()
+		l3 := o.pktOffset
+		ipv6 := layers.IPv6Header(p[l3 : l3+40])
+		l4 := l3 + 40
 
-func (o *NdClientCtx) SendQuery() {
-	/*if !o.Client.DgIpv4.IsZero() {
-		o.arpNsPlug.stats.pktTxArpQuery++
-		o.arpHeader.SetOperation(1)
-		o.arpHeader.SetSrcIpAddress(o.Client.Ipv4.Uint32())
-		o.arpHeader.SetDstIpAddress(o.Client.DgIpv4.Uint32())
-		o.arpHeader.SetDestAddress([]byte{0, 0, 0, 0, 0, 0})
-		o.Tctx.Veth.SendBuffer(false, o.Client, o.arpPktTemplate)
+		var mcipv6 core.Ipv6Key
+
+		IPv6SolicitationMcAddr(target, &mcipv6)
+
+		copy(ipv6.DstIP()[:], mcipv6[:]) //dest ip is the multicast solocitation
+		copy(p[l4+8:l4+8+16], target[:]) //target
+		copy(p[0:6], []byte{0x33, 0x33, mcipv6[12], mcipv6[13], mcipv6[14], mcipv6[15]})
+
+		o.nsPlug.stats.pktTxNeighborUnsolicitedDAD++
+		ipv6.FixL4Checksum(p[l4:], 0)
+		o.base.Tctx.Veth.Send(m)
+
 	} else {
-		panic("  SendQuery() arp wasn't sent ")
-	}*/
+
+		m := o.base.Tctx.MPool.Alloc(uint16(len(o.nsPktTemplate)))
+		m.Append(o.nsPktTemplate)
+		p := m.GetData()
+		l3 := o.pktOffset
+		ipv6 := layers.IPv6Header(p[l3 : l3+40])
+		l4 := l3 + 40
+
+		var mcipv6 core.Ipv6Key
+
+		IPv6SolicitationMcAddr(target, &mcipv6)
+
+		copy(ipv6.SrcIP()[:], sourceipv6[:]) //dest ip is the multicast solocitation
+		copy(ipv6.DstIP()[:], mcipv6[:])     //dest ip is the multicast solocitation
+		copy(p[l4+8:l4+8+16], target[:])     //target
+		copy(p[0:6], []byte{0x33, 0x33, mcipv6[12], mcipv6[13], mcipv6[14], mcipv6[15]})
+
+		oo := l4 + 8 + 16 + 2
+		copy(p[oo:oo+6], mac[:]) //mac option as a source
+
+		o.nsPlug.stats.pktTxNeighborUnsolicitedQuery++
+		ipv6.FixL4Checksum(p[l4:], 0)
+		o.base.Tctx.Veth.Send(m)
+	}
+
 }
 
-func (o *NdClientCtx) Respond(arpHeader *layers.ArpHeader) {
+func (o *NdClientCtx) SendUnsolicited(linkLocal bool) {
+	var l6 core.Ipv6Key
+	var sl6 core.Ipv6Key
+	var spl6 *core.Ipv6Key
+	pmac := &o.base.Client.Mac
+	if linkLocal {
+		o.base.Client.GetIpv6LocalLink(&l6)
+		spl6 = nil
+	} else {
+		l6 = o.base.Client.Ipv6
+		spl6 = &sl6
+		sl6 = o.base.Client.Ipv6
+	}
+	o.SendNS(true, spl6, &l6) // dad
+	o.SendUnsolicitedNaIpv6(&l6, spl6, pmac)
+}
 
-	/*o.arpNsPlug.stats.pktTxReply++
+func (o *NdClientCtx) SendUnsolicitedNA() {
 
-	o.arpHeader.SetOperation(2)
-	o.arpHeader.SetSrcIpAddress(o.Client.Ipv4.Uint32())
-	o.arpHeader.SetDstIpAddress(arpHeader.GetSrcIpAddress())
-	o.arpHeader.SetDestAddress(arpHeader.GetSourceAddress())
+	o.SendUnsolicited(true)
+	if !o.base.Client.Ipv6.IsZero() {
+		o.SendUnsolicited(false)
+	}
+}
 
-	eth := layers.EthernetHeader(o.arpPktTemplate[0:12])
+func (o *NdClientCtx) SendUnsolicitedNaIpv6(target *core.Ipv6Key, source *core.Ipv6Key, mac *core.MACKey) {
 
-	eth.SetDestAddress(arpHeader.GetSourceAddress())
-	o.Tctx.Veth.SendBuffer(false, o.Client, o.arpPktTemplate)
-	eth.SetBroadcast() /* back to default as broadcast */
+	m := o.base.Tctx.MPool.Alloc(uint16(len(o.naPktTemplate)))
+	m.Append(o.naPktTemplate)
+	p := m.GetData()
+	l3 := o.pktOffset
+	ipv6 := layers.IPv6Header(p[l3 : l3+40])
+
+	l4 := l3 + 40
+	copy(p[l4+8:l4+8+16], target[:]) //target
+	oo := l4 + 8 + 16 + 2
+	copy(p[oo:oo+6], mac[:]) //mac option as an answer
+
+	copy(ipv6.DstIP()[:], net.IPv6linklocalallnodes)
+	if source != nil {
+		copy(ipv6.SrcIP()[:], source[:])
+	}
+
+	copy(p[0:6], []byte{0x33, 0x33, 0, 0, 0, 1})
+	p[l4+4] = 0x20
+	o.nsPlug.stats.pktTxNeighborUnsolicitedNA++
+
+	ipv6.FixL4Checksum(p[l4:], 0)
+
+	o.base.Tctx.Veth.Send(m)
+}
+
+func (o *NdClientCtx) ResolveDG() {
+	// send query for DG
+	dg := &o.base.Client.DgIpv6
+	if !dg.IsZero() {
+		var l6 core.Ipv6Key
+		o.base.Client.GetIpv6LocalLink(&l6)
+		o.SendNS(false, &l6, dg)
+	} else {
+		panic("  resolve wasn't sent ")
+	}
+}
+
+// respond with Neighbor adv
+func (o *NdClientCtx) Respond(mac *core.MACKey, ps *core.ParserPacketState) {
+
+	ms := ps.M
+	psrc := ms.GetData()
+	sipv6 := layers.IPv6Header(psrc[ps.L3 : ps.L3+40])
+
+	m := o.base.Tctx.MPool.Alloc(uint16(len(o.naPktTemplate)))
+	m.Append(o.naPktTemplate)
+	p := m.GetData()
+	copy(p[0:6], psrc[6:12]) // set the destination TBD need to fix
+	l3 := o.pktOffset
+	ipv6 := layers.IPv6Header(p[l3 : l3+40])
+
+	sip := net.IP(sipv6.SrcIP()[:])
+	l4 := l3 + 40
+	copy(p[l4+8:l4+8+16], psrc[ps.L4+8:ps.L4+8+16]) //target
+	oo := l4 + 8 + 16 + 2
+	copy(p[oo:oo+6], mac[:]) //mac option as an answer
+
+	if sip.IsUnspecified() {
+		o.nsPlug.stats.pktTxNeighborDADError++
+		copy(ipv6.DstIP()[:], net.IPv6linklocalallnodes)
+		copy(p[0:6], []byte{0x33, 0x33, 0, 0, 0, 1})
+	} else {
+		copy(ipv6.DstIP()[:], sipv6.SrcIP()[:])
+		o.nsPlug.stats.pktTxNeighborAdvUnicast++
+		p[l4+4] = 0x60
+	}
+
+	ipv6.FixL4Checksum(p[l4:], 0)
+
+	o.base.Tctx.Veth.Send(m)
 }
 
 func (o *NdClientCtx) SendRouterSolicitation() {
@@ -861,91 +1174,88 @@ func (o *NdNsCtx) SendRouterSolicitation(srcMac core.MACKey) {
 	ipv6.SetPyloadLength(uint16(8))
 
 	rcof := ipoffset + IPV6_HEADER_SIZE
-	// update checksum
-	cs := layers.PktChecksumTcpUdpV6(p[rcof:], 0, ipv6, 0, uint8(layers.IPProtocolICMPv6))
-	binary.BigEndian.PutUint16(p[rcof+2:rcof+4], cs)
+
+	ipv6.FixL4Checksum(p[rcof:], 0)
+
 	o.base.Tctx.Veth.Send(m)
 }
 
 /*DisassociateClient remove association from the client. client now have the new data
  */
-func (o *NdNsCtx) DisassociateClient(arpc *NdClientCtx,
-	oldDgIpv4 core.Ipv4Key) {
-	/*
-		if oldDgIpv4.IsZero() {
-			panic("DisassociateClient old ipv6 is not valid")
+func (o *NdNsCtx) DisassociateClient(c *NdClientCtx,
+	oldDgIpv6 core.Ipv6Key) {
+
+	if oldDgIpv6.IsZero() {
+		panic("DisassociateClient old ipv6 is not valid")
+	}
+	flow := o.tbl.Lookup(oldDgIpv6)
+	if flow.refc == 0 {
+		panic(" ref count can't be zero before remove")
+	}
+	flow.head.RemoveNode(&c.dlist)
+	flow.refc--
+	if flow.refc == 0 {
+		// move to Learn
+		if !flow.head.IsEmpty() {
+			panic(" head should be empty ")
 		}
-		flow := o.tbl.Lookup(oldDgIpv4)
-		if flow.refc == 0 {
-			panic(" ref count can't be zero before remove")
+		o.tbl.MoveToLearn(flow)
+	} else {
+		if flow.head.IsEmpty() {
+			panic(" head should not be empty ")
 		}
-		flow.head.RemoveNode(&arpc.dlist)
-		flow.refc--
-		if flow.refc == 0 {
-			// move to Learn
-			if !flow.head.IsEmpty() {
-				panic(" head should be empty ")
-			}
-			o.tbl.MoveToLearn(flow)
-		} else {
-			if flow.head.IsEmpty() {
-				panic(" head should not be empty ")
-			}
-		}
-		o.stats.disasociateWithClient++
-		arpc.Client.DGW = nil
-	*/
+	}
+	o.stats.disasociateWithClient++
+	c.base.Client.Ipv6DGW = nil
+
 }
 
 /*AssociateClient associate a new client object with a NdCacheFlow
   client object should be with valid source ipv6 and valid default gateway
   1. if object NdCacheFlow exists move it's state to complete and add ref counter
-  2. if object NdCacheFlow does not exsits create new with ref=1 and return it
-  3. if this is the first, generate GARP and
+  2. if object NdCacheFlow does not exists create new with ref=1 and return it
+  3. if this is the first, generate resolution request
 */
-func (o *NdNsCtx) AssociateClient(arpc *NdClientCtx) {
-	/*
-		if arpc.Client.Ipv4.IsZero() || arpc.Client.DgIpv4.IsZero() {
-			panic("AssociateClient should have valid source ipv6 and default gateway ")
-		}
-		var firstUnresolve bool
-		firstUnresolve = false
-		ipv6 := arpc.Client.DgIpv4
-		flow := o.tbl.Lookup(ipv6)
-		if flow != nil {
-			firstUnresolve = o.tbl.AssociateWithClient(flow)
-		} else {
-			flow = o.tbl.AddNew(ipv6, nil, stateIncomplete)
-			firstUnresolve = true
-		}
+func (o *NdNsCtx) AssociateClient(c *NdClientCtx) {
 
-		o.stats.associateWithClient++
-		flow.head.AddLast(&arpc.dlist)
+	dgipv6 := &c.base.Client.DgIpv6
 
-		if firstUnresolve {
-			arpc.SendGArp()
-			arpc.SendQuery()
-		}
+	if dgipv6.IsZero() {
+		panic("AssociateClient should have valid source ipv6 and default gateway ")
+	}
 
-		arpc.Client.DGW = &flow.action*/
+	var firstUnresolve bool
+	firstUnresolve = false
+	flow := o.tbl.Lookup(*dgipv6)
+	if flow != nil {
+		firstUnresolve = o.tbl.AssociateWithClient(flow)
+	} else {
+		flow = o.tbl.AddNew(*dgipv6, nil, stateIncomplete)
+		firstUnresolve = true
+	}
+
+	o.stats.associateWithClient++
+	flow.head.AddLast(&c.dlist)
+
+	if firstUnresolve {
+		c.SendUnsolicitedNA()
+		var l6 core.Ipv6Key
+		c.base.Client.GetIpv6LocalLink(&l6)
+		c.SendNS(false, &l6, dgipv6)
+	}
+
+	c.base.Client.Ipv6DGW = &flow.action
 }
 
-func (o *NdNsCtx) NdLearn(arpHeader *layers.ArpHeader) {
+func (o *NdNsCtx) NdLearn(ipv6 core.Ipv6Key, sourceMac *core.MACKey) {
 
-	/*
-		var ipv6 core.Ipv4Key
-		var mkey core.MACKey
-		ipv6.SetUint32(arpHeader.GetSrcIpAddress())
-		copy(mkey[0:6], arpHeader.GetSourceAddress())
+	flow := o.tbl.Lookup(ipv6)
 
-		flow := o.tbl.Lookup(ipv6)
-
-		if flow != nil {
-			o.tbl.NdLearn(flow, &mkey)
-		} else {
-			o.tbl.AddNew(ipv6, &mkey, stateLearned)
-		}
-	*/
+	if flow != nil {
+		o.tbl.NdLearn(flow, sourceMac)
+	} else {
+		o.tbl.AddNew(ipv6, sourceMac, stateLearned)
+	}
 }
 
 func (o *NdNsCtx) SetTruncated() {
@@ -976,7 +1286,7 @@ func (o *NdNsCtx) HandleRxIpv6NdPacket(ps *core.ParserPacketState, code layers.I
 			return core.PARSER_ERR
 		}
 
-		if ipv6.HopLimit() != 255 {
+		if ipv6.HopLimit() != hoplimitmax {
 			o.stats.pktRxErrWrongHopLimit++
 			return core.PARSER_ERR
 		}
@@ -1040,61 +1350,233 @@ func (o *NdNsCtx) HandleRxIpv6NdPacket(ps *core.ParserPacketState, code layers.I
 
 	case layers.CreateICMPv6TypeCode(layers.ICMPv6TypeNeighborSolicitation, 0):
 		o.stats.pktRxNeighborSolicitation++
-		// TBD is it ours need to answer
+
+		var ra layers.ICMPv6NeighborSolicitation
+		err := ra.DecodeFromBytes(nd, o)
+		if err != nil {
+			o.stats.pktRxNeighborSolicitationParserErr++
+			return core.PARSER_ERR
+		}
+
+		if ipv6.HopLimit() != hoplimitmax {
+			o.stats.pktRxErrWrongHopLimit++
+			return core.PARSER_ERR
+		}
+
+		sipaddr := net.IP(ipv6.SrcIP())
+		dipaddr := net.IP(ipv6.DstIP())
+
+		var sourceMac core.MACKey
+		var sourceMacExists bool
+
+		for _, opt := range ra.Options {
+			switch opt.Type {
+
+			case layers.ICMPv6OptSourceAddress:
+				if len(opt.Data) == 6 {
+					copy(sourceMac[:], opt.Data[:])
+					sourceMacExists = true
+				} else {
+					o.stats.pktRxNeighborSolicitationWrongOption++
+					return core.PARSER_ERR
+				}
+			default:
+				o.stats.pktRxNeighborSolicitationWrongOption++
+				return core.PARSER_ERR
+			}
+		}
+
+		if sourceMacExists {
+			if sourceMac.IsZero() {
+				o.stats.pktRxNeighborSolicitationWrongSourceLink++
+				return core.PARSER_ERR
+			}
+		}
+
+		if sipaddr.IsUnspecified() && sourceMacExists {
+			o.stats.pktRxNeighborSolicitationWrongOption++
+			return core.PARSER_ERR
+		}
+
+		if sipaddr.IsUnspecified() && !dipaddr.IsMulticast() {
+			o.stats.pktRxNeighborSolicitationWrongDestination++
+			return core.PARSER_ERR
+		}
+
+		if ra.TargetAddress.IsUnspecified() || ra.TargetAddress.IsMulticast() {
+			o.stats.pktRxNeighborSolicitationWrongTarget++
+			return core.PARSER_ERR
+		}
+
+		if sipaddr.IsGlobalUnicast() && sourceMacExists {
+			// learn it
+			var tipv6 core.Ipv6Key
+			copy(tipv6[:], sipaddr)
+			client := o.base.Ns.CLookupByIPv6(&tipv6)
+			if client == nil {
+				// not our global IPv6 learn it
+				o.NdLearn(tipv6, &sourceMac)
+			}
+		}
+
+		global := ra.TargetAddress.IsGlobalUnicast()
+
+		if ra.TargetAddress.IsLinkLocalUnicast() || global {
+			// extract the MAC and lookup by MAC and answer
+			var mac core.MACKey
+			if core.ExtractOnlyMac(ra.TargetAddress, &mac) {
+				// found, isEUI48
+
+				var tipv6 core.Ipv6Key
+				copy(tipv6[:], ra.TargetAddress)
+
+				var ours bool
+				client := o.base.Ns.CLookupByMac(&mac)
+				if client != nil {
+					if client.IsValidPrefix(tipv6) {
+						ours = true
+					}
+				}
+				if !ours {
+					o.stats.pktRxNeighborSolicitationLocalIpNotFound++
+					return core.PARSER_ERR
+				}
+
+				cplg := client.PluginCtx.Get(IPV6_PLUG)
+				if cplg != nil {
+					cCPlug := cplg.Ext.(*PluginIpv6Client)
+					cCPlug.nd.Respond(&mac, ps)
+				} else {
+					o.stats.pktRxNeighborSolicitationLocalIpNotFound++
+					return core.PARSER_ERR
+				}
+			} else {
+				// not EUI48
+				if global {
+					// need to look into the tables
+					var tipv6 core.Ipv6Key
+					copy(tipv6[:], ra.TargetAddress)
+					client := o.base.Ns.CLookupByIPv6(&tipv6)
+					if client == nil {
+						o.stats.pktRxNeighborSolicitationLocalIpNotFound++
+						return core.PARSER_ERR
+					}
+					cplg := client.PluginCtx.Get(IPV6_PLUG)
+					if cplg != nil {
+						o.stats.pktRxNeighborSolicitationLocalIpNotFound++
+						cCPlug := cplg.Ext.(*PluginIpv6Client)
+						cCPlug.nd.Respond(&client.Mac, ps)
+					} else {
+						o.stats.pktRxNeighborSolicitationLocalIpNotFound++
+						return core.PARSER_ERR
+					}
+				} else {
+					// not ours
+					o.stats.pktRxNeighborSolicitationLocalIpNotFound++
+					return core.PARSER_ERR
+				}
+			}
+
+		} else {
+			o.stats.pktRxNeighborSolicitationLocalIpNotFound++
+			return core.PARSER_ERR
+		}
+
 		return core.PARSER_OK
 
 	case layers.CreateICMPv6TypeCode(layers.ICMPv6TypeNeighborAdvertisement, 0):
 		o.stats.pktRxNeighborAdvertisement++
-		// TBD is it answer for us?
+
+		var ra layers.ICMPv6NeighborAdvertisement
+		err := ra.DecodeFromBytes(nd, o)
+		if err != nil {
+			o.stats.pktRxNeighborAdvParserErr++
+			return core.PARSER_ERR
+		}
+
+		if ipv6.HopLimit() != hoplimitmax {
+			o.stats.pktRxErrWrongHopLimit++
+			return core.PARSER_ERR
+		}
+
+		var targetMac core.MACKey
+		var targetMacExists bool
+
+		for _, opt := range ra.Options {
+			switch opt.Type {
+
+			case layers.ICMPv6OptTargetAddress:
+				if len(opt.Data) == 6 {
+					copy(targetMac[:], opt.Data[:])
+					targetMacExists = true
+				} else {
+					o.stats.pktRxNeighborAdvWrongOption++
+					return core.PARSER_ERR
+				}
+			default:
+				o.stats.pktRxNeighborAdvWrongOption++
+				return core.PARSER_ERR
+			}
+		}
+
+		var over bool
+		if ra.Flags&0x20 == 0x20 {
+			over = true
+		}
+		/*
+			//var sol bool
+
+			if ra.Flags&0x40 == 0x40 {
+				sol = true
+			}*/
+
+		if over && targetMacExists {
+			// only if it is override
+			global := ra.TargetAddress.IsGlobalUnicast()
+			if ra.TargetAddress.IsLinkLocalUnicast() || global {
+				// extract the MAC and lookup by MAC and answer
+
+				var mac core.MACKey
+				if core.ExtractOnlyMac(ra.TargetAddress, &mac) {
+					// look for mac
+					var tipv6 core.Ipv6Key
+					copy(tipv6[:], ra.TargetAddress)
+
+					var ours bool
+					client := o.base.Ns.CLookupByMac(&mac)
+					if client != nil {
+						if client.IsValidPrefix(tipv6) {
+							ours = true
+						}
+					}
+					if !ours {
+						o.stats.pktRxNeighborAdvLearn++
+						o.NdLearn(tipv6, &targetMac)
+					}
+
+				} else {
+					var tipv6 core.Ipv6Key
+					copy(tipv6[:], ra.TargetAddress)
+					client := o.base.Ns.CLookupByIPv6(&tipv6)
+					if client == nil {
+						// not our global IPv6 learn it
+						o.stats.pktRxNeighborAdvLearn++
+						o.NdLearn(tipv6, &targetMac)
+					} else {
+						o.stats.pktRxNeighborAdvWithOwnAddr++
+					}
+				}
+			}
+		}
 		return core.PARSER_OK //
 
 	case layers.CreateICMPv6TypeCode(layers.ICMPv6TypeRedirect, 0):
+		o.stats.pktRxErrWrongOp++
 		return core.PARSER_OK
 
 	default:
-		panic(" HandleRxIpv6NdPacket not supported ")
+		o.stats.pktRxErrWrongOp++
 	}
-
-	/*
-		arpHeader := layers.ArpHeader(p[l3:])
-		ethHeader := layers.EthernetHeader(p[0:6])
-
-		switch arpHeader.GetOperation() {
-		case layers.ARPRequest:
-			if !ethHeader.IsBroadcast() {
-				o.stats.pktRxErrNoBroadcast++
-				return
-			}
-			o.stats.pktRxArpQuery++
-			// learn the request information
-			o.NdLearn(&arpHeader)
-
-			var ipv6 core.Ipv4Key
-
-			ipv6.SetUint32(arpHeader.GetDstIpAddress())
-
-			client := o.Ns.CLookupByIPv4(&ipv6)
-			if client != nil {
-				cplg := client.PluginCtx.Get(ARP_PLUG)
-				if cplg != nil {
-					arpCPlug := cplg.Ext.(*NdClientCtx)
-					arpCPlug.Respond(&arpHeader)
-				}
-			} else {
-				o.stats.pktRxArpQueryNotForUs++
-			}
-
-		case layers.ARPReply:
-			if ethHeader.IsBroadcast() {
-				o.stats.pktRxErrNoBroadcast++
-				return
-			}
-			o.stats.pktRxArpReply++
-			o.NdLearn(&arpHeader)
-
-		default:
-			o.stats.pktRxErrWrongOp++
-		}*/
 
 	return core.PARSER_OK
 }

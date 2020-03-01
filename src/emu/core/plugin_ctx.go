@@ -11,12 +11,6 @@ type IPluginIf interface {
 	OnRemove(o *PluginCtx) // call before delete
 }
 
-type IPluginIfEx1 interface {
-	OnPostCreate(o *PluginCtx)   // call post create
-	OnPrePreRemove(o *PluginCtx) // prepre remove -- called before OnPreRemove  callback
-	OnPreRemove(o *PluginCtx)    // pre remove
-}
-
 /* PluginBase plugin base that should be included in any plugin
 
 type PluginArp struct {
@@ -31,7 +25,6 @@ type PluginBase struct {
 	Ns     *CNSCtx
 	Tctx   *CThreadCtx
 	I      IPluginIf
-	IEx    IPluginIfEx1
 	Ext    interface{} // extention
 }
 
@@ -40,10 +33,6 @@ func (o *PluginBase) InitPluginBase(ctx *PluginCtx, ext interface{}) {
 	o.Ns = ctx.Ns
 	o.Client = ctx.Client
 	o.Ext = ext
-}
-
-func (o *PluginBase) RegisterEx1Event(ctx *PluginCtx, i IPluginIfEx1) {
-	o.IEx = i
 }
 
 func (o *PluginBase) RegisterEvents(ctx *PluginCtx, events []string, i IPluginIf) {
@@ -170,14 +159,6 @@ func (o *PluginCtx) CreatePlugins(plugins []string, initJson [][]byte) error {
 	return fmt.Errorf(strings.Join(errstrings, "\n"))
 }
 
-// call the extended callbacks for all the plugin
-func (o *PluginCtx) CallCallback(cb string) {
-	/* free all clients plugins */
-	for k := range o.mapPlugins {
-		o.callEx1Cb(k, cb)
-	}
-}
-
 func (o *PluginCtx) OnRemove() {
 
 	/* free all clients plugins */
@@ -204,7 +185,7 @@ func (o *PluginCtx) getRegLevel(v *PluginRegisterData) IPluginRegister {
 	return p
 }
 
-// addPlugin add one plugin to PluginCtx 
+// addPlugin add one plugin to PluginCtx
 func (o *PluginCtx) addPlugin(pl string, initJson []byte) error {
 
 	v, ok := pluginregister.M[pl]
@@ -237,30 +218,6 @@ func (o *PluginCtx) RemovePlugins(pl string) error {
 	}
 	obj.I.OnRemove(o)
 	return nil
-}
-
-func (o *PluginCtx) callEx1Cb(pl string, cb string) {
-	_, ok := pluginregister.M[pl]
-	if !ok {
-		return
-	}
-	obj, ok1 := o.mapPlugins[pl]
-	if !ok1 {
-		return
-	}
-	// if post was register
-	if obj.IEx != nil {
-		switch cb {
-		case "OnPostCreate":
-			obj.IEx.OnPostCreate(o)
-		case "OnPrePreRemove":
-			obj.IEx.OnPrePreRemove(o)
-		case "OnPreRemove":
-			obj.IEx.OnPreRemove(o)
-		default:
-			panic(" invalid cb")
-		}
-	}
 }
 
 //GetOrCreate if it wasn't created by RPC with default json, try to create a default with nil JSON data

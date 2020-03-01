@@ -68,13 +68,15 @@ type CClient struct {
 	Mac    MACKey  // immutable over lifetime of client
 	MTU    uint16  // MTU in L3 1500 by default
 
-	DGW            *CClientDg /* resolve by ARP */
-	Ipv6Router     *CClientIpv6Nd
-	Ipv6DGW        *CClientDg /* resolve by ipv6 */
-	Ipv6           Ipv6Key    // set the self ipv6
-	DgIpv6         Ipv6Key    // default gateway if provided would be in highest priorty
-	Dhcpv6         Ipv6Key    // the dhcpv6 ipv6, another ipv6 would be the one that was learned from the router
-	Ipv6ForceDGW   bool       /* true in case we want to enforce default gateway MAC */
+	DGW *CClientDg /* resolve by ARP */
+
+	Ipv6Router *CClientIpv6Nd
+	Ipv6DGW    *CClientDg /* resolve by ipv6 */
+	Ipv6       Ipv6Key    // set the self ipv6 by user
+	DgIpv6     Ipv6Key    // default gateway if provided would be in highest priority
+	Dhcpv6     Ipv6Key    // the dhcpv6 ipv6, another ipv6 would be the one that was learned from the router
+
+	Ipv6ForceDGW   bool /* true in case we want to enforce default gateway MAC */
 	Ipv6ForcedgMac MACKey
 
 	ForceDGW       bool /* true in case we want to enforce default gateway MAC */
@@ -147,6 +149,58 @@ func (o *CClient) GetIpv6LocalLink(l6 *Ipv6Key) {
 	l6[15] = o.Mac[5]
 }
 
+func (o *CClient) IsValidPrefix(ipv6 Ipv6Key) bool {
+	var l6 Ipv6Key
+	o.GetIpv6LocalLink(&l6)
+
+	if bytes.Compare(ipv6[0:8], l6[0:8]) == 0 {
+		return true
+	}
+
+	if o.Ipv6Router != nil {
+		if o.Ipv6Router.PrefixLen == 64 {
+			if bytes.Compare(o.Ipv6Router.PrefixIpv6[0:8], l6[0:8]) == 0 {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func ExtractMac(ip net.IP, mac *MACKey) bool {
+	if len(ip) != net.IPv6len || (ip[0] != 0xfe) && (ip[1]&0xc0 != 0x80) {
+		return false
+	}
+	isEUI48 := ip[11] == 0xff && ip[12] == 0xfe
+	if !isEUI48 {
+		return false
+	}
+	mac[0] = ip[8] ^ 2
+	mac[1] = ip[9]
+	mac[2] = ip[10]
+	mac[3] = ip[13]
+	mac[4] = ip[14]
+	mac[5] = ip[15]
+	return true
+}
+
+func ExtractOnlyMac(ip net.IP, mac *MACKey) bool {
+	if len(ip) != net.IPv6len {
+		return false
+	}
+	isEUI48 := ip[11] == 0xff && ip[12] == 0xfe
+	if !isEUI48 {
+		return false
+	}
+	mac[0] = ip[8] ^ 2
+	mac[1] = ip[9]
+	mac[2] = ip[10]
+	mac[3] = ip[13]
+	mac[4] = ip[14]
+	mac[5] = ip[15]
+	return true
+}
+
 func (o *CClient) UpdateDgIPv4(NewDgIpv4 Ipv4Key) error {
 	old := o.DgIpv4
 	o.DgIpv4 = NewDgIpv4
@@ -212,9 +266,9 @@ func (o *CClient) IsUnicastToMe(p []byte) bool {
 
 func (o *CClient) GetInfo() *CClientInfo {
 	var info CClientInfo
-	info.Mac    = o.Mac
-	info.Ipv4   = o.Ipv4
+	info.Mac = o.Mac
+	info.Ipv4 = o.Ipv4
 	info.DgIpv4 = o.DgIpv4
-	info.Ipv6   = o.Ipv6
+	info.Ipv6 = o.Ipv6
 	return &info
 }

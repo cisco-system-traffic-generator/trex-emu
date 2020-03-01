@@ -96,10 +96,6 @@ func createSimulationEnv(simRx *core.VethIFSim, num int, mcSim int, test *IcmpTe
 			ns.PluginCtx.CreatePlugins([]string{"ipv6"}, [][]byte{[]byte(`{"dmac" :[0, 0, 1, 0, 0, 0]  } `)})
 		}
 		client.PluginCtx.CreatePlugins([]string{"ipv6"}, [][]byte{})
-		// simulate new API of RPC
-		if test.flush > 0 {
-			client.PluginCtx.CallCallback("OnPostCreate")
-		}
 	}
 	tctx.RegisterParserCb("icmpv6")
 
@@ -403,6 +399,120 @@ func (o *IcmpQueryCtx) OnEvent(a, b interface{}) {
 		binary.BigEndian.PutUint16(pkt[icmppyof+2:icmppyof+4], cs)
 		raw = pkt
 
+	case 5:
+		// Ns to multicast addr
+		gopacket.SerializeLayers(buf, opts,
+			&layers.Ethernet{
+				SrcMAC:       net.HardwareAddr{0, 0, 0, 2, 0, 0},
+				DstMAC:       net.HardwareAddr{0x33, 0x33, 0, 0, 0, 1},
+				EthernetType: layers.EthernetTypeDot1Q,
+			},
+			&layers.Dot1Q{
+				Priority:       uint8(0),
+				VLANIdentifier: uint16(1),
+				Type:           layers.EthernetTypeDot1Q,
+			},
+			&layers.Dot1Q{
+				Priority:       uint8(0),
+				VLANIdentifier: uint16(2),
+				Type:           layers.EthernetTypeIPv6,
+			},
+
+			&layers.IPv6{
+				Version:      6,
+				TrafficClass: 0,
+				FlowLabel:    0,
+				Length:       8,
+				NextHeader:   layers.IPProtocolICMPv6,
+				HopLimit:     255,
+				SrcIP:        net.IP{0xfe, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0xfe, 0xf5, 0x00, 0x00},
+				DstIP:        net.IP{0xff, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01},
+			},
+
+			&layers.ICMPv6{TypeCode: layers.CreateICMPv6TypeCode(layers.ICMPv6TypeNeighborSolicitation, 0)},
+
+			&layers.ICMPv6NeighborSolicitation{
+				TargetAddress: net.IP{0xfe, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0x01, 0xff, 0xfe, 0x0, 0x00, 0x00},
+			},
+
+			//gopacket.Payload([]byte{0x01, 0x01, 0xc2, 0x00, 0x54, 0xf5, 0x00, 0x00}),
+			//gopacket.Payload([]byte{0x05, 0x01, 0x00, 0x00, 0x00, 0x00, 0x05, 0xdc}),
+
+			//gopacket.Payload([]byte{0x03, 0x04, 0x40, 0xc0, 0x00, 0x27, 0x8d, 0x00, 0x00, 0x09, 0x3a, 0x80, 0x00, 0x00, 0x00, 0x00,
+			//0x20, 0x01, 0x0d, 0xb8, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}),
+			// ),
+		)
+
+		pkt := buf.Bytes()
+		off := 14 + 8
+		ipv6Optionsize := 0
+		icmppyof := off + 40 + ipv6Optionsize
+
+		ipv6 := layers.IPv6Header(pkt[off : off+40])
+		ipv6.SetPyloadLength(uint16(len(pkt) - off - 40))
+
+		binary.BigEndian.PutUint16(pkt[icmppyof+2:icmppyof+4], 0)
+		cs := layers.PktChecksumTcpUdpV6(pkt[icmppyof:], 0, ipv6, 0, 58)
+		binary.BigEndian.PutUint16(pkt[icmppyof+2:icmppyof+4], cs)
+		raw = pkt
+
+	case 6:
+		// DAD packet
+		gopacket.SerializeLayers(buf, opts,
+			&layers.Ethernet{
+				SrcMAC:       net.HardwareAddr{0, 0, 0, 2, 0, 0},
+				DstMAC:       net.HardwareAddr{0x33, 0x33, 0, 0, 0, 1},
+				EthernetType: layers.EthernetTypeDot1Q,
+			},
+			&layers.Dot1Q{
+				Priority:       uint8(0),
+				VLANIdentifier: uint16(1),
+				Type:           layers.EthernetTypeDot1Q,
+			},
+			&layers.Dot1Q{
+				Priority:       uint8(0),
+				VLANIdentifier: uint16(2),
+				Type:           layers.EthernetTypeIPv6,
+			},
+
+			&layers.IPv6{
+				Version:      6,
+				TrafficClass: 0,
+				FlowLabel:    0,
+				Length:       8,
+				NextHeader:   layers.IPProtocolICMPv6,
+				HopLimit:     255,
+				SrcIP:        net.IP{0x0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0, 0x0, 0x0, 0x00, 0x00},
+				DstIP:        net.IP{0xff, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01},
+			},
+
+			&layers.ICMPv6{TypeCode: layers.CreateICMPv6TypeCode(layers.ICMPv6TypeNeighborSolicitation, 0)},
+
+			&layers.ICMPv6NeighborSolicitation{
+				TargetAddress: net.IP{0xfe, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0x01, 0xff, 0xfe, 0x0, 0x00, 0x00},
+			},
+
+			//gopacket.Payload([]byte{0x01, 0x01, 0xc2, 0x00, 0x54, 0xf5, 0x00, 0x00}),
+			//gopacket.Payload([]byte{0x05, 0x01, 0x00, 0x00, 0x00, 0x00, 0x05, 0xdc}),
+
+			//gopacket.Payload([]byte{0x03, 0x04, 0x40, 0xc0, 0x00, 0x27, 0x8d, 0x00, 0x00, 0x09, 0x3a, 0x80, 0x00, 0x00, 0x00, 0x00,
+			//0x20, 0x01, 0x0d, 0xb8, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}),
+			// ),
+		)
+
+		pkt := buf.Bytes()
+		off := 14 + 8
+		ipv6Optionsize := 0
+		icmppyof := off + 40 + ipv6Optionsize
+
+		ipv6 := layers.IPv6Header(pkt[off : off+40])
+		ipv6.SetPyloadLength(uint16(len(pkt) - off - 40))
+
+		binary.BigEndian.PutUint16(pkt[icmppyof+2:icmppyof+4], 0)
+		cs := layers.PktChecksumTcpUdpV6(pkt[icmppyof:], 0, ipv6, 0, 58)
+		binary.BigEndian.PutUint16(pkt[icmppyof+2:icmppyof+4], cs)
+		raw = pkt
+
 	}
 
 	o.cnt += 1
@@ -652,6 +762,56 @@ func TestPluginNd_adv1(t *testing.T) {
 		testname:     "ipv6nd_1",
 		monitor:      false,
 		match:        4,
+		capture:      true,
+		duration:     1 * time.Minute,
+		clientsToSim: 1,
+		cb:           Cb4,
+		flush:        1,
+	}
+	a.Run(t, true) // the timestamp making a new json due to the timestamp. skip the it
+}
+
+func CalcIpv6LocalLink(l6 *core.Ipv6Key, mac *core.MACKey) {
+	l6[0] = 0xFE
+	l6[1] = 0x80
+	l6[2] = 0
+	l6[3] = 0
+	l6[4] = 0
+	l6[5] = 0
+	l6[6] = 0
+	l6[7] = 0
+	l6[8] = mac[0] ^ 0x2
+	l6[9] = mac[1]
+	l6[10] = mac[2]
+	l6[11] = 0xFF
+	l6[12] = 0xFE
+	l6[13] = mac[3]
+	l6[14] = mac[4]
+	l6[15] = mac[5]
+}
+
+func TestPluginNd_adv2(t *testing.T) {
+
+	a := &IcmpTestBase{
+		testname:     "ipv6nd_2",
+		monitor:      false,
+		match:        5,
+		capture:      true,
+		duration:     1 * time.Minute,
+		clientsToSim: 1,
+		cb:           Cb4,
+		flush:        1,
+	}
+	a.Run(t, true) // the timestamp making a new json due to the timestamp. skip the it
+}
+
+// test DAD packet
+func TestPluginNd_adv3(t *testing.T) {
+
+	a := &IcmpTestBase{
+		testname:     "ipv6nd_3",
+		monitor:      false,
+		match:        6,
 		capture:      true,
 		duration:     1 * time.Minute,
 		clientsToSim: 1,

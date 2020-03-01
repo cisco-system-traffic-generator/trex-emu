@@ -16,6 +16,7 @@ import (
 	"reflect"
 	"regexp"
 	"strings"
+	"testing"
 	"time"
 	"unsafe"
 
@@ -1258,4 +1259,31 @@ func printSlice(s []byte) {
 
 func testpcapWrite3() {
 	fmt.Printf("hey this is an example \n")
+}
+
+// method callback example
+type A struct {
+	Count uint32
+}
+type B_t func(*A, int)
+
+func (o *A) test1(a int) {
+	fmt.Printf(" test1 %v %v \n", o.Count, a)
+}
+
+func (o *A) test2(b int) {
+	fmt.Printf(" test2 %v %v \n", o.Count, b)
+}
+
+func TestPluginNd_adv4(t *testing.T) {
+	var a A
+	a.Count = 12
+	a.test1(1)
+	a.test2(2)
+	var cb B_t
+	cb = (*A).test2
+	cb(&a, 7)
+
+	fmt.Printf(" hey \n")
+
 }

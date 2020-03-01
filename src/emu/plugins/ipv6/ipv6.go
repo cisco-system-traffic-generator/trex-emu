@@ -105,14 +105,15 @@ type PluginIpv6Client struct {
 	nd         NdClientCtx
 }
 
-var icmpEvents = []string{}
+var icmpEvents = []string{core.MSG_UPDATE_IPV6_ADDR,
+	core.MSG_UPDATE_DGIPV6_ADDR,
+	core.MSG_UPDATE_DIPV6_ADDR}
 
 /*NewIpv6Client create plugin */
 func NewIpv6Client(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
 	o := new(PluginIpv6Client)
 	o.InitPluginBase(ctx, o)             /* init base object*/
 	o.RegisterEvents(ctx, icmpEvents, o) /* register events, only if exits*/
-	o.RegisterEx1Event(ctx, o)
 	nsplg := o.Ns.PluginCtx.GetOrCreate(IPV6_PLUG)
 	o.ipv6NsPlug = nsplg.Ext.(*PluginIpv6Ns)
 	o.nd.Init(o, &o.ipv6NsPlug.nd, o.Tctx, &o.ipv6NsPlug.mld, initJson)
@@ -120,25 +121,14 @@ func NewIpv6Client(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
 	return &o.PluginBase
 }
 
-func (o *PluginIpv6Client) OnPostCreate(ctx *core.PluginCtx) {
-	o.nd.OnPostCreate(ctx)
-}
-
-func (o *PluginIpv6Client) OnPrePreRemove(ctx *core.PluginCtx) {
-	o.nd.OnPrePreRemove(ctx)
-}
-
-func (o *PluginIpv6Client) OnPreRemove(ctx *core.PluginCtx) {
-	o.nd.OnPreRemove(ctx)
-}
-
 /*OnEvent support event change of IP  */
 func (o *PluginIpv6Client) OnEvent(msg string, a, b interface{}) {
-
+	o.nd.OnEvent(msg, a, b)
 }
 
 func (o *PluginIpv6Client) OnRemove(ctx *core.PluginCtx) {
 	/* force removing the link to the client */
+	o.nd.OnRemove(ctx)
 	ctx.UnregisterEvents(&o.PluginBase, icmpEvents)
 }
 
@@ -179,10 +169,11 @@ func NewIpv6Ns(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
 
 func (o *PluginIpv6Ns) OnRemove(ctx *core.PluginCtx) {
 	o.mld.OnRemove(ctx)
+	o.nd.OnRemove(ctx)
 }
 
 func (o *PluginIpv6Ns) OnEvent(msg string, a, b interface{}) {
-
+	o.nd.OnEvent(msg, a, b)
 }
 
 func (o *PluginIpv6Ns) SetTruncated() {
