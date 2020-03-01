@@ -355,6 +355,17 @@ type (
 		DesignatorMac core.MACKey `json:"dmac"`
 		Version       uint8       `json:"version"`
 	}
+
+	ApiNdNsIterHandler struct{} // iterate on the nd ipv6 cache table
+	ApiNdNsIterParams  struct {
+		Reset bool   `json:"reset"`
+		Count uint16 `json:"count" validate:"required,gte=0,lte=255"`
+	}
+	ApiNdNsIterResult struct {
+		Empty  bool             `json:"empty"`
+		Stoped bool             `json:"stoped"`
+		Vec    []Ipv6NsCacheRec `json:"data"`
+	}
 )
 
 func getNsPlugin(ctx interface{}, params *fastjson.RawMessage) (*PluginIpv6Ns, error) {
@@ -554,6 +565,51 @@ func (h ApiMldGetHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMess
 	return &res, nil
 }
 
+func (h ApiNdNsIterHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
+
+	var p ApiNdNsIterParams
+	var res ApiNdNsIterResult
+
+	tctx := ctx.(*core.CThreadCtx)
+
+	ipv6Ns, err := getNsPlugin(ctx, params)
+	if err != nil {
+		return nil, &jsonrpc.Error{
+			Code:    jsonrpc.ErrorCodeInvalidRequest,
+			Message: err.Error(),
+		}
+	}
+
+	err1 := tctx.UnmarshalValidate(*params, &p)
+	if err1 != nil {
+		return nil, &jsonrpc.Error{
+			Code:    jsonrpc.ErrorCodeInvalidRequest,
+			Message: err1.Error(),
+		}
+	}
+
+	if p.Reset {
+		res.Empty = ipv6Ns.nd.tbl.IterReset()
+	}
+	if res.Empty {
+		return &res, nil
+	}
+	if ipv6Ns.nd.tbl.IterIsStopped() {
+		res.Stoped = true
+		return &res, nil
+	}
+
+	keys, err2 := ipv6Ns.nd.tbl.GetNext(p.Count)
+	if err2 != nil {
+		return nil, &jsonrpc.Error{
+			Code:    jsonrpc.ErrorCodeInvalidRequest,
+			Message: err2.Error(),
+		}
+	}
+	res.Vec = keys
+	return &res, nil
+}
+
 func init() {
 
 	/* register of plugins callbacks for ns,c level  */
@@ -583,6 +639,7 @@ func init() {
 	core.RegisterCB("ipv6_mld_ns_iter", ApiMldNsIterHandler{}, false)     // mld iterator
 	core.RegisterCB("ipv6_mld_ns_get_cfg", ApiMldGetHandler{}, false)     // mld Get
 	core.RegisterCB("ipv6_mld_ns_set_cfg", ApiMldSetHandler{}, false)     // mld Set
+	core.RegisterCB("ipv6_nd_ns_iter", ApiNdNsIterHandler{}, false)       // nd ipv6 cache table iterator
 
 	/* register callback for rx side*/
 	core.ParserRegister("icmpv6", HandleRxIcmpv6Packet) // support mld/icmp/nd

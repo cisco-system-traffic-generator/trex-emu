@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"external/google/gopacket"
 	"external/google/gopacket/layers"
+	"fmt"
 	"net"
 	"time"
 	"unsafe"
@@ -30,7 +31,7 @@ const (
 
 type NdCacheFlow struct {
 	dlist  core.DList
-	head   core.DList /* pointer */
+	head   core.DList /* pointer to the node that uses this */
 	timer  core.CHTimerObj
 	ipv6   core.Ipv6Key // key
 	state  uint8
@@ -38,6 +39,10 @@ type NdCacheFlow struct {
 	touch  bool
 	refc   uint32
 	action core.CClientDg
+}
+
+func covertToNdCacheFlow(dlist *core.DList) *NdCacheFlow {
+	return (*NdCacheFlow)(unsafe.Pointer(dlist))
 }
 
 type MapNdTbl map[core.Ipv6Key]*NdCacheFlow
@@ -76,9 +81,8 @@ type Ipv6NsStats struct {
 	pktRxNeighborSolicitationWrongDestination uint64
 	pktRxNeighborSolicitationWrongTarget      uint64
 	pktRxNeighborSolicitationLocalIpNotFound  uint64
-
-	pktTxNeighborAdvUnicast uint64
-	pktTxNeighborDADError   uint64
+	pktTxNeighborAdvUnicast                   uint64
+	pktTxNeighborDADError                     uint64
 
 	pktRxNeighborAdvParserErr   uint64
 	pktRxNeighborAdvWrongOption uint64
@@ -432,19 +436,29 @@ func NewIpv6NsStatsDb(o *Ipv6NsStats) *core.CCounterDb {
 	return db
 }
 
-// Ipv6NsCacheFlow manage the ipv6 -> mac with timeout for outside case
+type Ipv6NsCacheRec struct {
+	Ipv6    core.Ipv6Key `json:"ipv6"`
+	Refc    uint32       `json:"refc"`
+	State   uint8        `json:"state"`
+	Resolve bool         `json:"resolve"`
+	Mac     core.MACKey  `json:"mac"`
+}
+
+// Ipv6NsCacheFlowTable manage the ipv6 -> mac with timeout for outside case
 // inside are resolved
-type Ipv6NsCacheFlow struct {
+type Ipv6NsCacheFlowTable struct {
 	timerw        *core.TimerCtx
 	tbl           MapNdTbl
 	head          core.DList
 	completeTicks uint32 /* timer to send query */
 	learnTimer    uint32
-	second        uint32 /* timer to remove */
+	second        uint32      /* timer to remove */
+	activeIter    *core.DList /* iterator */
 	stats         *Ipv6NsStats
+	iterReady     bool
 }
 
-func (o *Ipv6NsCacheFlow) Create(timerw *core.TimerCtx) {
+func (o *Ipv6NsCacheFlowTable) Create(timerw *core.TimerCtx) {
 	o.timerw = timerw
 	o.tbl = make(MapNdTbl)
 	o.head.SetSelf()
@@ -453,14 +467,14 @@ func (o *Ipv6NsCacheFlow) Create(timerw *core.TimerCtx) {
 	o.second = timerw.DurationToTicks(time.Second)
 }
 
-func (o *Ipv6NsCacheFlow) OnRemove() {
+func (o *Ipv6NsCacheFlowTable) OnRemove() {
 	for k := range o.tbl {
 		flow := o.tbl[k]
 		o.OnRemoveFlow(flow)
 	}
 }
 
-func (o *Ipv6NsCacheFlow) OnRemoveFlow(flow *NdCacheFlow) {
+func (o *Ipv6NsCacheFlowTable) OnRemoveFlow(flow *NdCacheFlow) {
 	/* make sure the timer is stopped as it is linked to another resource */
 	if flow.timer.IsRunning() {
 		o.timerw.Stop(&flow.timer)
@@ -468,10 +482,15 @@ func (o *Ipv6NsCacheFlow) OnRemoveFlow(flow *NdCacheFlow) {
 }
 
 // OnRemove called when there is no ref to this object
-func (o *Ipv6NsCacheFlow) OnDeleteFlow(flow *NdCacheFlow) {
+func (o *Ipv6NsCacheFlowTable) OnDeleteFlow(flow *NdCacheFlow) {
 	if flow.refc != 0 {
-		panic(" Ipv6NsCacheFlow ref counter should be zero ")
+		panic(" Ipv6NsCacheFlowTable ref counter should be zero ")
 	}
+	if o.activeIter == &flow.dlist {
+		// it is going to be removed
+		o.activeIter = flow.dlist.Next()
+	}
+
 	o.head.RemoveNode(&flow.dlist)
 	flow.action.IpdgResolved = false
 	flow.action.IpdgMac.Clear()
@@ -482,13 +501,13 @@ func (o *Ipv6NsCacheFlow) OnDeleteFlow(flow *NdCacheFlow) {
 		o.stats.tblActive--
 	} else {
 		// somthing is wrong here, can't find the flow
-		panic(" Ipv6NsCacheFlow can't find the flow for removing ")
+		panic(" Ipv6NsCacheFlowTable can't find the flow for removing ")
 	}
 }
 
 /*AssociateWithClient  associate the flow with a client
 and return if this is the first and require to send query*/
-func (o *Ipv6NsCacheFlow) AssociateWithClient(flow *NdCacheFlow) bool {
+func (o *Ipv6NsCacheFlowTable) AssociateWithClient(flow *NdCacheFlow) bool {
 	if flow.state == stateLearned {
 		if flow.refc != 0 {
 			panic("AssociateWithClient ref should be zero in learn mode")
@@ -503,7 +522,7 @@ func (o *Ipv6NsCacheFlow) AssociateWithClient(flow *NdCacheFlow) bool {
 
 // AddNew in case it does not found
 // state could be  stateLearnedor incomplete
-func (o *Ipv6NsCacheFlow) AddNew(ipv6 core.Ipv6Key,
+func (o *Ipv6NsCacheFlowTable) AddNew(ipv6 core.Ipv6Key,
 	IpdgMac *core.MACKey, state uint8) *NdCacheFlow {
 	_, ok := o.tbl[ipv6]
 	if ok {
@@ -543,7 +562,7 @@ func (o *Ipv6NsCacheFlow) AddNew(ipv6 core.Ipv6Key,
 	return flow
 }
 
-func (o *Ipv6NsCacheFlow) MoveToLearn(flow *NdCacheFlow) {
+func (o *Ipv6NsCacheFlowTable) MoveToLearn(flow *NdCacheFlow) {
 	if flow.timer.IsRunning() {
 		o.timerw.Stop(&flow.timer)
 	} else {
@@ -555,7 +574,7 @@ func (o *Ipv6NsCacheFlow) MoveToLearn(flow *NdCacheFlow) {
 	o.stats.moveLearned++
 }
 
-func (o *Ipv6NsCacheFlow) MoveToComplete(flow *NdCacheFlow) {
+func (o *Ipv6NsCacheFlowTable) MoveToComplete(flow *NdCacheFlow) {
 	if flow.timer.IsRunning() {
 		o.timerw.Stop(&flow.timer)
 	} else {
@@ -567,7 +586,7 @@ func (o *Ipv6NsCacheFlow) MoveToComplete(flow *NdCacheFlow) {
 	o.stats.moveComplete++
 }
 
-func (o *Ipv6NsCacheFlow) NdLearn(flow *NdCacheFlow, mac *core.MACKey) {
+func (o *Ipv6NsCacheFlowTable) NdLearn(flow *NdCacheFlow, mac *core.MACKey) {
 
 	flow.action.IpdgResolved = true
 	flow.action.IpdgMac = *mac
@@ -586,7 +605,7 @@ func (o *Ipv6NsCacheFlow) NdLearn(flow *NdCacheFlow, mac *core.MACKey) {
 }
 
 // Lookup for a resolution
-func (o *Ipv6NsCacheFlow) Lookup(ipv6 core.Ipv6Key) *NdCacheFlow {
+func (o *Ipv6NsCacheFlowTable) Lookup(ipv6 core.Ipv6Key) *NdCacheFlow {
 	v, ok := o.tbl[ipv6]
 	if ok {
 		/* read does not update the timer only packets */
@@ -596,7 +615,7 @@ func (o *Ipv6NsCacheFlow) Lookup(ipv6 core.Ipv6Key) *NdCacheFlow {
 }
 
 /*SendQuery on behalf of the first client */
-func (o *Ipv6NsCacheFlow) SendQuery(flow *NdCacheFlow) {
+func (o *Ipv6NsCacheFlowTable) SendQuery(flow *NdCacheFlow) {
 	if flow.state == stateRefresh || flow.state == stateIncomplete {
 		if flow.head.IsEmpty() {
 			panic("SendQuery no valid list  ")
@@ -609,7 +628,7 @@ func (o *Ipv6NsCacheFlow) SendQuery(flow *NdCacheFlow) {
 	}
 }
 
-func (o *Ipv6NsCacheFlow) GetNextTicks(flow *NdCacheFlow) uint32 {
+func (o *Ipv6NsCacheFlowTable) GetNextTicks(flow *NdCacheFlow) uint32 {
 	index := flow.index
 	maxl := uint8((len(defaultRetryTimerSec) - 1))
 	if index < maxl {
@@ -623,7 +642,7 @@ func (o *Ipv6NsCacheFlow) GetNextTicks(flow *NdCacheFlow) uint32 {
 	return ticks
 }
 
-func (o *Ipv6NsCacheFlow) handleRefreshState(flow *NdCacheFlow) {
+func (o *Ipv6NsCacheFlowTable) handleRefreshState(flow *NdCacheFlow) {
 	ticks := o.GetNextTicks(flow)
 	o.timerw.StartTicks(&flow.timer, ticks)
 	o.SendQuery(flow)
@@ -637,7 +656,7 @@ func (o *Ipv6NsCacheFlow) handleRefreshState(flow *NdCacheFlow) {
 }
 
 /* OnEvent timer callback */
-func (o *Ipv6NsCacheFlow) OnEvent(a, b interface{}) {
+func (o *Ipv6NsCacheFlowTable) OnEvent(a, b interface{}) {
 	flow := a.(*NdCacheFlow)
 	switch flow.state {
 	case stateLearned:
@@ -670,6 +689,53 @@ func (o *Ipv6NsCacheFlow) OnEvent(a, b interface{}) {
 	default:
 		panic("Ipv6nd on event  ")
 	}
+}
+
+func (o *Ipv6NsCacheFlowTable) IterReset() bool {
+	o.activeIter = o.head.Next()
+	if o.head.IsEmpty() {
+		o.iterReady = false
+		return true
+	}
+	o.iterReady = true
+	return false
+}
+
+func (o *Ipv6NsCacheFlowTable) IterIsStopped() bool {
+	return !o.iterReady
+}
+
+func (o *Ipv6NsCacheFlowTable) GetNext(n uint16) ([]Ipv6NsCacheRec, error) {
+	r := make([]Ipv6NsCacheRec, 0)
+
+	if !o.iterReady {
+		return r, fmt.Errorf(" Iterator is not ready- reset the iterator")
+	}
+
+	cnt := 0
+	for {
+
+		if o.activeIter == &o.head {
+			o.iterReady = false // require a new reset
+			break
+		}
+		cnt++
+		if cnt > int(n) {
+			break
+		}
+
+		ent := covertToNdCacheFlow(o.activeIter)
+		var jsone Ipv6NsCacheRec
+		jsone.Ipv6 = ent.ipv6
+		jsone.Refc = ent.refc
+		jsone.State = ent.state
+		jsone.Resolve = ent.action.IpdgResolved
+		jsone.Mac = ent.action.IpdgMac
+
+		r = append(r, jsone)
+		o.activeIter = o.activeIter.Next()
+	}
+	return r, nil
 }
 
 func pluginArpClientCastfromDlist(o *core.DList) *NdClientCtx {
@@ -1081,7 +1147,7 @@ func (o *RouterAdNsTimer) OnEvent(a, b interface{}) {
 type NdNsCtx struct {
 	base           *PluginIpv6Ns
 	timerw         *core.TimerCtx
-	tbl            Ipv6NsCacheFlow
+	tbl            Ipv6NsCacheFlowTable
 	stats          Ipv6NsStats
 	cdb            *core.CCounterDb
 	routerAd       core.CClientIpv6Nd
