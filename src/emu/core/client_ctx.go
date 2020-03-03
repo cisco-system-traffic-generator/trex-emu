@@ -46,16 +46,16 @@ func castDlistClient(dlist *DList) *CClient {
 
 // CClientDg default GW
 type CClientDg struct {
-	IpdgResolved bool   // bool in case it is resolved
-	IpdgMac      MACKey // default
+	IpdgResolved bool   `json:"resolve"` // bool in case it is resolved
+	IpdgMac      MACKey `json:"rmac"`    // default
 }
 
 //CClientIpv6Nd information from learned from router
 type CClientIpv6Nd struct {
-	MTU        uint16 // MTU in L3 1500 by default
-	DgMac      MACKey // router dg
-	PrefixIpv6 Ipv6Key
-	PrefixLen  uint8
+	MTU        uint16  `json:"mtu"`   // MTU in L3 1500 by default
+	DgMac      MACKey  `json:"dgmac"` // router dg
+	PrefixIpv6 Ipv6Key `json:"prefix"`
+	PrefixLen  uint8   `json:"prefix_len"`
 }
 
 // CClient represent one client
@@ -89,7 +89,15 @@ type CClientCmd struct {
 	Mac    MACKey  `json:"mac" validate:"required"`
 	Ipv4   Ipv4Key `json:"ipv4"`
 	DgIpv4 Ipv4Key `json:"ipv4_dg"`
+	MTU    uint16  `json:"ipv4_mtu"`
+
 	Ipv6   Ipv6Key `json:"ipv6"`
+	DgIpv6 Ipv6Key `json:"dg_ipv6"`
+
+	Ipv6ForceDGW   bool   `json:"ipv4_force_dg"`
+	Ipv6ForcedgMac MACKey `json:"ipv4_force_mac"`
+	ForceDGW       bool   `json:"ipv6_force_dg"`
+	Ipv4ForcedgMac MACKey `json:"ipv6_force_mac"`
 }
 
 type CClientCmds struct {
@@ -100,8 +108,21 @@ type CClientInfo struct {
 	Mac    MACKey  `json:"mac"`
 	Ipv4   Ipv4Key `json:"ipv4"`
 	DgIpv4 Ipv4Key `json:"ipv4_dg"`
-	Ipv6   Ipv6Key `json:"ipv6"`
-	// TODO add more ...
+	MTU    uint16  `json:"ipv4_mtu"`
+
+	Ipv6       Ipv6Key `json:"ipv6"`
+	DgIpv6     Ipv6Key `json:"dg_ipv6"`
+	DhcpDgIpv6 Ipv6Key `json:"dhcp_dg_ipv6"`
+
+	Ipv6ForceDGW   bool   `json:"ipv4_force_dg"`
+	Ipv6ForcedgMac MACKey `json:"ipv4_force_mac"`
+	ForceDGW       bool   `json:"ipv6_force_dg"`
+	Ipv4ForcedgMac MACKey `json:"ipv6_force_mac"`
+
+	DGW *CClientDg `json:"dgw"`
+
+	Ipv6Router *CClientIpv6Nd `json:"ipv6_router"`
+	Ipv6DGW    *CClientDg     `json:"ipv6_dgw"`
 }
 
 /* NewClient Create a new client with default information and key */
@@ -123,6 +144,23 @@ func NewClient(ns *CNSCtx,
 	o.MTU = 1500
 	o.PluginCtx = NewPluginCtx(o, ns, ns.ThreadCtx, PLUGIN_LEVEL_CLIENT)
 	return o
+}
+
+func NewClientCmd(ns *CNSCtx, cmd *CClientCmd) *CClient {
+
+	c := NewClient(ns, cmd.Mac, cmd.Ipv4, cmd.Ipv6, cmd.DgIpv4)
+	if cmd.MTU > 0 {
+		c.MTU = cmd.MTU
+	}
+
+	c.DgIpv6 = cmd.DgIpv6
+
+	c.Ipv6ForceDGW = cmd.Ipv6ForceDGW
+	c.Ipv6ForcedgMac = cmd.Ipv6ForcedgMac
+	c.ForceDGW = cmd.ForceDGW
+	c.Ipv4ForcedgMac = cmd.Ipv4ForcedgMac
+
+	return c
 }
 
 /*OnRemove called on before removing the client */
@@ -266,9 +304,25 @@ func (o *CClient) IsUnicastToMe(p []byte) bool {
 
 func (o *CClient) GetInfo() *CClientInfo {
 	var info CClientInfo
+
 	info.Mac = o.Mac
 	info.Ipv4 = o.Ipv4
 	info.DgIpv4 = o.DgIpv4
+	info.MTU = o.MTU
+
 	info.Ipv6 = o.Ipv6
+	info.DgIpv6 = o.DgIpv6
+	info.DhcpDgIpv6 = o.Dhcpv6
+
+	info.Ipv6ForceDGW = o.Ipv6ForceDGW
+	info.Ipv6ForcedgMac = o.Ipv6ForcedgMac
+	info.ForceDGW = o.ForceDGW
+	info.Ipv4ForcedgMac = o.Ipv4ForcedgMac
+
+	info.DGW = o.DGW
+
+	info.Ipv6Router = o.Ipv6Router
+	info.Ipv6DGW = o.Ipv6DGW
+
 	return &info
 }

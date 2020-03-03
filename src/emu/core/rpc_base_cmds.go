@@ -313,7 +313,7 @@ func (h ApiClientAddHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawM
 	}
 
 	for _, c := range newc.Clients {
-		client := NewClient(ns, c.Mac, c.Ipv4, c.Ipv6, c.DgIpv4)
+		client := NewClientCmd(ns, &c)
 
 		err = ns.AddClient(client)
 		if err != nil {
