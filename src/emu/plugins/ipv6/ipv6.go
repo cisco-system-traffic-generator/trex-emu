@@ -338,7 +338,7 @@ type (
 	}
 	ApiMldNsIterResult struct {
 		Empty  bool           `json:"empty"`
-		Stoped bool           `json:"stoped"`
+		Stopped bool           `json:"stopped"`
 		Vec    []core.Ipv6Key `json:"data"`
 	}
 
@@ -363,7 +363,7 @@ type (
 	}
 	ApiNdNsIterResult struct {
 		Empty  bool             `json:"empty"`
-		Stoped bool             `json:"stoped"`
+		Stopped bool             `json:"stopped"`
 		Vec    []Ipv6NsCacheRec `json:"data"`
 	}
 )
@@ -376,9 +376,9 @@ func getNsPlugin(ctx interface{}, params *fastjson.RawMessage) (*PluginIpv6Ns, e
 		return nil, err
 	}
 
-	icmpNs := plug.Ext.(*PluginIpv6Ns)
+	ipv6Ns := plug.Ext.(*PluginIpv6Ns)
 
-	return icmpNs, nil
+	return ipv6Ns, nil
 }
 
 func getClient(ctx interface{}, params *fastjson.RawMessage) (*PluginIpv6Client, *jsonrpc.Error) {
@@ -499,7 +499,7 @@ func (h ApiMldNsIterHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawM
 		return &res, nil
 	}
 	if ipv6Ns.mld.IterIsStopped() {
-		res.Stoped = true
+		res.Stopped = true
 		return &res, nil
 	}
 
@@ -595,7 +595,7 @@ func (h ApiNdNsIterHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMe
 		return &res, nil
 	}
 	if ipv6Ns.nd.tbl.IterIsStopped() {
-		res.Stoped = true
+		res.Stopped = true
 		return &res, nil
 	}
 
