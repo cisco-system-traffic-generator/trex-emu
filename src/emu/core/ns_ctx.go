@@ -167,11 +167,11 @@ type CNSCtx struct {
 }
 
 type CNsInfo struct {
-	Port          uint16    `json:"vport"`
-	Tci           [2]uint16 `json:"tpid"`
-	Tpid          [2]uint16 `json:"tci"`
-	ActiveClients uint64    `json:"active_clients"`
-	PluginsCount  uint64    `json:"plugins_count"`
+	Port uint16    `json:"vport" validate:"required"`
+	Tci  [2]uint16 `json:"tci"`
+	Tpid [2]uint16 `json:"tpid"`
+	ActiveClients uint64 `json:"active_clients"`
+	PluginsCount  uint64 `json:"plugins_count"`
 	// TODO add more later ..
 }
 

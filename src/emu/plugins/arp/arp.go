@@ -44,7 +44,7 @@ func covertToArpFlow(dlist *core.DList) *ArpFlow {
 }
 
 type ArpCacheRec struct {
-	Ipv4    core.Ipv4Key `json:"ipv6"`
+	Ipv4    core.Ipv4Key `json:"ipv4"`
 	Refc    uint32       `json:"refc"`
 	State   uint8        `json:"state"`
 	Resolve bool         `json:"resolve"`
@@ -942,7 +942,7 @@ type (
 	}
 	ApiArpNsIterResult struct {
 		Empty  bool          `json:"empty"`
-		Stoped bool          `json:"stoped"`
+		Stopped bool          `json:"stopped"`
 		Vec    []ArpCacheRec `json:"data"`
 	}
 )
@@ -1020,7 +1020,13 @@ func (h ApiArpNsCntHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMe
 	tctx := ctx.(*core.CThreadCtx)
 
 	arpNsPlug, err := getNsPlugin(ctx, params)
-
+	
+	if err != nil {
+		return nil, &jsonrpc.Error{
+			Code:    jsonrpc.ErrorCodeInvalidRequest,
+			Message: err.Error(),
+		}
+	}
 	return arpNsPlug.cdbv.GeneralCounters(err, tctx, params, &p)
 }
 
@@ -1081,7 +1087,7 @@ func (h ApiArpNsIterHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawM
 		return &res, nil
 	}
 	if ns.tbl.IterIsStopped() {
-		res.Stoped = true
+		res.Stopped = true
 		return &res, nil
 	}
 

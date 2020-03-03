@@ -1104,7 +1104,7 @@ type (
 	}
 	ApiIgmpNsIterResult struct {
 		Empty  bool           `json:"empty"`
-		Stoped bool           `json:"stoped"`
+		Stopped bool           `json:"stopped"`
 		Vec    []core.Ipv4Key `json:"data"`
 	}
 
@@ -1206,6 +1206,12 @@ func (h ApiIgmpNsCntHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawM
 	var p core.ApiCntParams
 	tctx := ctx.(*core.CThreadCtx)
 	c, err := getNsPlugin(ctx, params)
+	if err != nil {
+		return nil, &jsonrpc.Error{
+			Code:    jsonrpc.ErrorCodeInvalidRequest,
+			Message: err.Error(),
+		}
+	}
 	return c.cdbv.GeneralCounters(err, tctx, params, &p)
 
 }
@@ -1304,7 +1310,7 @@ func (h ApiIgmpNsIterHandler) ServeJSONRPC(ctx interface{}, params *fastjson.Raw
 		return &res, nil
 	}
 	if igmpPlug.IterIsStopped() {
-		res.Stoped = true
+		res.Stopped = true
 		return &res, nil
 	}
 

@@ -349,7 +349,7 @@ func (o *CThreadCtx) GetClientPlugin(params *fastjson.RawMessage, plugin string)
 
 	ns := o.GetNs(&tun)
 	if ns == nil {
-		err = fmt.Errorf(" error there is valid namespace for this tunnel ")
+		err = fmt.Errorf(" error there is no valid namespace for this tunnel ")
 		return nil, err
 	}
 
@@ -633,12 +633,12 @@ func (o *CThreadCtx) GetNsPlugin(params *fastjson.RawMessage, plugin string) (*P
 	}
 	ns := o.GetNs(&key)
 	if ns == nil {
-		err = fmt.Errorf(" error there is valid namespace for this tunnel ")
+		err = fmt.Errorf(" error there is no valid namespace for this tunnel ")
 		return nil, err
 	}
 	plug := ns.PluginCtx.Get(plugin)
 	if plug == nil {
-		err = fmt.Errorf(" error there is valid plugin %s for this tunnel ", plugin)
+		err = fmt.Errorf(" error there is no valid plugin %s for this tunnel ", plugin)
 		return nil, err
 	}
 
