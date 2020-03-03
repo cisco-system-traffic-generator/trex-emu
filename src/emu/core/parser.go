@@ -410,6 +410,7 @@ type Parser struct {
 	icmp   ParserCb
 	igmp   ParserCb
 	dhcp   ParserCb
+	dhcpv6 ParserCb
 	tcp    ParserCb
 	udp    ParserCb
 	icmpv6 ParserCb
@@ -436,6 +437,9 @@ func (o *Parser) Register(protocol string) {
 	if protocol == "icmpv6" {
 		o.icmpv6 = getProto("icmpv6")
 	}
+	if protocol == "dhcpv6" {
+		o.dhcpv6 = getProto("dhcpv6")
+	}
 }
 
 func (o *Parser) Init(tctx *CThreadCtx) {
@@ -447,11 +451,12 @@ func (o *Parser) Init(tctx *CThreadCtx) {
 	o.tcp = parserNotSupported
 	o.udp = parserNotSupported
 	o.icmpv6 = parserNotSupported
+	o.dhcpv6 = parserNotSupported
 	o.Cdb = newParserStatsDb(&o.stats)
 }
 
 func (o *Parser) parsePacketL4(ps *ParserPacketState,
-	nextHdr uint8, pcs uint32, l4len uint16) int {
+	nextHdr uint8, pcs uint32, l4len uint16, layer3 uint16) int {
 
 	packetSize := ps.M.PktLen()
 	p := ps.M.GetData()
@@ -498,7 +503,11 @@ func (o *Parser) parsePacketL4(ps *ParserPacketState,
 			o.stats.dhcpPkts++
 			o.stats.dhcpBytes += uint64(packetSize)
 			ps.L7 = ps.L4 + 8
-			return o.dhcp(ps)
+			if layer3 == uint16(layers.EthernetTypeIPv6) {
+				return o.dhcpv6(ps)
+			} else {
+				return o.dhcp(ps)
+			}
 		}
 		o.stats.errUDP++
 		return PARSER_ERR
@@ -641,7 +650,7 @@ func (o *Parser) ParsePacket(m *Mbuf) int {
 			offset = ps.L4
 			tun.Set(&d)
 
-			return o.parsePacketL4(&ps, ipv4.GetNextProtocol(), ipv4.GetPhCs(), l4len)
+			return o.parsePacketL4(&ps, ipv4.GetNextProtocol(), ipv4.GetPhCs(), l4len, uint16(nextHdr))
 		case layers.EthernetTypeIPv6:
 			ps.L3 = offset
 			if packetSize < uint32(offset+IPV6_HEADER_SIZE) {
@@ -736,7 +745,7 @@ func (o *Parser) ParsePacket(m *Mbuf) int {
 				}
 			}
 			ps.L4 = l4
-			return o.parsePacketL4(&ps, nh, ipv6.GetPhCs(osize, nh), l4len)
+			return o.parsePacketL4(&ps, nh, ipv6.GetPhCs(osize, nh), l4len, uint16(nextHdr))
 		default:
 			o.stats.errL3ProtoUnsupported++
 			return PARSER_ERR
