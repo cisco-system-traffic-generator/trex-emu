@@ -34,9 +34,7 @@ type (
 
 	/* Namespace Commands */
 	ApiNsAddHandler struct{}
-	ApiNsAddParams  struct {
-		Plugins MapJsonPlugs `json:"plugins"`
-	} /* [key tunnel] */
+	ApiNsAddParams  struct {} /* [key tunnel] */
 
 	ApiNsRemoveHandler struct{}
 	ApiNsRemoveParams  struct{} /* [key tunnel] */
@@ -280,14 +278,14 @@ func (h ApiNsSetDefPlugHandler) ServeJSONRPC(ctx interface{}, params *fastjson.R
 			Message: err.Error(),
 		}
 	}
-	tctx.DefNsPlugs = p.DefPlugs
+	tctx.DefNsPlugs = &p.DefPlugs
 	return nil, nil
 }
 
 func (h ApiNsGetDefPlugHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
 	tctx := ctx.(*CThreadCtx)
 	var res ApiNsGetDefPlugResult
-	res.DefPlugs = tctx.DefNsPlugs
+	res.DefPlugs = *tctx.DefNsPlugs
 
 	return res, nil
 }
@@ -323,8 +321,16 @@ func (h ApiClientAddHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawM
 			}
 		}
 
-		/* add default plugins */
-		for plName, plData := range ns.DefClientPlugs {
+		var plugMap *MapJsonPlugs
+		if c.Plugins == nil {
+			/* client didn't supply plugins, use defaults */
+			plugMap = ns.DefClientPlugs
+		} else {
+			/* client supply plugins, use them */
+			plugMap = c.Plugins
+		}
+
+		for plName, plData := range *plugMap {
 			err = client.PluginCtx.addPlugin(plName, *plData)
 			if err != nil {
 				return nil, &jsonrpc.Error{
@@ -416,7 +422,7 @@ func (h ApiClientSetDefPlugHandler) ServeJSONRPC(ctx interface{}, params *fastjs
 			Message: "namespace doesn't exists for set client default plugins ",
 		}
 	}
-	ns.DefClientPlugs = p.DefPlugs
+	ns.DefClientPlugs = &p.DefPlugs
 	return nil, nil
 }
 
@@ -436,7 +442,7 @@ func (h ApiClientGetDefPlugHandler) ServeJSONRPC(ctx interface{}, params *fastjs
 		}
 	}
 	var p ApiClientGetDefPlugResult
-	p.DefPlugs = ns.DefClientPlugs
+	p.DefPlugs = *ns.DefClientPlugs
 	return p, nil
 }
 

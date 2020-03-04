@@ -163,7 +163,7 @@ type CNSCtx struct {
 	iterReady      bool
 	iter           DListIterHead
 	cdb            *CCounterDb
-	DefClientPlugs MapJsonPlugs // Default plugins for each new client
+	DefClientPlugs *MapJsonPlugs // Default plugins for each new client
 }
 
 type CNsInfo struct {
@@ -187,7 +187,7 @@ func NewNSCtx(tctx *CThreadCtx,
 	o.mapIpv4 = make(MapClientIPv4)
 	o.mapMAC = make(MapClientMAC)
 	o.PluginCtx = NewPluginCtx(nil, o, tctx, PLUGIN_LEVEL_NS)
-	o.DefClientPlugs = make(MapJsonPlugs)
+	o.DefClientPlugs = nil
 	o.clientHead.SetSelf()
 	o.iterReady = false
 	return o

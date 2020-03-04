@@ -41,6 +41,7 @@ type CTunnelDataJson struct {
 	Vport uint16    `json:"vport"`
 	Tpid  [2]uint16 `json:"tpid"`
 	Tci   [2]uint16 `json:"tci"`
+	Plugins *MapJsonPlugs `json:"plugs"`
 }
 
 type RpcCmdTunnel struct {
@@ -192,7 +193,7 @@ type CThreadCtx struct {
 	simRecorder []interface{} // record event for simulation
 	cdbv        *CCounterDbVec
 	clientStats CClientStats
-	DefNsPlugs  MapJsonPlugs // Default plugins for each new namespace
+	DefNsPlugs  *MapJsonPlugs // Default plugins for each new namespace
 }
 
 func NewThreadCtx(Id uint32, serverPort uint16, simulation bool, simRx *VethIFSim) *CThreadCtx {
@@ -206,7 +207,7 @@ func NewThreadCtx(Id uint32, serverPort uint16, simulation bool, simRx *VethIFSi
 	o.rpc.SetCtx(o) /* back pointer to interface this */
 	o.nsHead.SetSelf()
 	o.PluginCtx = NewPluginCtx(nil, nil, o, PLUGIN_LEVEL_THREAD)
-	o.DefNsPlugs = make(MapJsonPlugs)
+	o.DefNsPlugs = nil
 	o.validate = validator.New()
 	o.parser.Init(o)
 	if simulation {
@@ -422,6 +423,19 @@ func (o *CThreadCtx) UnmarshalTunnels(data []byte) ([]CTunnelKey, error) {
 	return keys, nil
 }
 
+func (o *CThreadCtx) UnmarshalTunnelsPlugins(data []byte) ([]*MapJsonPlugs, error) {
+	var tuns RpcCmdTunnels
+	err := o.UnmarshalValidate(data, &tuns)
+	if err != nil {
+		return nil, err
+	}
+	plugs := make([]*MapJsonPlugs, len(tuns.Tunnels))
+	for i, tun := range tuns.Tunnels {
+		plugs[i] = tun.Plugins
+	}
+	return plugs, nil
+}
+
 func (o *CThreadCtx) RemoveNsRpc(params *fastjson.RawMessage) error {
 	var key CTunnelKey
 	err := o.UnmarshalTunnel(*params, &key)
@@ -485,27 +499,25 @@ func (o *CThreadCtx) AddNsRpcSlice(params *fastjson.RawMessage) error {
 		return err
 	}
 
-	var p ApiNsAddParams
-	err = o.UnmarshalValidate(*params, &p)
+	plugs, err := o.UnmarshalTunnelsPlugins(*params)
 	if err != nil {
 		return err
 	}
 
-	for _, key := range keys {
+	for i, key := range keys {
 		ns := o.GetNs(&key)
 		if ns != nil {
-			err = fmt.Errorf(" error there is valid namespace for this tunnel: %s, can't add it ", key)
+			err = fmt.Errorf(" error there is a valid namespace for this tunnel: %s, can't add it ", key)
 			return err
 		}
 
 		ns = NewNSCtx(o, &key)
-		/* add plugin data */
 		err := o.AddNs(&key, ns)
 		if err != nil {
 			return err
 		}
 
-		if err = o.addPluginsNs(ns, p); err != nil {
+		if err = o.addPluginsNs(ns, plugs[i]); err != nil {
 			return err
 		}
 	}
@@ -513,30 +525,23 @@ func (o *CThreadCtx) AddNsRpcSlice(params *fastjson.RawMessage) error {
 	return nil
 }
 
-func (o *CThreadCtx) addPluginsNs(ns *CNSCtx, p ApiNsAddParams) error {
-	var err error
+func (o *CThreadCtx) addPluginsNs(ns *CNSCtx, plugs *MapJsonPlugs) error {
+	var plugMap *MapJsonPlugs
 
-	/* add default plugins */
-	for plName, plData := range o.DefNsPlugs {
-		var data *fastjson.RawMessage
-		if val, ok := p.Plugins[plName]; ok {
-			data = val
-		} else {
-			data = plData
-		}
-		if err = ns.PluginCtx.addPlugin(plName, *data); err != nil {
+	if plugs == nil {
+		/* ns didn't supply plugins, use ctx defaults */
+		plugMap = o.DefNsPlugs
+	} else {
+		/* ns supply plugins, use them */
+		plugMap = plugs
+	}
+
+	for plName, plData := range *plugMap {
+		if err := ns.PluginCtx.addPlugin(plName, *plData); err != nil {
 			return err
 		}
 	}
 
-	/* add plugins from params we haven't added yet */
-	for plName, plData := range p.Plugins {
-		if _, ok := o.DefNsPlugs[plName]; !ok {
-			if err = ns.PluginCtx.addPlugin(plName, *plData); err != nil {
-				return err
-			}
-		}
-	}
 	return nil
 }
 

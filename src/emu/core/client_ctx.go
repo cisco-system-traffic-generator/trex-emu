@@ -98,6 +98,8 @@ type CClientCmd struct {
 	Ipv6ForcedgMac MACKey `json:"ipv4_force_mac"`
 	ForceDGW       bool   `json:"ipv6_force_dg"`
 	Ipv4ForcedgMac MACKey `json:"ipv6_force_mac"`
+
+	Plugins *MapJsonPlugs `json:"plugs"`
 }
 
 type CClientCmds struct {
