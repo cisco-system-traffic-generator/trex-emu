@@ -1001,7 +1001,7 @@ func (o *NdClientCtx) SendNS(dad bool, sourceipv6 *core.Ipv6Key, target *core.Ip
 		copy(p[0:6], []byte{0x33, 0x33, mcipv6[12], mcipv6[13], mcipv6[14], mcipv6[15]})
 
 		o.nsPlug.stats.pktTxNeighborUnsolicitedDAD++
-		ipv6.FixL4Checksum(p[l4:], 0)
+		ipv6.FixIcmpL4Checksum(p[l4:], 0)
 		o.base.Tctx.Veth.Send(m)
 
 	} else {
@@ -1026,7 +1026,7 @@ func (o *NdClientCtx) SendNS(dad bool, sourceipv6 *core.Ipv6Key, target *core.Ip
 		copy(p[oo:oo+6], mac[:]) //mac option as a source
 
 		o.nsPlug.stats.pktTxNeighborUnsolicitedQuery++
-		ipv6.FixL4Checksum(p[l4:], 0)
+		ipv6.FixIcmpL4Checksum(p[l4:], 0)
 		o.base.Tctx.Veth.Send(m)
 	}
 
@@ -1079,7 +1079,7 @@ func (o *NdClientCtx) SendUnsolicitedNaIpv6(target *core.Ipv6Key, source *core.I
 	p[l4+4] = 0x20
 	o.nsPlug.stats.pktTxNeighborUnsolicitedNA++
 
-	ipv6.FixL4Checksum(p[l4:], 0)
+	ipv6.FixIcmpL4Checksum(p[l4:], 0)
 
 	o.base.Tctx.Veth.Send(m)
 }
@@ -1126,7 +1126,7 @@ func (o *NdClientCtx) Respond(mac *core.MACKey, ps *core.ParserPacketState) {
 		p[l4+4] = 0x60
 	}
 
-	ipv6.FixL4Checksum(p[l4:], 0)
+	ipv6.FixIcmpL4Checksum(p[l4:], 0)
 
 	o.base.Tctx.Veth.Send(m)
 }
@@ -1241,7 +1241,7 @@ func (o *NdNsCtx) SendRouterSolicitation(srcMac core.MACKey) {
 
 	rcof := ipoffset + IPV6_HEADER_SIZE
 
-	ipv6.FixL4Checksum(p[rcof:], 0)
+	ipv6.FixIcmpL4Checksum(p[rcof:], 0)
 
 	o.base.Tctx.Veth.Send(m)
 }
@@ -1346,6 +1346,10 @@ func (o *NdNsCtx) HandleRxIpv6NdPacket(ps *core.ParserPacketState, code layers.I
 		o.stats.pktRxRouterAdvertisement++
 
 		var ra layers.ICMPv6RouterAdvertisement
+		if len(nd) < 12 {
+			o.stats.pktRxErrTooShort++
+			return core.PARSER_ERR
+		}
 		err := ra.DecodeFromBytes(nd, o)
 		if err != nil {
 			o.stats.pktRxErrTooShort++
@@ -1418,6 +1422,11 @@ func (o *NdNsCtx) HandleRxIpv6NdPacket(ps *core.ParserPacketState, code layers.I
 		o.stats.pktRxNeighborSolicitation++
 
 		var ra layers.ICMPv6NeighborSolicitation
+		if len(nd) < 20 {
+			o.stats.pktRxErrTooShort++
+			return core.PARSER_ERR
+		}
+
 		err := ra.DecodeFromBytes(nd, o)
 		if err != nil {
 			o.stats.pktRxNeighborSolicitationParserErr++
@@ -1554,6 +1563,11 @@ func (o *NdNsCtx) HandleRxIpv6NdPacket(ps *core.ParserPacketState, code layers.I
 		o.stats.pktRxNeighborAdvertisement++
 
 		var ra layers.ICMPv6NeighborAdvertisement
+		if len(nd) < 20 {
+			o.stats.pktRxErrTooShort++
+			return core.PARSER_ERR
+		}
+
 		err := ra.DecodeFromBytes(nd, o)
 		if err != nil {
 			o.stats.pktRxNeighborAdvParserErr++

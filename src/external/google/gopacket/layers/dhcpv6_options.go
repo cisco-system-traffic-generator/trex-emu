@@ -10,8 +10,9 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
-	"fmt"
 	"external/google/gopacket"
+	"fmt"
+	"net"
 )
 
 // DHCPv6Opt represents a DHCP option or parameter from RFC-3315
@@ -608,14 +609,60 @@ func (o *DHCPv6Option) encode(b []byte, opts gopacket.SerializeOptions) error {
 }
 
 func (o *DHCPv6Option) decode(data []byte) error {
-	if len(data) < 2 {
-		return errors.New("not enough data to decode")
+	if len(data) < 4 {
+		return errors.New("not enough data to decode2")
 	}
 	o.Code = DHCPv6Opt(binary.BigEndian.Uint16(data[0:2]))
-	if len(data) < 3 {
+	o.Length = binary.BigEndian.Uint16(data[2:4])
+	if uint16(len(data)) < 4+o.Length {
+		return errors.New("not enough data to decode3")
+	}
+	o.Data = data[4 : 4+o.Length]
+	return nil
+}
+
+type DHCPv6OptionIANA struct {
+	IAID          uint32
+	T1            uint32
+	T2            uint32
+	OptionValid   bool
+	IPv6          net.IP
+	preferredLife uint32
+	ValidLife     uint32
+}
+
+func (o *DHCPv6OptionIANA) Decode(data []byte) error {
+
+	if len(data) < 12 {
 		return errors.New("not enough data to decode")
 	}
-	o.Length = binary.BigEndian.Uint16(data[2:4])
-	o.Data = data[4 : 4+o.Length]
+	o.OptionValid = false
+	o.IAID = binary.BigEndian.Uint32(data[0:4])
+	o.T1 = binary.BigEndian.Uint32(data[4:8])
+	o.T2 = binary.BigEndian.Uint32(data[8:12])
+	if len(data) < 12+4 {
+		return nil
+	}
+	// one option
+	code := binary.BigEndian.Uint16(data[12:14])
+	length := binary.BigEndian.Uint16(data[14:18])
+	if code != uint16(DHCPv6OptIAAddr) {
+		return errors.New("not enough data to decode")
+	}
+
+	if len(data) < int(length+4+12) {
+		return errors.New("not enough data to decode")
+	}
+	if length < 24 {
+		return errors.New("not enough data to decode")
+	}
+
+	p := data[12+4:]
+	o.OptionValid = true
+
+	copy(o.IPv6[:], p[0:16])
+
+	o.preferredLife = binary.BigEndian.Uint32(data[16:20])
+	o.ValidLife = binary.BigEndian.Uint32(data[20:24])
 	return nil
 }

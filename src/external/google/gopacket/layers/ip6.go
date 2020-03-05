@@ -37,10 +37,22 @@ func (o IPv6ExtHeader) HeaderLen() uint16 {
 
 type IPv6Header []byte
 
-func (o IPv6Header) FixL4Checksum(l4 []byte, osize uint16) {
-	binary.BigEndian.PutUint16(l4[2:4], 0)
+func (o IPv6Header) FixL4ChecksumOffset(l4 []byte, osize uint16, of uint16) {
+	binary.BigEndian.PutUint16(l4[of:of+2], 0)
 	cs := PktChecksumTcpUdpV6(l4[:], 0, o, osize, o.NextHeader())
-	binary.BigEndian.PutUint16(l4[2:4], cs)
+	binary.BigEndian.PutUint16(l4[of:of+2], cs)
+}
+
+func (o IPv6Header) FixTcpL4Checksum(l4 []byte, osize uint16) {
+	o.FixL4ChecksumOffset(l4, osize, 16)
+}
+
+func (o IPv6Header) FixUdpL4Checksum(l4 []byte, osize uint16) {
+	o.FixL4ChecksumOffset(l4, osize, 6)
+}
+
+func (o IPv6Header) FixIcmpL4Checksum(l4 []byte, osize uint16) {
+	o.FixL4ChecksumOffset(l4, osize, 2)
 }
 
 func (o IPv6Header) SwapSrcDst() {

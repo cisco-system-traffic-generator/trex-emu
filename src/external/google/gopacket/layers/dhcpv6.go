@@ -94,6 +94,9 @@ func (d *DHCPv6) DecodeFromBytes(data []byte, df gopacket.DecodeFeedback) error 
 
 	offset := 0
 	if d.MsgType == DHCPv6MsgTypeRelayForward || d.MsgType == DHCPv6MsgTypeRelayReply {
+		if len(data) < 34 {
+			return errors.New("not enough data to decode1")
+		}
 		d.HopCount = data[1]
 		d.LinkAddr = net.IP(data[2:18])
 		d.PeerAddr = net.IP(data[18:34])

@@ -499,16 +499,23 @@ func (o *Parser) parsePacketL4(ps *ParserPacketState,
 		}
 		o.stats.udpPkts++
 		o.stats.udpBytes += uint64(packetSize)
-		if (udp.SrcPort() == 67) && (udp.DstPort() == 68) {
-			o.stats.dhcpPkts++
-			o.stats.dhcpBytes += uint64(packetSize)
-			ps.L7 = ps.L4 + 8
-			if layer3 == uint16(layers.EthernetTypeIPv6) {
+
+		if layer3 == uint16(layers.EthernetTypeIPv6) {
+			if (udp.SrcPort() == 547) && (udp.DstPort() == 546) {
+				o.stats.dhcpPkts++
+				o.stats.dhcpBytes += uint64(packetSize)
+				ps.L7 = ps.L4 + 8
 				return o.dhcpv6(ps)
-			} else {
+			}
+		} else {
+			if (udp.SrcPort() == 67) && (udp.DstPort() == 68) {
+				o.stats.dhcpPkts++
+				o.stats.dhcpBytes += uint64(packetSize)
+				ps.L7 = ps.L4 + 8
 				return o.dhcp(ps)
 			}
 		}
+
 		o.stats.errUDP++
 		return PARSER_ERR
 	case layers.IPProtocolICMPv6:

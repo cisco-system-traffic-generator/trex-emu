@@ -1,7 +1,7 @@
-package dhcp
+package dhcpv6
 
 /*
-RFC 2131 DHCP client
+RFC 8415  DHCPv6 client
 
 client inijson {
 	TimerDiscoverSec uint32 `json:"timerd"`
@@ -16,6 +16,7 @@ import (
 	"external/google/gopacket"
 	"external/google/gopacket/layers"
 	"external/osamingo/jsonrpc"
+	"fmt"
 	"math/rand"
 	"net"
 	"time"
@@ -24,7 +25,7 @@ import (
 )
 
 const (
-	DHCP_PLUG = "dhcp"
+	DHCPV6_PLUG = "dhcpv6"
 	/* state of each client */
 	DHCP_STATE_INIT       = 0
 	DHCP_STATE_REBOOTING  = 1
@@ -33,6 +34,7 @@ const (
 	DHCP_STATE_REBINDING  = 4
 	DHCP_STATE_RENEWING   = 5
 	DHCP_STATE_BOUND      = 6
+	IPV6_HEADER_SIZE      = 40
 )
 
 type DhcpInit struct {
@@ -58,7 +60,7 @@ type DhcpStats struct {
 }
 
 func NewDhcpStatsDb(o *DhcpStats) *core.CCounterDb {
-	db := core.NewCCounterDb("dhcp")
+	db := core.NewCCounterDb("dhcpv6")
 
 	db.Add(&core.CCounterRec{
 		Counter:  &o.pktTxDiscover,
@@ -115,7 +117,7 @@ func NewDhcpStatsDb(o *DhcpStats) *core.CCounterDb {
 	db.Add(&core.CCounterRec{
 		Counter:  &o.pktRxNotify,
 		Name:     "pktRxNotify",
-		Help:     "notify with new IPv4 addr",
+		Help:     "notify with new IPv6 addr",
 		Unit:     "pkts",
 		DumpZero: false,
 		Info:     core.ScINFO})
@@ -162,8 +164,9 @@ type PluginDhcpClient struct {
 	timerw     *core.TimerCtx
 	cnt        uint8
 	state      uint8
+	ticksStart uint64
 
-	ipv4                       net.IP
+	ipv6                       net.IP
 	server                     net.IP
 	serverMac                  core.MACKey
 	dg                         core.Ipv4Key
@@ -177,10 +180,12 @@ type PluginDhcpClient struct {
 	t1                         uint32
 	t2                         uint32
 	discoverPktTemplate        []byte
-	requestPktTemplate         []byte
-	requestRenewPktTemplate    []byte
 	l3Offset                   uint16
+	l4Offset                   uint16
+	l7Offset                   uint16
 	xid                        uint32
+	iaid                       uint32
+	serverOption               []byte
 }
 
 var dhcpEvents = []string{}
@@ -193,7 +198,7 @@ func NewDhcpClient(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
 	o := new(PluginDhcpClient)
 	o.InitPluginBase(ctx, o)             /* init base object*/
 	o.RegisterEvents(ctx, dhcpEvents, o) /* register events, only if exits*/
-	nsplg := o.Ns.PluginCtx.GetOrCreate(DHCP_PLUG)
+	nsplg := o.Ns.PluginCtx.GetOrCreate(DHCPV6_PLUG)
 	o.dhcpNsPlug = nsplg.Ext.(*PluginDhcpNs)
 	o.OnCreate()
 
@@ -216,145 +221,147 @@ func (o *PluginDhcpClient) OnCreate() {
 	o.timerDiscoverRetransmitSec = 5
 	o.timerOfferRetransmitSec = 10
 	o.cdb = NewDhcpStatsDb(&o.stats)
-	o.cdbv = core.NewCCounterDbVec("dhcp")
+	o.cdbv = core.NewCCounterDbVec("dhcpv6")
 	o.cdbv.Add(o.cdb)
 	o.timer.SetCB(&o.timerCb, o, 0) // set the callback to OnEvent
+	o.ticksStart = o.timerw.Ticks
 	o.SendDiscover()
 }
 
-func (o *PluginDhcpClient) preparePacketTemplate() {
-	l2 := o.Client.GetL2Header(true, uint16(layers.EthernetTypeIPv4))
-	o.l3Offset = uint16(len(l2))
+func (o *PluginDhcpClient) buildPacket(l2 []byte, dhcp *layers.DHCPv6) []byte {
 
-	options := append([]byte{1}, o.Client.Mac[:]...)
+	ipv6pkt := core.PacketUtlBuild(
 
-	var xid uint32
-	if !o.Tctx.Simulation {
-		xid = uint32(rand.Intn(0xffffffff))
-	} else {
-		xid = 0x12345678
-	}
-	o.xid = xid
+		&layers.IPv6{
+			Version:      6,
+			TrafficClass: 0,
+			FlowLabel:    0,
+			Length:       8,
+			NextHeader:   layers.IPProtocolUDP,
+			HopLimit:     1,
+			SrcIP:        net.IP{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
+			DstIP:        net.IP{0xff, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x02},
+		},
 
-	dhcp := &layers.DHCPv4{Operation: layers.DHCPOpRequest,
-		HardwareType: layers.LinkTypeEthernet,
-		HardwareLen:  6,
-		Xid:          xid,
-		ClientIP:     net.IP{0, 0, 0, 0},
-		YourClientIP: net.IP{0, 0, 0, 0},
-		NextServerIP: net.IP{0, 0, 0, 0},
-		RelayAgentIP: net.IP{0, 0, 0, 0},
-		ClientHWAddr: net.HardwareAddr(o.Client.Mac[:]),
-		ServerName:   make([]byte, 64), File: make([]byte, 128)}
-	dhcp.Options = append(dhcp.Options, layers.NewDHCPOption(layers.DHCPOptMessageType, []byte{byte(layers.DHCPMsgTypeDiscover)}))
-	dhcp.Options = append(dhcp.Options, layers.NewDHCPOption(layers.DHCPOptClientID, options))
-	dhcp.Options = append(dhcp.Options, layers.NewDHCPOption(layers.DHCPOptRequestIP, []byte{0, 0, 0, 0}))
-	dhcp.Options = append(dhcp.Options, layers.NewDHCPOption(layers.DHCPOptHostname, []byte{'h', 'o', 's', 't', '-', 't', 'r', 'e', 'x', 's'}))
-	dhcp.Options = append(dhcp.Options, layers.NewDHCPOption(layers.DHCPOptParamsRequest,
-		[]byte{byte(layers.DHCPOptSubnetMask),
-			byte(layers.DHCPOptRouter),
-			byte(layers.DHCPOptDomainName),
-			byte(layers.DHCPOptDNS),
-			byte(layers.DHCPOptInterfaceMTU),
-			byte(layers.DHCPOptNTPServers)}))
-
-	d := core.PacketUtlBuild(
-		&layers.IPv4{Version: 4, IHL: 5, TTL: 128, Id: 0xcc,
-			SrcIP:    net.IPv4(0, 0, 0, 0),
-			DstIP:    net.IPv4(255, 255, 255, 255),
-			Protocol: layers.IPProtocolUDP},
-
-		&layers.UDP{SrcPort: 68, DstPort: 67},
+		&layers.UDP{SrcPort: 546, DstPort: 547},
 		dhcp,
 	)
 
-	ipv4 := layers.IPv4Header(d[0:20])
-	ipv4.SetLength(uint16(len(d)))
-	ipv4.UpdateChecksum()
+	p := append(l2, ipv6pkt...)
+	ipoffset := len(l2)
 
-	binary.BigEndian.PutUint16(d[24:26], uint16(len(d)-20))
-	binary.BigEndian.PutUint16(d[26:28], 0)
-	cs := layers.PktChecksumTcpUdp(d[20:], 0, ipv4)
-	binary.BigEndian.PutUint16(d[26:28], cs)
+	pktSize := len(p)
 
-	o.discoverPktTemplate = append(l2, d...)
+	ipv6 := layers.IPv6Header(p[ipoffset : ipoffset+IPV6_HEADER_SIZE])
 
-	dhcpReq := &layers.DHCPv4{Operation: layers.DHCPOpRequest,
-		HardwareType: layers.LinkTypeEthernet,
-		HardwareLen:  6,
-		Xid:          xid,
-		ClientIP:     net.IP{0, 0, 0, 0},
-		YourClientIP: net.IP{0, 0, 0, 0},
-		NextServerIP: net.IP{0, 0, 0, 0},
-		RelayAgentIP: net.IP{0, 0, 0, 0},
-		ClientHWAddr: net.HardwareAddr(o.Client.Mac[:]),
-		ServerName:   make([]byte, 64), File: make([]byte, 128)}
-	dhcpReq.Options = append(dhcpReq.Options, layers.NewDHCPOption(layers.DHCPOptMessageType, []byte{byte(layers.DHCPMsgTypeRequest)}))
-	dhcpReq.Options = append(dhcpReq.Options, layers.NewDHCPOption(layers.DHCPOptClientID, options))
-	dhcpReq.Options = append(dhcpReq.Options, layers.NewDHCPOption(layers.DHCPOptRequestIP, []byte{0, 0, 0, 0}))
-	dhcpReq.Options = append(dhcpReq.Options, layers.NewDHCPOption(layers.DHCPOptServerID, []byte{0, 0, 0, 0}))
+	// set local ip
+	var l6 core.Ipv6Key
+	o.Client.GetIpv6LocalLink(&l6)
+	copy(ipv6.SrcIP()[:], l6[:])
+	copy(p[0:6], []byte{0x33, 0x33, 0, 1, 0, 2})
 
-	dhcpReq.Options = append(dhcpReq.Options, layers.NewDHCPOption(layers.DHCPOptParamsRequest,
-		[]byte{byte(layers.DHCPOptSubnetMask),
-			byte(layers.DHCPOptRouter),
-			byte(layers.DHCPOptDomainName),
-			byte(layers.DHCPOptDNS),
-			byte(layers.DHCPOptInterfaceMTU),
-			byte(layers.DHCPOptNTPServers)}))
+	rcof := ipoffset + IPV6_HEADER_SIZE
+	binary.BigEndian.PutUint16(p[rcof+4:rcof+6], uint16(pktSize-rcof))
+	ipv6.SetPyloadLength(uint16(pktSize - rcof))
+	ipv6.FixUdpL4Checksum(p[rcof:], 0)
 
-	dr := core.PacketUtlBuild(
-		&layers.IPv4{Version: 4, IHL: 5, TTL: 128, Id: 0xcc,
-			SrcIP:    net.IPv4(0, 0, 0, 0),
-			DstIP:    net.IPv4(255, 255, 255, 255),
-			Protocol: layers.IPProtocolUDP},
+	return p
+}
 
-		&layers.UDP{SrcPort: 68, DstPort: 67},
-		dhcpReq,
-	)
+func (o *PluginDhcpClient) preparePacketTemplate() {
+	l2 := o.Client.GetL2Header(true, uint16(layers.EthernetTypeIPv6))
+	o.l3Offset = uint16(len(l2))
 
-	ipv4 = layers.IPv4Header(dr[0:20])
-	ipv4.SetLength(uint16(len(dr)))
-	ipv4.UpdateChecksum()
+	var xid uint32
+	var iaid uint32
+	if !o.Tctx.Simulation {
+		xid = uint32(rand.Intn(0xffffff))
+		iaid = uint32(rand.Intn(0xffffffff))
+	} else {
+		xid = 0x345678
+		iaid = 0x12345678
+	}
+	o.xid = xid
+	o.iaid = iaid
 
-	binary.BigEndian.PutUint16(dr[24:26], uint16(len(dr)-20))
-	binary.BigEndian.PutUint16(dr[26:28], 0)
-	cs = layers.PktChecksumTcpUdp(d[20:], 0, ipv4)
-	binary.BigEndian.PutUint16(d[26:28], cs)
+	dhcp := &layers.DHCPv6{MsgType: layers.DHCPv6MsgTypeSolicit,
+		TransactionID: []byte{(byte((xid >> 16) & 0xff)), byte(((xid & 0xff00) >> 8)), byte(xid & 0xff)}}
 
-	o.requestPktTemplate = append(l2, dr...)
+	clientid := &layers.DHCPv6DUID{Type: layers.DHCPv6DUIDTypeLL, HardwareType: []byte{0, 1}, LinkLayerAddress: o.Client.Mac[:]}
+	dhcp.Options = append(dhcp.Options, layers.NewDHCPv6Option(layers.DHCPv6OptClientID, clientid.Encode()))
+	dhcp.Options = append(dhcp.Options, layers.NewDHCPv6Option(layers.DHCPv6OptOro, []byte{0, 0x11, 0, 0x17, 0, 0x18, 0x00, 0x27}))
+	dhcp.Options = append(dhcp.Options, layers.NewDHCPv6Option(layers.DHCPv6OptVendorClass, []byte{0x00, 0x00, 0x01, 0x37, 0x00, 0x08, 0x4d, 0x53, 0x46, 0x54, 0x20, 0x35, 0x2e, 0x30}))
 
-	dhcpReqRenew := &layers.DHCPv4{Operation: layers.DHCPOpRequest,
-		HardwareType: layers.LinkTypeEthernet,
-		HardwareLen:  6,
-		Xid:          xid,
-		ClientIP:     net.IP{0, 0, 0, 0},
-		YourClientIP: net.IP{0, 0, 0, 0},
-		NextServerIP: net.IP{0, 0, 0, 0},
-		RelayAgentIP: net.IP{0, 0, 0, 0},
-		ClientHWAddr: net.HardwareAddr(o.Client.Mac[:]),
-		ServerName:   make([]byte, 64), File: make([]byte, 128)}
-	dhcpReqRenew.Options = append(dhcpReqRenew.Options, layers.NewDHCPOption(layers.DHCPOptMessageType, []byte{byte(layers.DHCPMsgTypeRequest)}))
-	dhcpReqRenew.Options = append(dhcpReqRenew.Options, layers.NewDHCPOption(layers.DHCPOptClientID, options))
+	ianao := []byte{0x00, 0x00, 0x00, 0x00,
+		0x00, 0x00, 0x00, 0x00,
+		0x00, 0x00, 0x00, 0x00}
 
-	drn := core.PacketUtlBuild(
-		&layers.IPv4{Version: 4, IHL: 5, TTL: 128, Id: 0xcc,
-			SrcIP:    net.IPv4(0, 0, 0, 0),
-			DstIP:    net.IPv4(0, 0, 0, 0),
-			Protocol: layers.IPProtocolUDP},
+	binary.BigEndian.PutUint32(ianao[0:4], iaid)
 
-		&layers.UDP{SrcPort: 68, DstPort: 67},
-		dhcpReqRenew,
-	)
-	ipv4 = layers.IPv4Header(drn[0:20])
-	ipv4.SetLength(uint16(len(drn)))
-	ipv4.UpdateChecksum()
+	dhcp.Options = append(dhcp.Options, layers.NewDHCPv6Option(layers.DHCPv6OptIANA, ianao))
+	dhcp.Options = append(dhcp.Options, layers.NewDHCPv6Option(layers.DHCPv6OptElapsedTime, []byte{0x00, 0x00}))
 
-	binary.BigEndian.PutUint16(drn[24:26], uint16(len(drn)-20))
-	binary.BigEndian.PutUint16(drn[26:28], 0)
-	cs = layers.PktChecksumTcpUdp(d[20:], 0, ipv4)
-	binary.BigEndian.PutUint16(d[26:28], cs)
+	o.l4Offset = o.l3Offset + IPV6_HEADER_SIZE
+	o.l7Offset = o.l4Offset + 8
 
-	o.requestRenewPktTemplate = append(l2, drn...)
+	o.discoverPktTemplate = o.buildPacket(l2, dhcp)
+
+	//dhcp.Options = append(dhcp.Options, layers.NewDHCPv6Option(layers.DHCPv6OptElapsedTime, []byte{0x00, 0x00}))
+
+	//dhcp.Options = append(dhcp.Options, layers.NewDHCPv6Option(layers.DHCPv6OptVendorClass, []byte{0x00, 0x00, 0x01, 0x37, 0x00, 0x08, 0x4d, 0x53, 0x46, 0x54, 0x20, 0x35, 0x2e, 0x30}))
+
+	// just add the server option (save it and past it)
+	//00 02 00 0e 00 01 00 01 21 54 ee e7 00 0c 29 70　3d d8
+
+}
+
+func (o *PluginDhcpClient) SendDhcpPacket(
+	msgType byte,
+	serverOption bool) {
+
+	var msec uint32
+	msec = uint32(o.timerw.Ticks-o.ticksStart) * o.timerw.MinTickMsec()
+
+	pad := 0
+	if serverOption {
+		pad = len(o.serverOption)
+	}
+
+	m := o.Tctx.MPool.Alloc(uint16(len(o.discoverPktTemplate) + pad))
+	m.Append(o.discoverPktTemplate)
+
+	if serverOption {
+		m.Append(o.serverOption)
+	}
+
+	p := m.GetData()
+
+	of := o.l7Offset + 68 // time
+	binary.BigEndian.PutUint16(p[of:of+2], uint16(msec/10))
+	of = o.l7Offset
+	p[of] = byte(msgType)
+
+	ipv6o := o.l3Offset
+	ipv6 := layers.IPv6Header(p[ipv6o : ipv6o+IPV6_HEADER_SIZE])
+
+	if serverOption {
+		newlen := ipv6.PayloadLength() + uint16(pad)
+		ipv6.SetPyloadLength(newlen)
+		binary.BigEndian.PutUint16(p[o.l4Offset+4:o.l4Offset+6], newlen)
+	}
+
+	ipv6.FixUdpL4Checksum(p[o.l4Offset:], 0)
+
+	o.Tctx.Veth.Send(m)
+}
+
+func (o *PluginDhcpClient) DebugSendDiscover() {
+	//o.Tctx.Veth.SendBuffer(false, o.Client, o.discoverPktTemplate)
+	//o.timerw.Ticks
+	//o.SendDiscoverPacket(180, 1, false)
+
+	//o.serverOption = []byte{0x00, 0x02, 0x00, 0x0e, 0x00, 0x01, 0x00, 0x01, 0x21, 0x54, 0xee, 0xe7, 0x00, 0x0c, 0x29, 0x70, 0x3d, 0xd8}
+	//o.SendDiscoverPacket(190, 3, true)
 
 }
 
@@ -363,7 +370,7 @@ func (o *PluginDhcpClient) SendDiscover() {
 	o.cnt = 0
 	o.restartTimer(o.timerDiscoverRetransmitSec)
 	o.stats.pktTxDiscover++
-	o.Tctx.Veth.SendBuffer(false, o.Client, o.discoverPktTemplate)
+	o.SendDhcpPacket(byte(layers.DHCPv6MsgTypeSolicit), false)
 }
 
 /*OnEvent support event change of IP  */
@@ -383,65 +390,26 @@ func (o *PluginDhcpClient) OnRemove(ctx *core.PluginCtx) {
 
 func (o *PluginDhcpClient) SendRenewRebind(rebind bool, release bool, timerSec uint32) {
 
-	pkt := o.requestRenewPktTemplate
+	o.stats.pktTxRequest++
+	o.restartTimer(timerSec)
 
-	unitcast := true
+	if release {
+		o.SendDhcpPacket(byte(layers.DHCPv6MsgTypeRelease), true)
+		return
+	}
 
 	if rebind {
-		unitcast = false
-	}
-	//
-	off := o.l3Offset + 20 + 8 + 12
-	copy(pkt[off:off+4], o.ipv4)
-	if release {
-		pkt[off+230] = 7
+		o.SendDhcpPacket(byte(layers.DHCPv6MsgTypeRebind), true)
 	} else {
-		pkt[off+230] = 3
+		o.SendDhcpPacket(byte(layers.DHCPv6MsgTypeRenew), true)
 	}
-
-	ipo := o.l3Offset
-	ipv4 := layers.IPv4Header(pkt[ipo : ipo+20])
-
-	if unitcast {
-		copy(pkt[0:6], o.serverMac[:])
-		srcIPv4 := convert(o.ipv4)
-		serverIPv4 := convert(o.server)
-		ipv4.SetIPDst(serverIPv4.Uint32())
-		ipv4.SetIPSrc(srcIPv4.Uint32())
-	} else {
-		copy(pkt[0:6], []byte{0xff, 0xff, 0xff, 0xff, 0xff, 0xff})
-		ipv4.SetIPDst(0xffffffff)
-		ipv4.SetIPSrc(0)
-	}
-	ipv4.UpdateChecksum()
-
-	binary.BigEndian.PutUint16(pkt[ipo+26:ipo+28], 0)
-	cs := layers.PktChecksumTcpUdp(pkt[ipo+20:], 0, ipv4)
-	binary.BigEndian.PutUint16(pkt[ipo+26:ipo+28], cs)
-
-	o.stats.pktTxRequest++
-
-	o.restartTimer(timerSec)
-	o.Tctx.Veth.SendBuffer(false, o.Client, pkt)
 }
 
 func (o *PluginDhcpClient) SendReq() {
-	pkt := o.requestPktTemplate
 
-	// offset for the option
-	off := o.l3Offset + 20 + 8 + 254
-	copy(pkt[off:off+4], o.ipv4)
-	copy(pkt[off+6:off+10], o.server)
-	ipo := o.l3Offset
-	ipv4 := layers.IPv4Header(pkt[ipo : ipo+20])
-
-	binary.BigEndian.PutUint16(pkt[ipo+26:ipo+28], 0)
-	cs := layers.PktChecksumTcpUdp(pkt[ipo+20:], 0, ipv4)
-	binary.BigEndian.PutUint16(pkt[ipo+26:ipo+28], cs)
-
-	o.stats.pktTxRequest++
 	o.restartTimer(o.timerOfferRetransmitSec)
-	o.Tctx.Veth.SendBuffer(false, o.Client, pkt)
+	o.SendDhcpPacket(byte(layers.DHCPv6MsgTypeRequest), true)
+	o.stats.pktTxRequest++
 }
 
 func convert(ipv4 net.IP) core.Ipv4Key {
@@ -456,42 +424,53 @@ func convert(ipv4 net.IP) core.Ipv4Key {
 	return key
 }
 
-func (o *PluginDhcpClient) verifyPkt(dhcph *layers.DHCPv4, ipv4 layers.IPv4Header) int {
-	if dhcph.Xid != o.xid {
+func XidToUint32(xid []byte) uint32 {
+	var res uint32
+	if len(xid) != 3 {
+		return 0xffffffff
+	}
+	res = uint32(xid[0])<<16 + uint32(xid[1])<<8 + uint32(xid[2])
+	return res
+}
+
+func (o *PluginDhcpClient) verifyPkt(dhcph *layers.DHCPv6, ipv6 layers.IPv6Header) int {
+	if XidToUint32(dhcph.TransactionID) != o.xid {
 		o.stats.pktRxWrongXid++
 		return -1
 	}
 
-	if dhcph.HardwareType != layers.LinkTypeEthernet {
-		o.stats.pktRxWrongHwType++
-		return -1
-	}
+	/*
+		if dhcph.HardwareType != layers.LinkTypeEthernet {
+			o.stats.pktRxWrongHwType++
+			return -1
+		}
 
-	if dhcph.HardwareLen != 6 {
-		o.stats.pktRxWrongHwType++
-		return -1
-	}
+		if dhcph.HardwareLen != 6 {
+			o.stats.pktRxWrongHwType++
+			return -1
+		}
 
-	o.ipv4 = dhcph.YourClientIP
-	o.server = dhcph.NextServerIP
+		o.ipv6 = dhcph.YourClientIP
+		o.server = dhcph.NextServerIP
 
-	skey := convert(dhcph.NextServerIP)
+		skey := convert(dhcph.NextServerIP)
 
-	if skey.IsZero() {
-		o.stats.pktRxWrongIP++
-		return -1
-	}
+		if skey.IsZero() {
+			o.stats.pktRxWrongIP++
+			return -1
+		}
 
-	if len(dhcph.YourClientIP) != 4 {
-		o.stats.pktRxWrongIP++
-		return -1
+		if len(dhcph.YourClientIP) != 4 {
+			o.stats.pktRxWrongIP++
+			return -1
 
-	}
-	key := convert(dhcph.YourClientIP)
-	if key.Uint32() != ipv4.GetIPDst() {
-		o.stats.pktRxWrongIP++
-		return -1
-	}
+		}
+		key := convert(dhcph.YourClientIP)
+		if key.Uint32() != ipv4.GetIPDst() {
+			o.stats.pktRxWrongIP++
+			return -1
+		}
+	*/
 	return 0
 }
 
@@ -536,33 +515,35 @@ func (o *PluginDhcpClient) onTimerEvent() {
 
 }
 
-func (o *PluginDhcpClient) HandleAckNak(dhcpmt layers.DHCPMsgType,
-	dhcph *layers.DHCPv4,
-	ipv4 layers.IPv4Header,
+func (o *PluginDhcpClient) HandleAckNak(dhcpmt layers.DHCPv6MsgType,
+	dhcph *layers.DHCPv6,
+	ipv6 layers.IPv6Header,
 	t1 uint32,
 	t2 uint32,
 	notify bool) int {
 	switch dhcpmt {
-	case layers.DHCPMsgTypeAck:
+	case layers.DHCPv6MsgTypeReply:
 		o.stats.pktRxAck++
-		if o.verifyPkt(dhcph, ipv4) != 0 {
+		if o.verifyPkt(dhcph, ipv6) != 0 {
 			return -1
 		}
 		o.state = DHCP_STATE_BOUND
 		if notify {
 			o.stats.pktRxNotify++
-			ipv4addr := ipv4.GetIPDst()
-			if ipv4addr != 0 {
-				var ipv4key core.Ipv4Key
-				ipv4key.SetUint32(ipv4addr)
-				// update ip
-				o.Client.UpdateIPv4(ipv4key)
-				if !o.dg.IsZero() {
-					// update dg
-					ipv4key.SetUint32(o.dg.Uint32())
-					o.Client.UpdateDgIPv4(ipv4key)
-				}
-			}
+			// TBD need to fix
+			/*
+				//ipv4addr := ipv6.GetIPDst()
+				if ipv4addr != 0 {
+					var ipv4key core.Ipv4Key
+					ipv4key.SetUint32(ipv4addr)
+					// update ip
+					o.Client.UpdateIPv4(ipv4key)
+					if !o.dg.IsZero() {
+						// update dg
+						ipv4key.SetUint32(o.dg.Uint32())
+						o.Client.UpdateDgIPv4(ipv4key)
+					}
+				}*/
 		}
 		o.restartTimer(t1)
 		o.t1 = t1
@@ -570,7 +551,7 @@ func (o *PluginDhcpClient) HandleAckNak(dhcpmt layers.DHCPMsgType,
 		if o.t2 < o.t1 {
 			o.t2 = o.t1 + 1
 		}
-	case layers.DHCPMsgTypeNak:
+	case layers.DHCPv6MsgTypeAdverstise:
 		o.SendDiscover()
 	}
 	return 0
@@ -582,53 +563,52 @@ func (o *PluginDhcpClient) HandleRxDhcpPacket(ps *core.ParserPacketState) int {
 	p := m.GetData()
 	/* the header is at least 8 bytes*/
 
-	ipv4 := layers.IPv4Header(p[ps.L3 : ps.L3+20])
+	ipv6 := layers.IPv6Header(p[ps.L3 : ps.L3+IPV6_HEADER_SIZE])
 
 	dhcphlen := ps.L7Len
 
-	if dhcphlen < 240 {
+	if dhcphlen < 4 {
 		o.stats.pktRxLenErr++
 		return core.PARSER_ERR
 	}
 
-	var dhcph layers.DHCPv4
+	var dhcph layers.DHCPv6
 	err := dhcph.DecodeFromBytes(p[ps.L7:ps.L7+dhcphlen], gopacket.NilDecodeFeedback)
 	if err != nil {
 		o.stats.pktRxParserErr++
 		return core.PARSER_ERR
 	}
 
-	var dhcpmt layers.DHCPMsgType
+	var dhcpmt layers.DHCPv6MsgType
+	dhcpmt = dhcph.MsgType
+	o.dg.SetUint32(0)
 	var t1 uint32
 	var t2 uint32
-	dhcpmt = layers.DHCPMsgTypeUnspecified
-	t1 = 1811
-	t2 = 3200
-	o.dg.SetUint32(0)
+	cid := []byte{}
+	sid := []byte{}
+	var iana layers.DHCPv6OptionIANA
 
 	for _, op := range dhcph.Options {
-		switch op.Type {
-		case layers.DHCPOptMessageType:
-
-			dhcpmt = layers.DHCPMsgType(op.Data[0])
-		case layers.DHCPOptRouter:
-			if op.Length == 4 {
-				copy(o.dg[:], op.Data[:])
-			}
-		case layers.DHCPOptT1:
-			t1 = o.getT1InSec(&op)
-		case layers.DHCPOptT2:
-			t2 = o.getT1InSec(&op)
+		switch op.Code {
+		case layers.DHCPv6OptClientID:
+			cid = op.Data
+		case layers.DHCPv6OptServerID:
+			sid = op.Data
+		case layers.DHCPv6OptIANA:
+			iana.Decode(op.Data)
 		default:
 		}
 	}
+	fmt.Printf(" %v \n", cid)
+	fmt.Printf(" %v \n", sid)
+	fmt.Printf(" %v \n", iana)
 
 	switch o.state {
 	case DHCP_STATE_INIT:
 
-		if dhcpmt == layers.DHCPMsgTypeOffer {
+		if dhcpmt == layers.DHCPv6MsgTypeAdverstise {
 			o.stats.pktRxOffer++
-			if o.verifyPkt(&dhcph, ipv4) != 0 {
+			if o.verifyPkt(&dhcph, ipv6) != 0 {
 				return -1
 			}
 
@@ -639,18 +619,17 @@ func (o *PluginDhcpClient) HandleRxDhcpPacket(ps *core.ParserPacketState) int {
 		}
 
 	case DHCP_STATE_REQUESTING:
-		return o.HandleAckNak(dhcpmt, &dhcph, ipv4, t1, t2, true)
+		return o.HandleAckNak(dhcpmt, &dhcph, ipv6, t1, t2, true)
 	case DHCP_STATE_BOUND:
 		o.stats.pktRxUnhandle++
 	case DHCP_STATE_RENEWING:
-		return o.HandleAckNak(dhcpmt, &dhcph, ipv4, t1, t2, true)
+		return o.HandleAckNak(dhcpmt, &dhcph, ipv6, t1, t2, true)
 
 	case DHCP_STATE_REBINDING:
-		return o.HandleAckNak(dhcpmt, &dhcph, ipv4, t1, t2, true)
+		return o.HandleAckNak(dhcpmt, &dhcph, ipv6, t1, t2, true)
 
 	default:
 		o.stats.pktRxUnhandle++
-
 	}
 	return (0)
 }
@@ -696,7 +675,7 @@ func (o *PluginDhcpNs) HandleRxDhcpPacket(ps *core.ParserPacketState) int {
 		return core.PARSER_ERR
 	}
 
-	cplg := client.PluginCtx.Get(DHCP_PLUG)
+	cplg := client.PluginCtx.Get(DHCPV6_PLUG)
 	if cplg == nil {
 		return core.PARSER_ERR
 	}
@@ -705,12 +684,13 @@ func (o *PluginDhcpNs) HandleRxDhcpPacket(ps *core.ParserPacketState) int {
 }
 
 // HandleRxDhcpPacket Parser call this function with mbuf from the pool
-func HandleRxDhcpPacket(ps *core.ParserPacketState) int {
+func HandleRxDhcpv6Packet(ps *core.ParserPacketState) int {
+
 	ns := ps.Tctx.GetNs(ps.Tun)
 	if ns == nil {
 		return core.PARSER_ERR
 	}
-	nsplg := ns.PluginCtx.Get(DHCP_PLUG)
+	nsplg := ns.PluginCtx.Get(DHCPV6_PLUG)
 	if nsplg == nil {
 		return core.PARSER_ERR
 	}
@@ -741,7 +721,7 @@ type (
 
 func getNs(ctx interface{}, params *fastjson.RawMessage) (*PluginDhcpNs, *jsonrpc.Error) {
 	tctx := ctx.(*core.CThreadCtx)
-	plug, err := tctx.GetNsPlugin(params, DHCP_PLUG)
+	plug, err := tctx.GetNsPlugin(params, DHCPV6_PLUG)
 
 	if err != nil {
 		return nil, &jsonrpc.Error{
@@ -758,7 +738,7 @@ func getNs(ctx interface{}, params *fastjson.RawMessage) (*PluginDhcpNs, *jsonrp
 func getClientPlugin(ctx interface{}, params *fastjson.RawMessage) (*PluginDhcpClient, *jsonrpc.Error) {
 	tctx := ctx.(*core.CThreadCtx)
 
-	plug, err := tctx.GetClientPlugin(params, DHCP_PLUG)
+	plug, err := tctx.GetClientPlugin(params, DHCPV6_PLUG)
 
 	if err != nil {
 		return nil, &jsonrpc.Error{
@@ -783,7 +763,7 @@ func (h ApiDhcpClientCntHandler) ServeJSONRPC(ctx interface{}, params *fastjson.
 func init() {
 
 	/* register of plugins callbacks for ns,c level  */
-	core.PluginRegister(DHCP_PLUG,
+	core.PluginRegister(DHCPV6_PLUG,
 		core.PluginRegisterData{Client: PluginDhcpCReg{},
 			Ns:     PluginDhcpNsReg{},
 			Thread: nil}) /* no need for thread context for now */
@@ -806,9 +786,9 @@ func init() {
 	core.RegisterCB("dhcp_client_cnt", ApiDhcpClientCntHandler{}, false) // get counters/meta
 
 	/* register callback for rx side*/
-	core.ParserRegister("dhcp", HandleRxDhcpPacket)
+	core.ParserRegister("dhcpv6", HandleRxDhcpv6Packet)
 }
 
 func Register(ctx *core.CThreadCtx) {
-	ctx.RegisterParserCb("dhcp")
+	ctx.RegisterParserCb("dhcpv6")
 }
