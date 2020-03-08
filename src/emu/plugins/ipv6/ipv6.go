@@ -402,6 +402,12 @@ func (h ApiIpv6NsCntHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawM
 	var p core.ApiCntParams
 	tctx := ctx.(*core.CThreadCtx)
 	c, err := getNsPlugin(ctx, params)
+	if err != nil {
+		return nil, &jsonrpc.Error{
+			Code:    jsonrpc.ErrorCodeInvalidRequest,
+			Message: err.Error(),
+		}
+	}
 	return c.cdbv.GeneralCounters(err, tctx, params, &p)
 }
 

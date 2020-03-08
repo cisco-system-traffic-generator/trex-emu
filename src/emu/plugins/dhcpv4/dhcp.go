@@ -755,16 +755,13 @@ func getNs(ctx interface{}, params *fastjson.RawMessage) (*PluginDhcpNs, *jsonrp
 	return arpNs, nil
 }
 
-func getClientPlugin(ctx interface{}, params *fastjson.RawMessage) (*PluginDhcpClient, *jsonrpc.Error) {
+func getClientPlugin(ctx interface{}, params *fastjson.RawMessage) (*PluginDhcpClient, error) {
 	tctx := ctx.(*core.CThreadCtx)
 
 	plug, err := tctx.GetClientPlugin(params, DHCP_PLUG)
 
 	if err != nil {
-		return nil, &jsonrpc.Error{
-			Code:    jsonrpc.ErrorCodeInvalidRequest,
-			Message: err.Error(),
-		}
+		return nil, err
 	}
 
 	pClient := plug.Ext.(*PluginDhcpClient)
@@ -777,6 +774,12 @@ func (h ApiDhcpClientCntHandler) ServeJSONRPC(ctx interface{}, params *fastjson.
 	var p core.ApiCntParams
 	tctx := ctx.(*core.CThreadCtx)
 	c, err := getClientPlugin(ctx, params)
+	if err != nil {
+		return nil, &jsonrpc.Error{
+			Code:    jsonrpc.ErrorCodeInvalidRequest,
+			Message: err.Error(),
+		}
+	}
 	return c.cdbv.GeneralCounters(err, tctx, params, &p)
 }
 
