@@ -357,7 +357,11 @@ func (o *CNSCtx) RemoveClient(client *CClient) error {
 func (o *CNSCtx) UpdateClientIpv4(client *CClient, NewIpv4 Ipv4Key) error {
 
 	oldIpv4 := client.Ipv4
+
 	var ok bool
+	if oldIpv4 == NewIpv4 {
+		return nil
+	}
 
 	if !oldIpv4.IsZero() {
 		_, ok = o.mapIpv4[oldIpv4]
@@ -368,12 +372,14 @@ func (o *CNSCtx) UpdateClientIpv4(client *CClient, NewIpv4 Ipv4Key) error {
 		delete(o.mapIpv4, oldIpv4)
 	}
 
-	_, ok = o.mapIpv4[NewIpv4]
-	if ok {
-		client.Ipv4 = [4]byte{0, 0, 0, 0}
-		return fmt.Errorf(" Somthing is wrong, couldn't update client with new ipv4 %v ", NewIpv4)
+	if !NewIpv4.IsZero() {
+		_, ok = o.mapIpv4[NewIpv4]
+		if ok {
+			client.Ipv4 = [4]byte{0, 0, 0, 0}
+			return fmt.Errorf(" Somthing is wrong, couldn't update client with new ipv4 %v ", NewIpv4)
+		}
+		o.mapIpv4[NewIpv4] = client
 	}
-	o.mapIpv4[NewIpv4] = client
 	client.Ipv4 = NewIpv4
 	client.PluginCtx.BroadcastMsg(nil, MSG_UPDATE_IPV4_ADDR, oldIpv4, NewIpv4)
 	return nil
@@ -384,6 +390,10 @@ func (o *CNSCtx) UpdateClientIpv6(client *CClient, NewIpv6 Ipv6Key) error {
 	oldIpv6 := client.Ipv6
 	var ok bool
 
+	if oldIpv6 == NewIpv6 {
+		return nil
+	}
+
 	if !oldIpv6.IsZero() {
 		_, ok = o.mapIpv6[oldIpv6]
 		if !ok {
@@ -393,12 +403,14 @@ func (o *CNSCtx) UpdateClientIpv6(client *CClient, NewIpv6 Ipv6Key) error {
 		delete(o.mapIpv6, oldIpv6)
 	}
 
-	_, ok = o.mapIpv6[NewIpv6]
-	if ok {
-		client.Ipv6 = [16]byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
-		return fmt.Errorf(" Somthing is wrong, couldn't update client with new ipv4 %v ", NewIpv6)
+	if !NewIpv6.IsZero() {
+		_, ok = o.mapIpv6[NewIpv6]
+		if ok {
+			client.Ipv6 = [16]byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+			return fmt.Errorf(" Somthing is wrong, couldn't update client with new ipv4 %v ", NewIpv6)
+		}
+		o.mapIpv6[NewIpv6] = client
 	}
-	o.mapIpv6[NewIpv6] = client
 	client.Ipv6 = NewIpv6
 	client.PluginCtx.BroadcastMsg(nil, MSG_UPDATE_IPV6_ADDR, oldIpv6, NewIpv6)
 	return nil
@@ -409,21 +421,27 @@ func (o *CNSCtx) UpdateClientDIpv6(client *CClient, NewIpv6 Ipv6Key) error {
 	oldIpv6 := client.Dhcpv6
 	var ok bool
 
+	if oldIpv6 == NewIpv6 {
+		return nil
+	}
+
 	if !oldIpv6.IsZero() {
 		_, ok = o.mapIpv6[oldIpv6]
 		if !ok {
-			client.Ipv6 = [16]byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
-			return fmt.Errorf(" Somthing is wrong, couldn't find self ipv4 %v ", oldIpv6)
+			client.Dhcpv6 = [16]byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+			return fmt.Errorf(" Somthing is wrong, couldn't find self ipv6 %v ", oldIpv6)
 		}
 		delete(o.mapIpv6, oldIpv6)
 	}
 
-	_, ok = o.mapIpv6[NewIpv6]
-	if ok {
-		client.Ipv6 = [16]byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
-		return fmt.Errorf(" Somthing is wrong, couldn't update client with new ipv4 %v ", NewIpv6)
+	if !NewIpv6.IsZero() {
+		_, ok = o.mapIpv6[NewIpv6]
+		if ok {
+			client.Dhcpv6 = [16]byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+			return fmt.Errorf(" Somthing is wrong, couldn't update client with new ipv6 %v ", NewIpv6)
+		}
+		o.mapIpv6[NewIpv6] = client
 	}
-	o.mapIpv6[NewIpv6] = client
 	client.Dhcpv6 = NewIpv6
 	client.PluginCtx.BroadcastMsg(nil, MSG_UPDATE_DIPV6_ADDR, oldIpv6, NewIpv6)
 	return nil

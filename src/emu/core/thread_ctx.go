@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io/ioutil"
+	"math/rand"
 	"os"
 	"testing"
 	"time"
@@ -244,6 +245,15 @@ func (o *CThreadCtx) SimRecordCompare(filename string, t *testing.T) {
 	}
 	if JsonDeepEqualInc(buf, buf1) == false {
 		t.Fatalf("Golden file :%s is not equal to generated file:%s \n", expFilename, genFilename)
+	}
+}
+
+func (o *CThreadCtx) GetRandNumber(min uint32, max uint32) uint32 {
+
+	if o.Simulation {
+		return (max + min) >> 1
+	} else {
+		return uint32(rand.Intn((int(max - min)))) + min
 	}
 }
 

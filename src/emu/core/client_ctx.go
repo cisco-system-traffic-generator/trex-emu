@@ -250,8 +250,14 @@ func (o *CClient) UpdateIPv4(NewIpv4 Ipv4Key) error {
 	return o.Ns.UpdateClientIpv4(o, NewIpv4)
 }
 
+// UpdateIPv6 update static  ipv6
 func (o *CClient) UpdateIPv6(NewIpv6 Ipv6Key) error {
 	return o.Ns.UpdateClientIpv6(o, NewIpv6)
+}
+
+// UpdateDIPv6 update DHCPv6 ipv6
+func (o *CClient) UpdateDIPv6(NewIpv6 Ipv6Key) error {
+	return o.Ns.UpdateClientDIpv6(o, NewIpv6)
 }
 
 // GetL2Header get L2 header

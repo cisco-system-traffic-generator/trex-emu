@@ -627,7 +627,7 @@ type DHCPv6OptionIANA struct {
 	T2            uint32
 	OptionValid   bool
 	IPv6          net.IP
-	preferredLife uint32
+	PreferredLife uint32
 	ValidLife     uint32
 }
 
@@ -660,9 +660,11 @@ func (o *DHCPv6OptionIANA) Decode(data []byte) error {
 	p := data[12+4:]
 	o.OptionValid = true
 
-	copy(o.IPv6[:], p[0:16])
+	if o.IPv6 != nil {
+		copy(o.IPv6[:], p[0:16])
+	}
 
-	o.preferredLife = binary.BigEndian.Uint32(data[16:20])
-	o.ValidLife = binary.BigEndian.Uint32(data[20:24])
+	o.PreferredLife = binary.BigEndian.Uint32(p[16:20])
+	o.ValidLife = binary.BigEndian.Uint32(p[20:24])
 	return nil
 }
