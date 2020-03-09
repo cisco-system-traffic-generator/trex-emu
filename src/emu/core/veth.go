@@ -10,6 +10,9 @@ type VethStats struct {
 	TxBytes          uint64
 	RxPkts           uint64
 	RxBytes          uint64
+	RxParseErr       uint64
+	RxBatch          uint64
+	TxBatch          uint64
 	TxDropNotResolve uint64 /* no resolved dg */
 }
 
@@ -53,7 +56,32 @@ func NewVethStatsDb(o *VethStats) *CCounterDb {
 		Help:     "TxDropNotResolve",
 		Unit:     "pkts",
 		DumpZero: false,
-		Info:     ScINFO})
+		Info:     ScERROR})
+
+	db.Add(&CCounterRec{
+		Counter:  &o.RxParseErr,
+		Name:     "RxParseErr",
+		Help:     "RxParseErr",
+		Unit:     "pkts",
+		DumpZero: false,
+		Info:     ScERROR})
+
+	db.Add(&CCounterRec{
+		Counter:  &o.RxBatch,
+		Name:     "RxBatch",
+		Help:     "RxBatch",
+		Unit:     "pkts",
+		DumpZero: false,
+		Info:     ScERROR})
+
+	db.Add(&CCounterRec{
+		Counter:  &o.TxBatch,
+		Name:     "TxBatch",
+		Help:     "TxBatch",
+		Unit:     "pkts",
+		DumpZero: false,
+		Info:     ScERROR})
+
 	return db
 }
 
@@ -84,6 +112,12 @@ type VethIF interface {
 	GetCdb() *CCounterDb
 
 	AppendSimuationRPC(request []byte)
+
+	GetC() chan []byte
+
+	StartRxThread()
+
+	OnRxStream(msg []byte)
 }
 
 type VethIFSim interface {
@@ -244,6 +278,19 @@ func (o *VethIFSimulator) SimulatorCleanup() {
 func (o *VethIFSimulator) SetDebug(monitor bool, capture bool) {
 	o.K12Monitor = monitor
 	o.Record = capture
+}
+
+func (o *VethIFSimulator) GetC() chan []byte {
+	panic(" GetC() should not be used in VethIFSimulator ")
+	return nil
+}
+
+func (o *VethIFSimulator) StartRxThread() {
+	panic(" StartRxThread() should not be used in VethIFSimulator ")
+}
+
+func (o *VethIFSimulator) OnRxStream(stream []byte) {
+	panic(" OnRxStream() should not be used in VethIFSimulator ")
 }
 
 func (o *VethIFSimulator) GetCdb() *CCounterDb {

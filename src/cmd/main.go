@@ -35,12 +35,14 @@ type MainArgs struct {
 	time      time.Duration
 	file      string
 	dummyVeth bool
+	vethPort  int
 }
 
 func parseMainArgs() *MainArgs {
 	parser := argparse.NewParser("Emu Server", "Emu server emulates clients and namespaces")
 
-	portArg := parser.Int("p", "port", &argparse.Options{Default: 4510, Help: "Port for server"})
+	portArg := parser.Int("p", "rpc port", &argparse.Options{Default: 4510, Help: "RPC Port for server"})
+	vethPortArg := parser.Int("l", "veth zmq port", &argparse.Options{Default: 4511, Help: "Veth Port for server"})
 	verboseArg := parser.Flag("v", "verbose", &argparse.Options{Default: false, Help: "Run server in verbose mode"})
 	simArg := parser.Flag("s", "simulator", &argparse.Options{Default: false, Help: "Run server in simulator mode"})
 	captureArg := parser.Flag("c", "capture", &argparse.Options{Default: false, Help: "Run server in capture mode"})
@@ -56,13 +58,15 @@ func parseMainArgs() *MainArgs {
 
 	durInSec := time.Duration(*timeArg) * time.Second
 	return &MainArgs{port: *portArg, verbose: *verboseArg, sim: *simArg, capture: *captureArg,
-		monitor: *monitorArg, time: durInSec, file: *fileArg, dummyVeth: *dummyVethArg}
+		monitor: *monitorArg, time: durInSec, file: *fileArg, dummyVeth: *dummyVethArg, vethPort: *vethPortArg}
 }
 
 func RunCoreZmq(args *MainArgs) {
 
+	var zmqVeth core.VethIFZmq
+
 	port := uint16(args.port)
-	fmt.Println("run zmq server on port", port)
+	fmt.Printf("run zmq server on [%d:rx:%d:tx:%d] \n", port, args.vethPort, args.vethPort+1)
 	rand.Seed(time.Now().UnixNano())
 
 	var simrx core.VethIFSim
@@ -72,6 +76,13 @@ func RunCoreZmq(args *MainArgs) {
 	}
 
 	tctx := core.NewThreadCtx(0, port, args.sim, &simrx)
+
+	if !args.sim {
+		zmqVeth.Create(tctx, uint16(args.vethPort))
+		zmqVeth.StartRxThread()
+		tctx.SetZmqVeth(&zmqVeth)
+	}
+
 	RegisterPlugins(tctx)
 
 	tctx.SetVerbose(args.verbose)

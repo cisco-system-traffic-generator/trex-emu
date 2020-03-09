@@ -209,13 +209,15 @@ func NewThreadCtx(Id uint32, serverPort uint16, simulation bool, simRx *VethIFSi
 	o.DefNsPlugs = make(MapJsonPlugs)
 	o.validate = validator.New()
 	o.parser.Init(o)
-	var simv VethIFSimulator
-	simv.Create(o)
-	if simRx == nil && simulation {
-		panic(" ERROR in case of simulation mode VethIFSim should be provided ")
+	if simulation {
+		var simv VethIFSimulator
+		simv.Create(o)
+		if simRx == nil && simulation {
+			panic(" ERROR in case of simulation mode VethIFSim should be provided ")
+		}
+		simv.Sim = *simRx
+		o.Veth = &simv
 	}
-	simv.Sim = *simRx
-	o.Veth = &simv
 	o.simRecorder = make([]interface{}, 0)
 
 	/* counters */
@@ -228,6 +230,10 @@ func NewThreadCtx(Id uint32, serverPort uint16, simulation bool, simRx *VethIFSi
 	cdb.IOpt = &o.stats
 	o.cdbv.Add(cdb)
 	return o
+}
+func (o *CThreadCtx) SetZmqVeth(veth VethIF) {
+	o.Veth = veth
+	o.cdbv.Add(o.Veth.GetCdb())
 }
 
 func (o *CThreadCtx) SimRecordCompare(filename string, t *testing.T) {
@@ -320,13 +326,16 @@ func (o *CThreadCtx) MainLoop() {
 	for {
 		select {
 		case req := <-o.rpc.GetC():
-			o.rpc.HandleReqToChan(req) // RPC command
+			o.rpc.HandleReqToChan(req) // RPC commands
 		case <-o.C():
 			o.timerctx.HandleTicks()
-			o.Veth.SimulatorCheckRxQueue()
+		case msg := <-o.Veth.GetC(): // batch of rx packets
+			o.Veth.OnRxStream(msg)
 		}
+		o.Veth.FlushTx()
 	}
-
+	o.Veth.SimulatorCleanup()
+	o.MPool.ClearCache()
 }
 
 func (o *CThreadCtx) GetClientPlugin(params *fastjson.RawMessage, plugin string) (*PluginBase, error) {
