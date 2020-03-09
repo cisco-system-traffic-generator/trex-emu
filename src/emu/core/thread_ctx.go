@@ -536,9 +536,11 @@ func (o *CThreadCtx) addPluginsNs(ns *CNSCtx, plugs *MapJsonPlugs) error {
 		plugMap = plugs
 	}
 
-	for plName, plData := range *plugMap {
-		if err := ns.PluginCtx.addPlugin(plName, *plData); err != nil {
-			return err
+	if plugMap != nil {
+		for plName, plData := range *plugMap {
+			if err := ns.PluginCtx.addPlugin(plName, *plData); err != nil {
+				return err
+			}
 		}
 	}
 

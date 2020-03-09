@@ -330,12 +330,14 @@ func (h ApiClientAddHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawM
 			plugMap = c.Plugins
 		}
 
-		for plName, plData := range *plugMap {
-			err = client.PluginCtx.addPlugin(plName, *plData)
-			if err != nil {
-				return nil, &jsonrpc.Error{
-					Code:    jsonrpc.ErrorCodeInternal,
-					Message: err.Error(),
+		if plugMap != nil {
+			for plName, plData := range *plugMap {
+				err = client.PluginCtx.addPlugin(plName, *plData)
+				if err != nil {
+					return nil, &jsonrpc.Error{
+						Code:    jsonrpc.ErrorCodeInternal,
+						Message: err.Error(),
+					}
 				}
 			}
 		}

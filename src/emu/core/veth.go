@@ -303,3 +303,7 @@ func (o *VethSink) ProcessTxToRx(m *Mbuf) *Mbuf {
 	m.FreeMbuf()
 	return nil
 }
+
+func (o *VethSink) Send(m *Mbuf) {
+	m.FreeMbuf()
+}
