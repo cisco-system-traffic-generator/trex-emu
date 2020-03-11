@@ -24,6 +24,8 @@ import (
 
 const (
 	ZMQ_PACKET_HEADER_MAGIC = 0xBEEF
+	ZMQ_TX_PKT_BUTST_SIZE   = 64
+	ZMQ_TX_MAX_BUFFER_SIZE  = 32 * 1024
 )
 
 type VethIFZmq struct {
@@ -36,6 +38,7 @@ type VethIFZmq struct {
 
 	cn         chan []byte
 	vec        []*Mbuf
+	txVecSize  uint32
 	stats      VethStats
 	tctx       *CThreadCtx
 	K12Monitor bool /* to standard output*/
@@ -75,6 +78,7 @@ func (o *VethIFZmq) Create(ctx *CThreadCtx, port uint16) {
 	o.cn = make(chan []byte)
 
 	o.vec = make([]*Mbuf, 0)
+	o.txVecSize = 0
 	o.tctx = ctx
 	o.cdb = NewVethStatsDb(&o.stats)
 }
@@ -122,13 +126,20 @@ func (o *VethIFZmq) FlushTx() {
 
 	}
 	o.vec = o.vec[:0]
+	o.txVecSize = 0
 	o.txSocket.SendBytes(o.buf, 0)
 }
 
 func (o *VethIFZmq) Send(m *Mbuf) {
 
+	pktlen := m.PktLen()
 	o.stats.TxPkts++
-	o.stats.TxBytes += uint64(m.PktLen())
+	o.stats.TxBytes += uint64(pktlen)
+
+	if o.txVecSize+pktlen >= ZMQ_TX_MAX_BUFFER_SIZE {
+		o.FlushTx()
+	}
+
 	if !m.IsContiguous() {
 		m1 := m.GetContiguous(&o.tctx.MPool)
 		m.FreeMbuf()
@@ -136,8 +147,8 @@ func (o *VethIFZmq) Send(m *Mbuf) {
 	} else {
 		o.vec = append(o.vec, m)
 	}
-	//TBD need to fix this
-	if len(o.vec) == 1 {
+	o.txVecSize += pktlen
+	if len(o.vec) == ZMQ_TX_PKT_BUTST_SIZE {
 		o.FlushTx()
 	}
 }
