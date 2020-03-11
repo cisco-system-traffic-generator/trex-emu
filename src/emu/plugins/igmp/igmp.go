@@ -897,9 +897,13 @@ func (o *PluginIgmpNs) SendMcPacket(vec []uint32, remove bool, query bool) {
 func (o *PluginIgmpNs) HandleRxIgmpV2Query(ps *core.ParserPacketState) int {
 	m := ps.M
 	p := m.GetData()
-	igmp := p[ps.L4:]
-	igmph := layers.IGMPHeader(igmp)
+
 	ipv4 := layers.IPv4Header(p[ps.L3 : ps.L3+IPV4_HEADER_SIZE-4])
+	igmplen := uint32(ipv4.GetLength() - ipv4.GetHeaderLen())
+
+	igmp := p[ps.L4 : ps.L4+uint16(igmplen)]
+
+	igmph := layers.IGMPHeader(igmp)
 	var isGenQuery bool
 	isGenQuery = false
 
@@ -931,9 +935,12 @@ func igmpMantExp(v uint8) uint32 {
 func (o *PluginIgmpNs) HandleRxIgmpV3Query(ps *core.ParserPacketState) int {
 	m := ps.M
 	p := m.GetData()
-	igmp := p[ps.L4:]
-	igmph := layers.IGMPHeader(igmp)
+
 	ipv4 := layers.IPv4Header(p[ps.L3 : ps.L3+IPV4_HEADER_SIZE-4])
+	igmplen := uint32(ipv4.GetLength() - ipv4.GetHeaderLen())
+	igmp := p[ps.L4 : ps.L4+uint16(igmplen)]
+
+	igmph := layers.IGMPHeader(igmp)
 
 	var maxresp, qqi, nsrc uint32
 
@@ -983,7 +990,6 @@ func (o *PluginIgmpNs) HandleRxIgmpPacket(ps *core.ParserPacketState) int {
 	ipv4 := layers.IPv4Header(p[ps.L3 : ps.L3+IPV4_HEADER_SIZE-4])
 	igmplen := uint32(ipv4.GetLength() - ipv4.GetHeaderLen())
 
-	//igmplen := m.PktLen() - uint32(ps.L4)
 	igmp := p[ps.L4 : ps.L4+uint16(igmplen)]
 
 	/* checksum */

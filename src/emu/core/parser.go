@@ -83,6 +83,7 @@ type ParserStats struct {
 	errIPv6Fragment       uint64
 	errIcmpv6TooShort     uint64
 	errIcmpv6Cse          uint64
+	errIcmpv4Cse          uint64
 	errIcmpv6Unsupported  uint64
 	Icmpv6Pkt             uint64
 	Icmpv6Bytes           uint64
@@ -326,6 +327,14 @@ func newParserStatsDb(o *ParserStats) *CCounterDb {
 		Info:     ScERROR})
 
 	db.Add(&CCounterRec{
+		Counter:  &o.errIcmpv4Cse,
+		Name:     "errIcmpv4Cse",
+		Help:     "Icmpv4 checksum error",
+		Unit:     "pkts",
+		DumpZero: false,
+		Info:     ScERROR})
+
+	db.Add(&CCounterRec{
 		Counter:  &o.errIcmpv6Cse,
 		Name:     "errIcmpv6Cse",
 		Help:     "Icmpv6 checksum error",
@@ -467,6 +476,12 @@ func (o *Parser) parsePacketL4(ps *ParserPacketState,
 			o.stats.errIcmpv4TooShort++
 			return PARSER_ERR
 		}
+
+		if layers.PktChecksum(p[ps.L4:ps.L4+l4len], 0) != 0 {
+			o.stats.errIcmpv4Cse++
+			return PARSER_ERR
+		}
+
 		o.stats.icmpPkts++
 		o.stats.icmpBytes += uint64(packetSize)
 		ps.L7 = ps.L4 + 8
