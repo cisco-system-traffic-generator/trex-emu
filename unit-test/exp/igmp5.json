@@ -94,7 +94,8 @@
 	{
 		"rpc-res": {
 			"id": 3,
-			"jsonrpc": "2.0"
+			"jsonrpc": "2.0",
+			"result": true
 		}
 	},
 	{
@@ -322,6 +323,13 @@
 							"name": "pktNoDesignatorClientIPv4",
 							"unit": "pkts",
 							"zero": false
+						},
+						{
+							"help": "rate of multicast is too high, duration should be higher",
+							"info": 20,
+							"name": "opsRateIsTooHigh",
+							"unit": "opts",
+							"zero": false
 						}
 					],
 					"name": "igmp"
@@ -392,7 +400,8 @@
 	{
 		"rpc-res": {
 			"id": 3,
-			"jsonrpc": "2.0"
+			"jsonrpc": "2.0",
+			"result": true
 		}
 	},
 	{
@@ -468,7 +477,8 @@
 	{
 		"rpc-res": {
 			"id": 3,
-			"jsonrpc": "2.0"
+			"jsonrpc": "2.0",
+			"result": true
 		}
 	},
 	{
@@ -1091,7 +1101,7 @@
 					]
 				],
 				"empty": false,
-				"stoped": false
+				"stopped": false
 			}
 		}
 	},
@@ -1127,7 +1137,7 @@
 					]
 				],
 				"empty": false,
-				"stoped": false
+				"stopped": false
 			}
 		}
 	},

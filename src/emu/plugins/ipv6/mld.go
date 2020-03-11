@@ -878,7 +878,7 @@ func (o *mldNsCtx) SendMcPacketv1(client *core.CClient,
 	}
 
 	pktSize := o.getPktSize(1)
-	m := o.base.Tctx.MPool.Alloc(pktSize)
+	m := o.base.Ns.AllocMbuf(pktSize)
 	m.Append(o.ipv6pktTemplate)
 	var l6 core.Ipv6Key
 	client.GetIpv6LocalLink(&l6)
@@ -948,7 +948,7 @@ func (o *mldNsCtx) SendMcPacket(vec []core.Ipv6Key, remove bool, query bool) {
 	}
 
 	pktSize := o.getPktSize(uint16(rcds))
-	m := o.base.Tctx.MPool.Alloc(pktSize)
+	m := o.base.Ns.AllocMbuf(pktSize)
 	m.Append(o.ipv6pktTemplate)
 	var l6 core.Ipv6Key
 	client.GetIpv6LocalLink(&l6)

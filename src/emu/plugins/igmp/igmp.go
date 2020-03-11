@@ -814,7 +814,7 @@ func (o *PluginIgmpNs) SendMcPacket(vec []uint32, remove bool, query bool) {
 	}
 
 	pktSize := o.getPktSize(uint16(rcds))
-	m := o.Tctx.MPool.Alloc(pktSize)
+	m := o.Ns.AllocMbuf(pktSize)
 	m.Append(o.ipv4pktTemplate)
 	dst := [6]byte{0x01, 0x00, 0x5e, 0x00, 0x00, 0x16}
 	if o.igmpVersion != IGMP_VERSION_3 {
@@ -980,8 +980,11 @@ func (o *PluginIgmpNs) HandleRxIgmpPacket(ps *core.ParserPacketState) int {
 	p := m.GetData()
 	/* the header is at least 8 bytes*/
 
+	ipv4 := layers.IPv4Header(p[ps.L3 : ps.L3+IPV4_HEADER_SIZE-4])
+	igmplen := uint32(ipv4.GetLength() - ipv4.GetHeaderLen())
+
 	//igmplen := m.PktLen() - uint32(ps.L4)
-	igmp := p[ps.L4:]
+	igmp := p[ps.L4 : ps.L4+uint16(igmplen)]
 
 	/* checksum */
 	cs := layers.PktChecksum(igmp, 0)
@@ -991,8 +994,6 @@ func (o *PluginIgmpNs) HandleRxIgmpPacket(ps *core.ParserPacketState) int {
 	}
 
 	igmph := layers.IGMPHeader(igmp)
-	ipv4 := layers.IPv4Header(p[ps.L3 : ps.L3+IPV4_HEADER_SIZE-4])
-	igmplen := uint32(ipv4.GetLength() - ipv4.GetHeaderLen())
 
 	igmpType := igmph.GetType()
 
@@ -1047,7 +1048,7 @@ func (o *PluginIgmpNs) HandleRxIgmpPacket(ps *core.ParserPacketState) int {
 		// TBD need to add
 		o.stats.pktRxReports++
 	case uint8(layers.IGMPMembershipReportV3):
-		o.stats.pktRxNora++
+		o.stats.pktRxReports++
 
 	}
 	/* source ip should be a valid ipv4 */
@@ -1103,9 +1104,9 @@ type (
 		Count uint16 `json:"count" validate:"required,gte=0,lte=255"`
 	}
 	ApiIgmpNsIterResult struct {
-		Empty  bool           `json:"empty"`
+		Empty   bool           `json:"empty"`
 		Stopped bool           `json:"stopped"`
-		Vec    []core.Ipv4Key `json:"data"`
+		Vec     []core.Ipv4Key `json:"data"`
 	}
 
 	ApiIgmpSetHandler struct{}

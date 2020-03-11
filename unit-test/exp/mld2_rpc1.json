@@ -1051,7 +1051,7 @@
 					]
 				],
 				"empty": false,
-				"stoped": false
+				"stopped": false
 			}
 		}
 	},
@@ -1080,7 +1080,7 @@
 			"result": {
 				"data": null,
 				"empty": false,
-				"stoped": true
+				"stopped": true
 			}
 		}
 	},

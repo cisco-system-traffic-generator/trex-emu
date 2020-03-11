@@ -985,7 +985,7 @@ func (o *NdClientCtx) SendNS(dad bool, sourceipv6 *core.Ipv6Key, target *core.Ip
 	mac := o.base.Client.Mac
 	if dad {
 		// no sourceTarget option
-		m := o.base.Tctx.MPool.Alloc(uint16(len(o.nsDadPktTemplate)))
+		m := o.base.Ns.AllocMbuf(uint16(len(o.nsDadPktTemplate)))
 		m.Append(o.nsDadPktTemplate)
 		p := m.GetData()
 		l3 := o.pktOffset
@@ -1006,7 +1006,7 @@ func (o *NdClientCtx) SendNS(dad bool, sourceipv6 *core.Ipv6Key, target *core.Ip
 
 	} else {
 
-		m := o.base.Tctx.MPool.Alloc(uint16(len(o.nsPktTemplate)))
+		m := o.base.Ns.AllocMbuf(uint16(len(o.nsPktTemplate)))
 		m.Append(o.nsPktTemplate)
 		p := m.GetData()
 		l3 := o.pktOffset
@@ -1059,7 +1059,7 @@ func (o *NdClientCtx) SendUnsolicitedNA() {
 
 func (o *NdClientCtx) SendUnsolicitedNaIpv6(target *core.Ipv6Key, source *core.Ipv6Key, mac *core.MACKey) {
 
-	m := o.base.Tctx.MPool.Alloc(uint16(len(o.naPktTemplate)))
+	m := o.base.Ns.AllocMbuf(uint16(len(o.naPktTemplate)))
 	m.Append(o.naPktTemplate)
 	p := m.GetData()
 	l3 := o.pktOffset
@@ -1103,7 +1103,7 @@ func (o *NdClientCtx) Respond(mac *core.MACKey, ps *core.ParserPacketState) {
 	psrc := ms.GetData()
 	sipv6 := layers.IPv6Header(psrc[ps.L3 : ps.L3+40])
 
-	m := o.base.Tctx.MPool.Alloc(uint16(len(o.naPktTemplate)))
+	m := o.base.Ns.AllocMbuf(uint16(len(o.naPktTemplate)))
 	m.Append(o.naPktTemplate)
 	p := m.GetData()
 	copy(p[0:6], psrc[6:12]) // set the destination TBD need to fix
@@ -1232,7 +1232,7 @@ func (o *NdNsCtx) SendRouterSolicitation(srcMac core.MACKey) {
 	ipv6pktrs := append(l2, rsHeader...)
 
 	pktSize := len(ipv6pktrs) + 16
-	m := o.base.Tctx.MPool.Alloc(uint16(pktSize))
+	m := o.base.Ns.AllocMbuf(uint16(pktSize))
 	m.Append(ipv6pktrs)
 	p := m.GetData()
 

@@ -167,11 +167,11 @@ type CNSCtx struct {
 }
 
 type CNsInfo struct {
-	Port uint16    `json:"vport" validate:"required"`
-	Tci  [2]uint16 `json:"tci"`
-	Tpid [2]uint16 `json:"tpid"`
-	ActiveClients uint64 `json:"active_clients"`
-	PluginsCount  uint64 `json:"plugins_count"`
+	Port          uint16    `json:"vport" validate:"required"`
+	Tci           [2]uint16 `json:"tci"`
+	Tpid          [2]uint16 `json:"tpid"`
+	ActiveClients uint64    `json:"active_clients"`
+	PluginsCount  uint64    `json:"plugins_count"`
 	// TODO add more later ..
 }
 
@@ -202,6 +202,13 @@ func (o *CNSCtx) GetVport() uint16 {
 	var d CTunnelData
 	o.Key.Get(&d)
 	return d.Vport
+}
+
+func (o *CNSCtx) AllocMbuf(len uint16) *Mbuf {
+	vport := o.GetVport()
+	m := o.ThreadCtx.MPool.Alloc(len)
+	m.SetVPort(vport)
+	return m
 }
 
 // Look for a client by MAC

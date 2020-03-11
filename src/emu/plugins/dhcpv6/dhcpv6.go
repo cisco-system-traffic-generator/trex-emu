@@ -471,7 +471,7 @@ func (o *PluginDhcpClient) SendDhcpPacket(
 		pad = len(o.serverOption)
 	}
 
-	m := o.Tctx.MPool.Alloc(uint16(len(o.discoverPktTemplate) + pad))
+	m := o.Ns.AllocMbuf(uint16(len(o.discoverPktTemplate) + pad))
 	m.Append(o.discoverPktTemplate)
 
 	if serverOption {
