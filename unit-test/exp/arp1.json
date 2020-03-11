@@ -60,9 +60,15 @@
 		"data": "ff|ff|ff|ff|ff|ff|00|00|01|00|00|00|81|00|00|01|81|00|00|02|08|06|00|01|08|00|06|04|00|01|00|00|01|00|00|00|10|00|00|00|00|00|00|00|00|00|10|00|00|02|"
 	},
 	{
+		"time": 59.3,
+		"meta": "tx",
+		"len": 50,
+		"data": "ff|ff|ff|ff|ff|ff|00|00|01|00|00|00|81|00|00|01|81|00|00|02|08|06|00|01|08|00|06|04|00|01|00|00|01|00|00|00|10|00|00|00|00|00|00|00|00|00|10|00|00|02|"
+	},
+	{
 		"addIncomplete": 1,
 		"associateWithClient": 1,
-		"pktTxArpQuery": 9,
+		"pktTxArpQuery": 10,
 		"pktTxGArp": 1,
 		"tblActive": 1,
 		"tblAdd": 1,
@@ -70,11 +76,11 @@
 	},
 	{
 		"mbufAlloc": 2,
-		"mbufAllocCache": 8,
-		"mbufFreeCache": 10
+		"mbufAllocCache": 9,
+		"mbufFreeCache": 11
 	},
 	{
-		"TxBytes": 500,
-		"TxPkts": 10
+		"TxBytes": 550,
+		"TxPkts": 11
 	}
 ]

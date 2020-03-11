@@ -1,5 +1,15 @@
 package arp
 
+/*
+RFC 826  for ARP
+
+client inijson {
+	Timer uint32 `json:"timer"` // timer in sec for query and keep the client alive from DUT, default is 60 sec
+	TimerDisable bool `json:"timer_disable"` // disable the Query timer (timer is zero)
+}:
+
+*/
+
 import (
 	"emu/core"
 	"external/google/gopacket/layers"
@@ -26,6 +36,11 @@ const (
 // refresh the time here
 // I would like to make this table generic, let try to the table without generic first
 // then optimize it
+
+type ArpCInit struct {
+	Timer        uint32 `json:"timer"`
+	TimerDisable bool   `json:"timer_disable"`
+}
 
 type ArpFlow struct {
 	dlist  core.DList
@@ -567,6 +582,14 @@ func pluginArpClientCastfromDlist(o *core.DList) *PluginArpClient {
 	return (*PluginArpClient)(unsafe.Pointer(uintptr(unsafe.Pointer(o)) - unsafe.Offsetof(s.dlist)))
 }
 
+type PluginArpCTimer struct {
+}
+
+func (o *PluginArpCTimer) OnEvent(a, b interface{}) {
+	c := a.(*PluginArpClient)
+	c.onTimerUpdate()
+}
+
 // PluginArpClient arp information per client
 type PluginArpClient struct {
 	core.PluginBase
@@ -575,7 +598,17 @@ type PluginArpClient struct {
 	arpPktTemplate []byte           // template packet with
 	arpHeader      layers.ArpHeader // point to template packet
 	pktOffset      uint16
+	timer          core.CHTimerObj
+	timerCb        PluginArpCTimer
+	timerw         *core.TimerCtx
 	arpNsPlug      *PluginArpNs
+	timerSec       uint32
+}
+
+func (o *PluginArpClient) onTimerUpdate() {
+	// periodic
+	o.SendQuery()
+	o.timerw.Start(&o.timer, time.Duration(o.timerSec)*time.Second)
 }
 
 func (o *PluginArpClient) preparePacketTemplate() {
@@ -594,11 +627,31 @@ func (o *PluginArpClient) preparePacketTemplate() {
 		DstProtAddress:    []uint8{0x00, 0x00, 0x00, 0x00}})
 	o.arpPktTemplate = append(l2, arpHeader...)
 	o.arpHeader = layers.ArpHeader(o.arpPktTemplate[arpOffset : arpOffset+28])
+	o.timerw = o.Tctx.GetTimerCtx()
+	o.timer.SetCB(&o.timerCb, o, 0) // set the callback to OnEvent
+	if o.timerSec > 0 {
+		o.timerw.Start(&o.timer, time.Duration(o.timerSec)*time.Second)
+	}
 }
 
 /*NewArpClient create plugin */
 func NewArpClient(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
+	var init ArpCInit
+	err := fastjson.Unmarshal(initJson, &init)
+
 	o := new(PluginArpClient)
+	o.timerSec = 60
+
+	if err == nil {
+		/* init json was provided */
+		if init.Timer > 0 {
+			o.timerSec = init.Timer
+		}
+		if init.TimerDisable {
+			o.timerSec = 0
+		}
+	}
+
 	o.arpEnable = true
 	o.dlist.SetSelf()
 	o.InitPluginBase(ctx, o)            /* init base object*/
@@ -606,7 +659,9 @@ func NewArpClient(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
 	o.preparePacketTemplate()
 	nsplg := o.Ns.PluginCtx.GetOrCreate(ARP_PLUG)
 	o.arpNsPlug = nsplg.Ext.(*PluginArpNs)
+
 	o.OnCreate()
+
 	return &o.PluginBase
 }
 
@@ -661,6 +716,10 @@ func (o *PluginArpClient) OnChangeDGSrcIPv4(oldDgIpv4 core.Ipv4Key,
 
 func (o *PluginArpClient) OnRemove(ctx *core.PluginCtx) {
 	/* force removing the link to the client */
+	if o.timer.IsRunning() {
+		o.timerw.Stop(&o.timer)
+	}
+
 	o.OnChangeDGSrcIPv4(o.Client.DgIpv4,
 		o.Client.DgIpv4,
 		!o.Client.Ipv4.IsZero(),
@@ -792,25 +851,20 @@ func (o *PluginArpNs) AssociateClient(arpc *PluginArpClient) {
 	if arpc.Client.Ipv4.IsZero() || arpc.Client.DgIpv4.IsZero() {
 		panic("AssociateClient should have valid source ipv4 and default gateway ")
 	}
-	var firstUnresolve bool
-	firstUnresolve = false
 	ipv4 := arpc.Client.DgIpv4
 	flow := o.tbl.Lookup(ipv4)
 	if flow != nil {
-		firstUnresolve = o.tbl.AssociateWithClient(flow)
+		o.tbl.AssociateWithClient(flow)
 	} else {
 		/* we don't have resolution, add new in state stateIncomplete */
 		flow = o.tbl.AddNew(ipv4, nil, stateIncomplete)
-		firstUnresolve = true
 	}
 
 	o.stats.associateWithClient++
 	flow.head.AddLast(&arpc.dlist)
 
-	if firstUnresolve {
-		arpc.SendGArp()
-		arpc.SendQuery()
-	}
+	arpc.SendGArp()
+	arpc.SendQuery()
 
 	arpc.Client.DGW = &flow.action
 }
@@ -941,9 +995,9 @@ type (
 		Count uint16 `json:"count" validate:"required,gte=0,lte=255"`
 	}
 	ApiArpNsIterResult struct {
-		Empty  bool          `json:"empty"`
+		Empty   bool          `json:"empty"`
 		Stopped bool          `json:"stopped"`
-		Vec    []ArpCacheRec `json:"data"`
+		Vec     []ArpCacheRec `json:"data"`
 	}
 )
 
@@ -1020,7 +1074,7 @@ func (h ApiArpNsCntHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMe
 	tctx := ctx.(*core.CThreadCtx)
 
 	arpNsPlug, err := getNsPlugin(ctx, params)
-	
+
 	if err != nil {
 		return nil, &jsonrpc.Error{
 			Code:    jsonrpc.ErrorCodeInvalidRequest,
