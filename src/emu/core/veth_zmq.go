@@ -115,6 +115,9 @@ func (o *VethIFZmq) FlushTx() {
 	o.buf = append(o.buf, pkth[:]...) // message header
 
 	for _, m := range o.vec {
+		if !m.IsContiguous() {
+			panic(" mbuf should be contiguous  ")
+		}
 		if o.K12Monitor {
 			m.DumpK12(o.tctx.GetTickSimInSec())
 		}
@@ -123,7 +126,7 @@ func (o *VethIFZmq) FlushTx() {
 		binary.BigEndian.PutUint32(pkth[:], pktHeader)
 		o.buf = append(o.buf, pkth[:]...)     // packet header
 		o.buf = append(o.buf, m.GetData()...) // packet itself
-
+		m.FreeMbuf()
 	}
 	o.vec = o.vec[:0]
 	o.txVecSize = 0
