@@ -11,6 +11,7 @@ client inijson {
 */
 
 import (
+	"bytes"
 	"emu/core"
 	"encoding/binary"
 	"external/google/gopacket"
@@ -67,10 +68,11 @@ func NewDhcpStatsDb(o *DhcpStats) *core.CCounterDb {
 		Unit:     "pkts",
 		DumpZero: false,
 		Info:     core.ScINFO})
+
 	db.Add(&core.CCounterRec{
 		Counter:  &o.pktRxOffer,
 		Name:     "pktRxOffer",
-		Help:     "received offer ",
+		Help:     "rx offer ",
 		Unit:     "pkts",
 		DumpZero: false,
 		Info:     core.ScINFO})
@@ -139,7 +141,31 @@ func NewDhcpStatsDb(o *DhcpStats) *core.CCounterDb {
 	db.Add(&core.CCounterRec{
 		Counter:  &o.pktRxRebind,
 		Name:     "pktRxRebind",
-		Help:     "nack",
+		Help:     "Rx rebind",
+		Unit:     "pkts",
+		DumpZero: false,
+		Info:     core.ScERROR})
+
+	db.Add(&core.CCounterRec{
+		Counter:  &o.pktRxWrongXid,
+		Name:     "pktRxWrongXid",
+		Help:     "wrong xid ignore",
+		Unit:     "pkts",
+		DumpZero: false,
+		Info:     core.ScERROR})
+
+	db.Add(&core.CCounterRec{
+		Counter:  &o.pktRxWrongHwType,
+		Name:     "pktRxWrongHwType",
+		Help:     "wrong hw type",
+		Unit:     "pkts",
+		DumpZero: false,
+		Info:     core.ScERROR})
+
+	db.Add(&core.CCounterRec{
+		Counter:  &o.pktRxWrongIP,
+		Name:     "pktRxWrongIP",
+		Help:     "rx with wrong dest ip",
 		Unit:     "pkts",
 		DumpZero: false,
 		Info:     core.ScERROR})
@@ -163,8 +189,8 @@ type PluginDhcpClient struct {
 	cnt        uint8
 	state      uint8
 
-	ipv4                       net.IP
-	server                     net.IP
+	ipv4                       core.Ipv4Key
+	server                     core.Ipv4Key
 	serverMac                  core.MACKey
 	dg                         core.Ipv4Key
 	timer                      core.CHTimerObj
@@ -392,7 +418,7 @@ func (o *PluginDhcpClient) SendRenewRebind(rebind bool, release bool, timerSec u
 	}
 	//
 	off := o.l3Offset + 20 + 8 + 12
-	copy(pkt[off:off+4], o.ipv4)
+	copy(pkt[off:off+4], o.ipv4[:])
 	if release {
 		pkt[off+230] = 7
 	} else {
@@ -404,8 +430,8 @@ func (o *PluginDhcpClient) SendRenewRebind(rebind bool, release bool, timerSec u
 
 	if unitcast {
 		copy(pkt[0:6], o.serverMac[:])
-		srcIPv4 := convert(o.ipv4)
-		serverIPv4 := convert(o.server)
+		srcIPv4 := o.ipv4
+		serverIPv4 := o.server
 		ipv4.SetIPDst(serverIPv4.Uint32())
 		ipv4.SetIPSrc(srcIPv4.Uint32())
 	} else {
@@ -430,8 +456,8 @@ func (o *PluginDhcpClient) SendReq() {
 
 	// offset for the option
 	off := o.l3Offset + 20 + 8 + 254
-	copy(pkt[off:off+4], o.ipv4)
-	copy(pkt[off+6:off+10], o.server)
+	copy(pkt[off:off+4], o.ipv4[:])
+	copy(pkt[off+6:off+10], o.server[:])
 	ipo := o.l3Offset
 	ipv4 := layers.IPv4Header(pkt[ipo : ipo+20])
 
@@ -456,7 +482,7 @@ func convert(ipv4 net.IP) core.Ipv4Key {
 	return key
 }
 
-func (o *PluginDhcpClient) verifyPkt(dhcph *layers.DHCPv4, ipv4 layers.IPv4Header) int {
+func (o *PluginDhcpClient) verifyPkt(dhcph *layers.DHCPv4, ipv4 layers.IPv4Header, learn bool, server *core.Ipv4Key) int {
 	if dhcph.Xid != o.xid {
 		o.stats.pktRxWrongXid++
 		return -1
@@ -472,25 +498,36 @@ func (o *PluginDhcpClient) verifyPkt(dhcph *layers.DHCPv4, ipv4 layers.IPv4Heade
 		return -1
 	}
 
-	o.ipv4 = dhcph.YourClientIP
-	o.server = dhcph.NextServerIP
-
-	skey := convert(dhcph.NextServerIP)
-
-	if skey.IsZero() {
-		o.stats.pktRxWrongIP++
-		return -1
-	}
-
 	if len(dhcph.YourClientIP) != 4 {
 		o.stats.pktRxWrongIP++
 		return -1
-
 	}
-	key := convert(dhcph.YourClientIP)
-	if key.Uint32() != ipv4.GetIPDst() {
-		o.stats.pktRxWrongIP++
-		return -1
+	if !learn {
+		var key core.Ipv4Key
+		key = convert(dhcph.YourClientIP)
+		if key.Uint32() != ipv4.GetIPDst() {
+			o.stats.pktRxWrongIP++
+			return -1
+		}
+		if o.server.IsZero() {
+			o.stats.pktRxWrongIP++
+			return -1
+		}
+
+		if server == nil {
+			o.stats.pktRxWrongIP++
+			return -1
+		} else {
+			if !bytes.Equal(o.server[:], server[:]) {
+				o.stats.pktRxWrongIP++
+				return -1
+			}
+		}
+
+	} else {
+		var key core.Ipv4Key
+		key = convert(dhcph.YourClientIP)
+		copy(o.ipv4[:], key[:])
 	}
 	return 0
 }
@@ -541,11 +578,12 @@ func (o *PluginDhcpClient) HandleAckNak(dhcpmt layers.DHCPMsgType,
 	ipv4 layers.IPv4Header,
 	t1 uint32,
 	t2 uint32,
-	notify bool) int {
+	notify bool,
+	server *core.Ipv4Key) int {
 	switch dhcpmt {
 	case layers.DHCPMsgTypeAck:
 		o.stats.pktRxAck++
-		if o.verifyPkt(dhcph, ipv4) != 0 {
+		if o.verifyPkt(dhcph, ipv4, false, server) != 0 {
 			return -1
 		}
 		o.state = DHCP_STATE_BOUND
@@ -560,8 +598,10 @@ func (o *PluginDhcpClient) HandleAckNak(dhcpmt layers.DHCPMsgType,
 				if !o.dg.IsZero() {
 					// update dg
 					ipv4key.SetUint32(o.dg.Uint32())
-					o.Client.UpdateDgIPv4(ipv4key)
+				} else {
+					ipv4key.SetUint32(o.server.Uint32())
 				}
+				o.Client.UpdateDgIPv4(ipv4key)
 			}
 		}
 		o.restartTimer(t1)
@@ -605,9 +645,22 @@ func (o *PluginDhcpClient) HandleRxDhcpPacket(ps *core.ParserPacketState) int {
 	t1 = 1811
 	t2 = 3200
 	o.dg.SetUint32(0)
+	var server *core.Ipv4Key
+	server = nil
+	var serverOp core.Ipv4Key
 
 	for _, op := range dhcph.Options {
 		switch op.Type {
+		case layers.DHCPOptServerID:
+			if len(op.Data) == 4 {
+				if o.state == DHCP_STATE_INIT {
+					copy(o.server[:], op.Data[:])
+				} else {
+					copy(serverOp[:], op.Data[:])
+					server = &serverOp
+				}
+			}
+
 		case layers.DHCPOptMessageType:
 
 			dhcpmt = layers.DHCPMsgType(op.Data[0])
@@ -628,7 +681,7 @@ func (o *PluginDhcpClient) HandleRxDhcpPacket(ps *core.ParserPacketState) int {
 
 		if dhcpmt == layers.DHCPMsgTypeOffer {
 			o.stats.pktRxOffer++
-			if o.verifyPkt(&dhcph, ipv4) != 0 {
+			if o.verifyPkt(&dhcph, ipv4, true, server) != 0 {
 				return -1
 			}
 
@@ -639,14 +692,14 @@ func (o *PluginDhcpClient) HandleRxDhcpPacket(ps *core.ParserPacketState) int {
 		}
 
 	case DHCP_STATE_REQUESTING:
-		return o.HandleAckNak(dhcpmt, &dhcph, ipv4, t1, t2, true)
+		return o.HandleAckNak(dhcpmt, &dhcph, ipv4, t1, t2, true, server)
 	case DHCP_STATE_BOUND:
 		o.stats.pktRxUnhandle++
 	case DHCP_STATE_RENEWING:
-		return o.HandleAckNak(dhcpmt, &dhcph, ipv4, t1, t2, true)
+		return o.HandleAckNak(dhcpmt, &dhcph, ipv4, t1, t2, true, server)
 
 	case DHCP_STATE_REBINDING:
-		return o.HandleAckNak(dhcpmt, &dhcph, ipv4, t1, t2, true)
+		return o.HandleAckNak(dhcpmt, &dhcph, ipv4, t1, t2, true, server)
 
 	default:
 		o.stats.pktRxUnhandle++
@@ -707,6 +760,7 @@ func (o *PluginDhcpNs) HandleRxDhcpPacket(ps *core.ParserPacketState) int {
 // HandleRxDhcpPacket Parser call this function with mbuf from the pool
 func HandleRxDhcpPacket(ps *core.ParserPacketState) int {
 	ns := ps.Tctx.GetNs(ps.Tun)
+
 	if ns == nil {
 		return core.PARSER_ERR
 	}

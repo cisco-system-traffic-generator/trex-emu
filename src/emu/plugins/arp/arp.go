@@ -748,7 +748,7 @@ func (o *PluginArpClient) SendGArp() {
 		o.arpHeader.SetDestAddress([]byte{0, 0, 0, 0, 0, 0})
 		o.Tctx.Veth.SendBuffer(false, o.Client, o.arpPktTemplate)
 	} else {
-		panic("  SendGArp() arp wasn't sent ")
+		//panic("  SendGArp() arp wasn't sent ")
 	}
 }
 
@@ -761,7 +761,7 @@ func (o *PluginArpClient) SendQuery() {
 		o.arpHeader.SetDestAddress([]byte{0, 0, 0, 0, 0, 0})
 		o.Tctx.Veth.SendBuffer(false, o.Client, o.arpPktTemplate)
 	} else {
-		panic("  SendQuery() arp wasn't sent ")
+		//panic("  SendQuery() arp wasn't sent ")
 	}
 }
 
