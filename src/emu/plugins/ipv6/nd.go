@@ -27,6 +27,7 @@ const (
 	hoplimitmax          = 255
 	routeSolSec          = 1  // number of seconds to send routeSol
 	routeSolRet          = 20 // number of retries to send routeSol
+	advTimerSec          = 29 // every 29 second adv all public ipv6 addr
 )
 
 // refresh the time here
@@ -780,8 +781,35 @@ type NdClientCtx struct {
 	timerNASec       uint32
 }
 
+func (o *NdClientCtx) AdvIPv6() {
+	ipr := o.base.Client.Ipv6Router
+	c := o.base.Client
+
+	// try to advertise internal ips
+	if ipr != nil {
+		if !ipr.IPv6.IsZero() {
+			// we have the router IP
+			if !c.Ipv6.IsZero() {
+				o.SendNS(false, &c.Ipv6, &ipr.IPv6)
+			}
+			if !c.Dhcpv6.IsZero() {
+				o.SendNS(false, &c.Dhcpv6, &ipr.IPv6)
+			}
+
+			var l6 core.Ipv6Key
+			if c.GetIpv6Slaac(&l6) {
+				o.SendNS(false, &l6, &ipr.IPv6)
+			}
+
+			c.GetIpv6LocalLink(&l6)
+			o.SendNS(false, &l6, &ipr.IPv6)
+		}
+	}
+}
+
 func (o *NdClientCtx) onTimerUpdate() {
-	o.SendUnsolicitedNA()
+
+	o.AdvIPv6()
 	o.timerw.Start(&o.timer, time.Duration(o.timerNASec)*time.Second)
 }
 
@@ -875,7 +903,7 @@ func (o *NdClientCtx) Init(base *PluginIpv6Client,
 	o.nsPlug = nsPlug
 
 	// set default values
-	o.timerNASec = 60
+	o.timerNASec = advTimerSec
 
 	if err == nil {
 		/* init json was provided */
@@ -1029,6 +1057,7 @@ func (o *NdClientCtx) OnCreate() {
 		o.addMcCache(&o.base.Client.Ipv6)
 	}
 	o.SendUnsolicitedNA()
+	o.AdvIPv6()
 
 	// resolve the current default GW if exits
 	if !o.base.Client.Ipv6ForceDGW {
@@ -1457,7 +1486,7 @@ func (o *NdNsCtx) HandleRxIpv6NdPacket(ps *core.ParserPacketState, code layers.I
 		}
 		var prefixCnt uint8
 		prefixCnt = 0
-
+		copy(o.routerAd.IPv6[:], ipv6.SrcIP()[:])
 		for _, opt := range ra.Options {
 			switch opt.Type {
 

@@ -17,7 +17,6 @@ import (
 	"encoding/binary"
 	"external/google/gopacket/layers"
 	"external/osamingo/jsonrpc"
-	"fmt"
 
 	"github.com/intel-go/fastjson"
 )
@@ -246,15 +245,12 @@ func (o *PluginIpv6Ns) HandleRxIpv6Packet(ps *core.ParserPacketState) int {
 
 		/* need to look for 2 type of IPvs */
 		copy(ipv6key[:], ipv6.DstIP())
-		fmt.Printf(" lookup %v ", ipv6key)
 
 		client := o.Ns.CLookupByIPv6LocalGlobal(&ipv6key)
 		if client == nil {
-			fmt.Printf(" not found \n")
 			o.stats.pktRxNoClientUnhandled++
 			return 0
 		}
-		fmt.Printf(" found !!! \n")
 
 		tome := client.IsUnicastToMe(p)
 		if !tome {

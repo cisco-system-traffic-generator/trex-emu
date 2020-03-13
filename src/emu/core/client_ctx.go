@@ -56,6 +56,7 @@ type CClientIpv6Nd struct {
 	DgMac      MACKey  `json:"dgmac"` // router dg
 	PrefixIpv6 Ipv6Key `json:"prefix"`
 	PrefixLen  uint8   `json:"prefix_len"`
+	IPv6       Ipv6Key `json:"ipv6"`
 }
 
 // CClient represent one client
