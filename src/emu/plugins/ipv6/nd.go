@@ -964,6 +964,7 @@ func (o *NdClientCtx) OnEvent(msg string, a, b interface{}) {
 				pmac := &o.base.Client.Mac
 				o.SendUnsolicitedNaIpv6(&l6, nil, pmac)
 				o.SendNS(true, nil, &l6) // dad, not by RFC. assuming it is ok
+				o.AdvIPv6()
 			}
 		}
 
@@ -978,6 +979,7 @@ func (o *NdClientCtx) OnEvent(msg string, a, b interface{}) {
 			if !newIPv6.IsZero() {
 				o.addMc(&newIPv6)
 				o.SendUnsolicitedNA()
+				o.AdvIPv6()
 			}
 		}
 

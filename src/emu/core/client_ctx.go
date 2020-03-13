@@ -113,11 +113,11 @@ type CClientInfo struct {
 	DgIpv4 Ipv4Key `json:"ipv4_dg"`
 	MTU    uint16  `json:"ipv4_mtu"`
 
-	Ipv6Local  Ipv6Key `json:"ipv6_local"`
-	Ipv6Slaac  Ipv6Key `json:"ipv6_slaac"`
-	Ipv6       Ipv6Key `json:"ipv6"`
-	DgIpv6     Ipv6Key `json:"dg_ipv6"`
-	DhcpDgIpv6 Ipv6Key `json:"dhcp_dg_ipv6"`
+	Ipv6Local Ipv6Key `json:"ipv6_local"`
+	Ipv6Slaac Ipv6Key `json:"ipv6_slaac"`
+	Ipv6      Ipv6Key `json:"ipv6"`
+	DgIpv6    Ipv6Key `json:"dg_ipv6"`
+	DhcpIpv6  Ipv6Key `json:"dhcp_ipv6"`
 
 	Ipv6ForceDGW   bool   `json:"ipv4_force_dg"`
 	Ipv6ForcedgMac MACKey `json:"ipv4_force_mac"`
@@ -346,7 +346,7 @@ func (o *CClient) GetInfo() *CClientInfo {
 
 	info.Ipv6 = o.Ipv6
 	info.DgIpv6 = o.DgIpv6
-	info.DhcpDgIpv6 = o.Dhcpv6
+	info.DhcpIpv6 = o.Dhcpv6
 
 	info.Ipv6ForceDGW = o.Ipv6ForceDGW
 	info.Ipv6ForcedgMac = o.Ipv6ForcedgMac
