@@ -9,6 +9,8 @@ import (
 	"net"
 	"time"
 	"unsafe"
+
+	"github.com/intel-go/fastjson"
 )
 
 /* nd flow table is based on ARP cache table, some minor changes vs the RFC */
@@ -23,6 +25,8 @@ const (
 	stateComplete        = 18
 	stateRefresh         = 19 /* re-query wait for results to get back to stateQuery */
 	hoplimitmax          = 255
+	routeSolSec          = 1  // number of seconds to send routeSol
+	routeSolRet          = 20 // number of retries to send routeSol
 )
 
 // refresh the time here
@@ -39,6 +43,15 @@ type NdCacheFlow struct {
 	touch  bool
 	refc   uint32
 	action core.CClientDg
+}
+
+// refresh the time here
+// I would like to make this table generic, let try to the table without generic first
+// then optimize it
+
+type Ipv6NdInit struct {
+	Timer        uint32 `json:"nd_timer"`
+	TimerDisable bool   `json:"nd_timer_disable"`
 }
 
 func covertToNdCacheFlow(dlist *core.DList) *NdCacheFlow {
@@ -743,6 +756,14 @@ func pluginArpClientCastfromDlist(o *core.DList) *NdClientCtx {
 	return (*NdClientCtx)(unsafe.Pointer(uintptr(unsafe.Pointer(o)) - unsafe.Offsetof(s.dlist)))
 }
 
+type NdClientTimer struct {
+}
+
+func (o *NdClientTimer) OnEvent(a, b interface{}) {
+	c := a.(*NdClientCtx)
+	c.onTimerUpdate()
+}
+
 // NdClientCtx nd information per client
 type NdClientCtx struct {
 	base             *PluginIpv6Client
@@ -753,6 +774,15 @@ type NdClientCtx struct {
 	naPktTemplate    []byte
 	nsPktTemplate    []byte // with source option
 	nsDadPktTemplate []byte // no option for DAD
+	timer            core.CHTimerObj
+	timerCb          NdClientTimer
+	timerw           *core.TimerCtx
+	timerNASec       uint32
+}
+
+func (o *NdClientCtx) onTimerUpdate() {
+	o.SendUnsolicitedNA()
+	o.timerw.Start(&o.timer, time.Duration(o.timerNASec)*time.Second)
 }
 
 func (o *NdClientCtx) preparePacketTemplate() {
@@ -834,11 +864,33 @@ func (o *NdClientCtx) Init(base *PluginIpv6Client,
 	ctx *core.CThreadCtx,
 	mld *mldNsCtx,
 	initJson []byte) {
+
+	var init Ipv6NdInit
+	err := fastjson.Unmarshal(initJson, &init)
+
 	o.base = base
 	o.mld = mld
 	o.dlist.SetSelf()
 	o.preparePacketTemplate()
 	o.nsPlug = nsPlug
+
+	// set default values
+	o.timerNASec = 60
+
+	if err == nil {
+		/* init json was provided */
+		if init.Timer > 0 {
+			o.timerNASec = init.Timer
+		}
+		if init.TimerDisable {
+			o.timerNASec = 0
+		}
+	}
+
+	o.timerw = o.base.Tctx.GetTimerCtx()
+	o.timer.SetCB(&o.timerCb, o, 0)
+	o.timerw.Start(&o.timer, time.Duration(o.timerNASec)*time.Second)
+
 	o.OnCreate()
 }
 
@@ -941,8 +993,14 @@ func (o *NdClientCtx) OnRemove(ctx *core.PluginCtx) {
 		o.mld.removeMcCache(o.base.Client.Ipv6)
 	}
 
+	o.base.Client.Ipv6Router = nil
+
 	if !o.base.Client.DgIpv6.IsZero() {
 		o.nsPlug.DisassociateClient(o, o.base.Client.DgIpv6)
+	}
+
+	if o.timer.IsRunning() {
+		o.timerw.Stop(&o.timer)
 	}
 }
 
@@ -964,11 +1022,13 @@ func (o *NdClientCtx) OnCreate() {
 		o.nsPlug.StartRouterSol(mac)
 	}
 
+	o.base.Client.Ipv6Router = &o.nsPlug.routerAd
+
 	// in case of static IPv6
 	if !o.base.Client.Ipv6.IsZero() {
 		o.addMcCache(&o.base.Client.Ipv6)
-		o.SendUnsolicitedNA()
 	}
+	o.SendUnsolicitedNA()
 
 	// resolve the current default GW if exits
 	if !o.base.Client.Ipv6ForceDGW {
@@ -1032,6 +1092,18 @@ func (o *NdClientCtx) SendNS(dad bool, sourceipv6 *core.Ipv6Key, target *core.Ip
 
 }
 
+func (o *NdClientCtx) SendUnsolicitedSlaac() {
+	var l6 core.Ipv6Key
+	if o.base.Client.GetIpv6Slaac(&l6) {
+		pmac := &o.base.Client.Mac
+		var spl6 *core.Ipv6Key
+		spl6 = &l6
+		o.SendNS(true, spl6, &l6) // dad
+		o.SendUnsolicitedNaIpv6(&l6, spl6, pmac)
+	}
+
+}
+
 func (o *NdClientCtx) SendUnsolicited(linkLocal bool) {
 	var l6 core.Ipv6Key
 	var sl6 core.Ipv6Key
@@ -1052,6 +1124,7 @@ func (o *NdClientCtx) SendUnsolicited(linkLocal bool) {
 func (o *NdClientCtx) SendUnsolicitedNA() {
 
 	o.SendUnsolicited(true)
+	o.SendUnsolicitedSlaac()
 	if !o.base.Client.Ipv6.IsZero() {
 		o.SendUnsolicited(false)
 	}
@@ -1166,7 +1239,7 @@ func (o *NdNsCtx) Init(base *PluginIpv6Ns, ctx *core.CThreadCtx, initJson []byte
 	o.cdb = NewIpv6NsStatsDb(&o.stats)
 
 	o.timerRouterSo.SetCB(&o.routeAdTimerCB, o, 0) // set the callback to OnEvent
-	o.routerAdTicks = o.timerw.DurationToTicks(10 * time.Second)
+	o.routerAdTicks = o.timerw.DurationToTicks(routeSolSec * time.Second)
 }
 
 func (o *NdNsCtx) IsRouterSolActive() bool {
@@ -1185,7 +1258,7 @@ func (o *NdNsCtx) StartRouterSol(routerSoMac core.MACKey) {
 // callback in case of advTimer
 func (o *NdNsCtx) onRouterAdTimerUpdate() {
 	o.routerAdCnt++
-	if o.routerAdCnt < 5 {
+	if o.routerAdCnt < routeSolRet {
 		o.SendRouterSolicitation(o.routerSoMac)
 		o.timerw.StartTicks(&o.timerRouterSo, o.routerAdTicks)
 	}
@@ -1382,6 +1455,8 @@ func (o *NdNsCtx) HandleRxIpv6NdPacket(ps *core.ParserPacketState, code layers.I
 		if o.timerRouterSo.IsRunning() {
 			o.timerw.Stop(&o.timerRouterSo)
 		}
+		var prefixCnt uint8
+		prefixCnt = 0
 
 		for _, opt := range ra.Options {
 			switch opt.Type {
@@ -1399,8 +1474,9 @@ func (o *NdNsCtx) HandleRxIpv6NdPacket(ps *core.ParserPacketState, code layers.I
 					preferredLifetime := binary.BigEndian.Uint32(opt.Data[6:10])
 					prefix := net.IP(opt.Data[14:])
 
-					if prefixLen <= 64 && (validLifetime > 0) && (preferredLifetime > 0) {
+					if prefixLen <= 64 && (validLifetime > 0) && (preferredLifetime > 0) && (prefixCnt == 0) {
 						// valid prefix
+						prefixCnt = 1
 						o.routerAd.PrefixLen = prefixLen
 						if len(prefix) == 16 {
 							copy(o.routerAd.PrefixIpv6[:], prefix[:])
@@ -1416,6 +1492,7 @@ func (o *NdNsCtx) HandleRxIpv6NdPacket(ps *core.ParserPacketState, code layers.I
 				}
 
 			}
+
 		}
 
 	case layers.CreateICMPv6TypeCode(layers.ICMPv6TypeNeighborSolicitation, 0):

@@ -112,6 +112,8 @@ type CClientInfo struct {
 	DgIpv4 Ipv4Key `json:"ipv4_dg"`
 	MTU    uint16  `json:"ipv4_mtu"`
 
+	Ipv6Local  Ipv6Key `json:"ipv6_local"`
+	Ipv6Slaac  Ipv6Key `json:"ipv6_slaac"`
 	Ipv6       Ipv6Key `json:"ipv6"`
 	DgIpv6     Ipv6Key `json:"dg_ipv6"`
 	DhcpDgIpv6 Ipv6Key `json:"dhcp_dg_ipv6"`
@@ -170,6 +172,26 @@ func (o *CClient) OnRemove() {
 	o.PluginCtx.OnRemove()
 }
 
+// fix this
+func (o *CClient) GetIpv6Slaac(l6 *Ipv6Key) bool {
+	if o.Ipv6Router == nil {
+		return false
+	}
+	if o.Ipv6Router.PrefixLen == 64 && !o.Ipv6Router.PrefixIpv6.IsZero() {
+		copy(l6[:], o.Ipv6Router.PrefixIpv6[:])
+		l6[8] = o.Mac[0] ^ 0x2
+		l6[9] = o.Mac[1]
+		l6[10] = o.Mac[2]
+		l6[11] = 0xFF
+		l6[12] = 0xFE
+		l6[13] = o.Mac[3]
+		l6[14] = o.Mac[4]
+		l6[15] = o.Mac[5]
+		return true
+	}
+	return false
+}
+
 func (o *CClient) GetIpv6LocalLink(l6 *Ipv6Key) {
 	l6[0] = 0xFE
 	l6[1] = 0x80
@@ -199,7 +221,7 @@ func (o *CClient) IsValidPrefix(ipv6 Ipv6Key) bool {
 
 	if o.Ipv6Router != nil {
 		if o.Ipv6Router.PrefixLen == 64 {
-			if bytes.Compare(o.Ipv6Router.PrefixIpv6[0:8], l6[0:8]) == 0 {
+			if bytes.Compare(o.Ipv6Router.PrefixIpv6[0:8], ipv6[0:8]) == 0 {
 				return true
 			}
 		}
@@ -317,6 +339,9 @@ func (o *CClient) GetInfo() *CClientInfo {
 	info.Ipv4 = o.Ipv4
 	info.DgIpv4 = o.DgIpv4
 	info.MTU = o.MTU
+
+	o.GetIpv6LocalLink(&info.Ipv6Local)
+	o.GetIpv6Slaac(&info.Ipv6Slaac)
 
 	info.Ipv6 = o.Ipv6
 	info.DgIpv6 = o.DgIpv6

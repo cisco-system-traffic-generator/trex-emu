@@ -17,6 +17,7 @@ import (
 	"encoding/binary"
 	"external/google/gopacket/layers"
 	"external/osamingo/jsonrpc"
+	"fmt"
 
 	"github.com/intel-go/fastjson"
 )
@@ -245,12 +246,15 @@ func (o *PluginIpv6Ns) HandleRxIpv6Packet(ps *core.ParserPacketState) int {
 
 		/* need to look for 2 type of IPvs */
 		copy(ipv6key[:], ipv6.DstIP())
+		fmt.Printf(" lookup %v ", ipv6key)
 
-		client := o.Ns.CLookupByIPv6(&ipv6key)
+		client := o.Ns.CLookupByIPv6LocalGlobal(&ipv6key)
 		if client == nil {
+			fmt.Printf(" not found \n")
 			o.stats.pktRxNoClientUnhandled++
 			return 0
 		}
+		fmt.Printf(" found !!! \n")
 
 		tome := client.IsUnicastToMe(p)
 		if !tome {
@@ -337,9 +341,9 @@ type (
 		Count uint16 `json:"count" validate:"required,gte=0,lte=255"`
 	}
 	ApiMldNsIterResult struct {
-		Empty  bool           `json:"empty"`
+		Empty   bool           `json:"empty"`
 		Stopped bool           `json:"stopped"`
-		Vec    []core.Ipv6Key `json:"data"`
+		Vec     []core.Ipv6Key `json:"data"`
 	}
 
 	ApiMldSetHandler struct{}
@@ -362,9 +366,9 @@ type (
 		Count uint16 `json:"count" validate:"required,gte=0,lte=255"`
 	}
 	ApiNdNsIterResult struct {
-		Empty  bool             `json:"empty"`
+		Empty   bool             `json:"empty"`
 		Stopped bool             `json:"stopped"`
-		Vec    []Ipv6NsCacheRec `json:"data"`
+		Vec     []Ipv6NsCacheRec `json:"data"`
 	}
 )
 

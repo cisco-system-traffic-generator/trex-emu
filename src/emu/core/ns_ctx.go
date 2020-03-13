@@ -3,6 +3,7 @@ package core
 import (
 	"encoding/binary"
 	"fmt"
+	"net"
 	"unsafe"
 )
 
@@ -235,6 +236,37 @@ func (o *CNSCtx) CLookupByIPv4(ipv4 *Ipv4Key) *CClient {
 	} else {
 		return nil
 	}
+}
+
+// look by local and global addr
+func (o *CNSCtx) CLookupByIPv6LocalGlobal(ipv6 *Ipv6Key) *CClient {
+	ta := net.IPv4(0, 0, 0, 0)
+
+	copy(ta[:], ipv6[:])
+
+	if ta.IsLinkLocalUnicast() || ta.IsGlobalUnicast() {
+		var mac MACKey
+		if ExtractOnlyMac(ta, &mac) {
+			// look for mac
+			var tipv6 Ipv6Key
+			copy(tipv6[:], ta)
+
+			client := o.CLookupByMac(&mac)
+			if client != nil {
+				if client.IsValidPrefix(tipv6) {
+					return client
+				}
+			}
+		} else {
+			var tipv6 Ipv6Key
+			copy(tipv6[:], ta)
+			client := o.CLookupByIPv6(&tipv6)
+			if client != nil {
+				return client
+			}
+		}
+	}
+	return nil
 }
 
 func (o *CNSCtx) CLookupByIPv6(ipv6 *Ipv6Key) *CClient {
