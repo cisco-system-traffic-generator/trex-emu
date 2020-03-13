@@ -312,6 +312,7 @@ type PluginDhcpClient struct {
 	discoverPktTemplate        []byte
 	cid                        []byte
 	sid                        []byte // server id learned
+	sidOption                  []byte
 	sipv6                      net.IP // server ip
 	srcIpv6                    net.IP // local source ipv6
 	l3Offset                   uint16
@@ -468,14 +469,14 @@ func (o *PluginDhcpClient) SendDhcpPacket(
 
 	pad := 0
 	if serverOption {
-		pad = len(o.serverOption)
+		pad = len(o.sidOption)
 	}
 
 	m := o.Ns.AllocMbuf(uint16(len(o.discoverPktTemplate) + pad))
 	m.Append(o.discoverPktTemplate)
 
 	if serverOption {
-		m.Append(o.serverOption)
+		m.Append(o.sidOption)
 	}
 
 	p := m.GetData()
@@ -700,6 +701,14 @@ func (o *PluginDhcpClient) HandleAckNak(dhcpmt layers.DHCPv6MsgType,
 	return 0
 }
 
+func EncodeOption(o layers.DHCPv6Option) []byte {
+	b := make([]byte, 4)
+	binary.BigEndian.PutUint16(b[0:2], uint16(o.Code))
+	binary.BigEndian.PutUint16(b[2:4], uint16(len(o.Data)))
+	b = append(b, o.Data[:]...)
+	return b
+}
+
 func (o *PluginDhcpClient) HandleRxDhcpPacket(ps *core.ParserPacketState) int {
 
 	m := ps.M
@@ -790,6 +799,7 @@ func (o *PluginDhcpClient) HandleRxDhcpPacket(ps *core.ParserPacketState) int {
 				return -1
 			}
 			o.sid = append(o.sid, sid[:]...)
+			o.sidOption = EncodeOption(layers.NewDHCPv6Option(layers.DHCPv6OptServerID, o.sid))
 			copy(o.sipv6[:], ipv6.SrcIP())
 			o.state = DHCP_STATE_REQUESTING
 			o.SendReq()
