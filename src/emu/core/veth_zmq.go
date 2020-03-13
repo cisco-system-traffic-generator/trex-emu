@@ -46,7 +46,7 @@ type VethIFZmq struct {
 	buf        []byte
 }
 
-func (o *VethIFZmq) CreateSocket(port uint16) (*zmq.Context, *zmq.Socket) {
+func (o *VethIFZmq) CreateSocket(server string, port uint16) (*zmq.Context, *zmq.Socket) {
 	context, err := zmq.NewContext()
 	if err != nil || context == nil {
 		panic(err)
@@ -57,7 +57,7 @@ func (o *VethIFZmq) CreateSocket(port uint16) (*zmq.Context, *zmq.Socket) {
 		panic(err)
 	}
 
-	str := fmt.Sprintf("tcp://127.0.0.1:%d", port)
+	str := fmt.Sprintf("tcp://%s:%d", server, port)
 	err = socket.Connect(str)
 	if err != nil {
 		panic(err)
@@ -66,10 +66,10 @@ func (o *VethIFZmq) CreateSocket(port uint16) (*zmq.Context, *zmq.Socket) {
 
 }
 
-func (o *VethIFZmq) Create(ctx *CThreadCtx, port uint16) {
+func (o *VethIFZmq) Create(ctx *CThreadCtx, port uint16, server string) {
 
-	o.rxCtx, o.rxSocket = o.CreateSocket(port)
-	o.txCtx, o.txSocket = o.CreateSocket(port + 1)
+	o.rxCtx, o.rxSocket = o.CreateSocket(server, port)
+	o.txCtx, o.txSocket = o.CreateSocket(server, port+1)
 
 	o.rxPort = port
 	o.txPort = port + 1

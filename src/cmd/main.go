@@ -36,6 +36,7 @@ type MainArgs struct {
 	file      string
 	dummyVeth bool
 	vethPort  int
+	zmqServer string
 }
 
 func parseMainArgs() *MainArgs {
@@ -45,6 +46,7 @@ func parseMainArgs() *MainArgs {
 	vethPortArg := parser.Int("l", "veth zmq port", &argparse.Options{Default: 4511, Help: "Veth Port for server"})
 	verboseArg := parser.Flag("v", "verbose", &argparse.Options{Default: false, Help: "Run server in verbose mode"})
 	simArg := parser.Flag("s", "simulator", &argparse.Options{Default: false, Help: "Run server in simulator mode"})
+	zmqServerArg := parser.String("S", "zmq-server", &argparse.Options{Default: "127.0.0.1", Help: "zmq server ip"})
 	captureArg := parser.Flag("c", "capture", &argparse.Options{Default: false, Help: "Run server in capture mode"})
 	monitorArg := parser.Flag("m", "monitor", &argparse.Options{Default: false, Help: "Run server in K12 monitor mode"})
 	timeArg := parser.Int("t", "time", &argparse.Options{Default: 10, Help: "Time of the simulation in sec"})
@@ -58,7 +60,7 @@ func parseMainArgs() *MainArgs {
 
 	durInSec := time.Duration(*timeArg) * time.Second
 	return &MainArgs{port: *portArg, verbose: *verboseArg, sim: *simArg, capture: *captureArg,
-		monitor: *monitorArg, time: durInSec, file: *fileArg, dummyVeth: *dummyVethArg, vethPort: *vethPortArg}
+		monitor: *monitorArg, time: durInSec, file: *fileArg, dummyVeth: *dummyVethArg, vethPort: *vethPortArg, zmqServer: *zmqServerArg}
 }
 
 func RunCoreZmq(args *MainArgs) {
@@ -78,7 +80,7 @@ func RunCoreZmq(args *MainArgs) {
 	tctx := core.NewThreadCtx(0, port, args.sim, &simrx)
 
 	if !args.sim {
-		zmqVeth.Create(tctx, uint16(args.vethPort))
+		zmqVeth.Create(tctx, uint16(args.vethPort), args.zmqServer)
 		zmqVeth.StartRxThread()
 		tctx.SetZmqVeth(&zmqVeth)
 	}
