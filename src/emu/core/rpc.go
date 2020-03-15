@@ -1,3 +1,8 @@
+// Copyright (c) 2020 Cisco Systems and/or its affiliates.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// that can be found in the LICENSE file in the root of the source
+// tree.
+
 package core
 
 import (
@@ -113,4 +118,3 @@ func (o *CZmqJsonRPC2) HandleReqRes() {
 	res := o.HandleReq(msg)
 	o.socket.SendBytes(res, 0)
 }
-

@@ -1,3 +1,8 @@
+// Copyright (c) 2020 Cisco Systems and/or its affiliates.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// that can be found in the LICENSE file in the root of the source
+// tree.
+
 package icmp
 
 /* basic support for ICMP, ping does not work right now. just answer to
@@ -351,7 +356,7 @@ func (h ApiIcmpNsCntHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawM
 		return nil, &jsonrpc.Error{
 			Code:    jsonrpc.ErrorCodeInvalidRequest,
 			Message: err.Error(),
-		}	
+		}
 	}
 	return c.cdbv.GeneralCounters(err, tctx, params, &p)
 }

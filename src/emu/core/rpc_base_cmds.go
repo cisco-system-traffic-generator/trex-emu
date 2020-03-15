@@ -1,3 +1,8 @@
+// Copyright (c) 2020 Cisco Systems and/or its affiliates.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// that can be found in the LICENSE file in the root of the source
+// tree.
+
 package core
 
 import (
@@ -34,7 +39,7 @@ type (
 
 	/* Namespace Commands */
 	ApiNsAddHandler struct{}
-	ApiNsAddParams  struct {} /* [key tunnel] */
+	ApiNsAddParams  struct{} /* [key tunnel] */
 
 	ApiNsRemoveHandler struct{}
 	ApiNsRemoveParams  struct{} /* [key tunnel] */

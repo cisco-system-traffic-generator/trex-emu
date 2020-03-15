@@ -1,3 +1,8 @@
+// Copyright (c) 2020 Cisco Systems and/or its affiliates.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// that can be found in the LICENSE file in the root of the source
+// tree.
+
 package icmp
 
 import (
@@ -225,7 +230,6 @@ func TestPluginIcmp2(t *testing.T) {
 	}
 	a.Run(t, false) // the timestamp making a new json due to the timestamp. skip the it
 }
-
 
 func init() {
 	flag.IntVar(&monitor, "monitor", 0, "monitor")
