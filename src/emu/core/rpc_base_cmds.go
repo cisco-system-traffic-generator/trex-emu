@@ -396,7 +396,7 @@ func (h ApiClientGetInfoHandler) ServeJSONRPC(ctx interface{}, params *fastjson.
 		if client == nil {
 			return nil, &jsonrpc.Error{
 				Code:    jsonrpc.ErrorCodeInvalidRequest,
-				Message: err.Error(),
+				Message: fmt.Sprintf("client with mac: %v doesn't exists", key),
 			}
 		}
 		res[i] = *client.GetInfo()

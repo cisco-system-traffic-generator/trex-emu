@@ -132,6 +132,8 @@ type CClientInfo struct {
 
 	Ipv6Router *CClientIpv6Nd `json:"ipv6_router"`
 	Ipv6DGW    *CClientDg     `json:"ipv6_dgw"`
+
+	PlugNames []string `json:"plug_names"`
 }
 
 /* NewClient Create a new client with default information and key */
@@ -361,6 +363,8 @@ func (o *CClient) GetInfo() *CClientInfo {
 
 	info.Ipv6Router = o.Ipv6Router
 	info.Ipv6DGW = o.Ipv6DGW
+	
+	info.PlugNames = o.PluginCtx.GetAllPlugNames()
 
 	return &info
 }

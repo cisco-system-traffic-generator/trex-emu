@@ -177,8 +177,7 @@ type CNsInfo struct {
 	Tci           [2]uint16 `json:"tci"`
 	Tpid          [2]uint16 `json:"tpid"`
 	ActiveClients uint64    `json:"active_clients"`
-	PluginsCount  uint64    `json:"plugins_count"`
-	// TODO add more later ..
+	PlugNames     []string  `json:"plug_names"`
 }
 
 // NewNSCtx create new one
@@ -547,7 +546,7 @@ func (o *CNSCtx) GetInfo() *CNsInfo {
 	info.Tci = d.Tci
 	info.Tpid = d.Tpid
 	info.ActiveClients = o.stats.activeClient
-	info.PluginsCount = uint64(len(o.PluginCtx.mapPlugins))
+	info.PlugNames = o.PluginCtx.GetAllPlugNames()
 	return &info
 }
 

@@ -240,6 +240,16 @@ func (o *PluginCtx) GetOrCreate(pl string) *PluginBase {
 	return obj
 }
 
+func (o *PluginCtx) GetAllPlugNames() []string {
+	
+    keys := make([]string, 0, len(o.mapPlugins))
+    for plName := range o.mapPlugins {
+        keys = append(keys, plName)
+    }
+
+	return keys
+}
+
 // Get return the dynamic pointer to a plugin
 func (o *PluginCtx) Get(pl string) *PluginBase {
 
