@@ -12,7 +12,7 @@ Plugins are self contained and could signal events to another plugin or to the f
 
 [options="header",cols="1,2",width="60%"]
 |=================
-| Plugin  | Description
+| Plug-in | Description
 | arp     | RFC 826
 | icmp    | RFC 777
 | dhcpv4  | RFC 2131 client side
