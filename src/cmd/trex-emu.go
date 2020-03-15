@@ -40,27 +40,28 @@ type MainArgs struct {
 }
 
 func parseMainArgs() *MainArgs {
+	var args MainArgs
 	parser := argparse.NewParser("Emu Server", "Emu server emulates clients and namespaces")
 
-	portArg := parser.Int("p", "rpc port", &argparse.Options{Default: 4510, Help: "RPC Port for server"})
-	vethPortArg := parser.Int("l", "veth zmq port", &argparse.Options{Default: 4511, Help: "Veth Port for server"})
-	verboseArg := parser.Flag("v", "verbose", &argparse.Options{Default: false, Help: "Run server in verbose mode"})
-	simArg := parser.Flag("s", "simulator", &argparse.Options{Default: false, Help: "Run server in simulator mode"})
-	zmqServerArg := parser.String("S", "zmq-server", &argparse.Options{Default: "127.0.0.1", Help: "zmq server ip"})
-	captureArg := parser.Flag("c", "capture", &argparse.Options{Default: false, Help: "Run server in capture mode"})
-	monitorArg := parser.Flag("m", "monitor", &argparse.Options{Default: false, Help: "Run server in K12 monitor mode"})
-	timeArg := parser.Int("t", "time", &argparse.Options{Default: 10, Help: "Time of the simulation in sec"})
-	fileArg := parser.String("f", "file", &argparse.Options{Default: "emu_file", Help: "Path to save the pcap file"})
-	dummyVethArg := parser.Flag("d", "dummy-veth", &argparse.Options{Default: false, Help: "Run server with a dummy veth, all packets to rx will be dropped"})
+	args.port = *parser.Int("p", "rpc port", &argparse.Options{Default: 4510, Help: "RPC Port for server"})
+	args.vethPort = *parser.Int("l", "veth zmq port", &argparse.Options{Default: 4511, Help: "Veth Port for server"})
+	args.verbose = *parser.Flag("v", "verbose", &argparse.Options{Default: false, Help: "Run server in verbose mode"})
+	args.sim = *parser.Flag("s", "simulator", &argparse.Options{Default: false, Help: "Run server in simulator mode"})
+	args.zmqServer = *parser.String("S", "zmq-server", &argparse.Options{Default: "127.0.0.1", Help: "zmq server ip"})
+	args.capture = *parser.Flag("c", "capture", &argparse.Options{Default: false, Help: "Run server in capture mode"})
+	args.monitor = *parser.Flag("m", "monitor", &argparse.Options{Default: false, Help: "Run server in K12 monitor mode"})
+	args.time = time.Duration(*parser.Int("t", "time", &argparse.Options{Default: 10, Help: "Time of the simulation in sec"}))
+	args.file = *parser.String("f", "file", &argparse.Options{Default: "emu_file", Help: "Path to save the pcap file"})
+	args.dummyVeth = *parser.Flag("d", "dummy-veth", &argparse.Options{Default: false, Help: "Run server with a dummy veth, all packets to rx will be dropped"})
 
 	err := parser.Parse(os.Args)
 	if err != nil {
 		fmt.Print(parser.Usage(err))
 	}
 
-	durInSec := time.Duration(*timeArg) * time.Second
-	return &MainArgs{port: *portArg, verbose: *verboseArg, sim: *simArg, capture: *captureArg,
-		monitor: *monitorArg, time: durInSec, file: *fileArg, dummyVeth: *dummyVethArg, vethPort: *vethPortArg, zmqServer: *zmqServerArg}
+	args.time = args.time * time.Second
+
+	return &args
 }
 
 func RunCoreZmq(args *MainArgs) {

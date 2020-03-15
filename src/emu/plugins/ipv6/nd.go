@@ -781,6 +781,25 @@ type NdClientCtx struct {
 	timerNASec       uint32
 }
 
+func (o *NdClientCtx) advIPv6SrcAddr(srcipv6 *core.Ipv6Key) {
+
+	c := o.base.Client
+	if !c.Ipv6.IsZero() {
+		o.SendNS(false, &c.Ipv6, srcipv6)
+	}
+	if !c.Dhcpv6.IsZero() {
+		o.SendNS(false, &c.Dhcpv6, srcipv6)
+	}
+
+	var l6 core.Ipv6Key
+	if c.GetIpv6Slaac(&l6) {
+		o.SendNS(false, &l6, srcipv6)
+	}
+
+	c.GetIpv6LocalLink(&l6)
+	o.SendNS(false, &l6, srcipv6)
+}
+
 func (o *NdClientCtx) AdvIPv6() {
 	ipr := o.base.Client.Ipv6Router
 	c := o.base.Client
@@ -789,20 +808,15 @@ func (o *NdClientCtx) AdvIPv6() {
 	if ipr != nil {
 		if !ipr.IPv6.IsZero() {
 			// we have the router IP
-			if !c.Ipv6.IsZero() {
-				o.SendNS(false, &c.Ipv6, &ipr.IPv6)
+			o.advIPv6SrcAddr(&ipr.IPv6)
+		}
+	}
+	if !c.DgIpv6.IsZero() {
+		if c.Ipv6DGW != nil {
+			if c.Ipv6DGW.IpdgResolved {
+				// we have IPv6 default gateway and it was resolved, try to adv it
+				o.advIPv6SrcAddr(&c.DgIpv6)
 			}
-			if !c.Dhcpv6.IsZero() {
-				o.SendNS(false, &c.Dhcpv6, &ipr.IPv6)
-			}
-
-			var l6 core.Ipv6Key
-			if c.GetIpv6Slaac(&l6) {
-				o.SendNS(false, &l6, &ipr.IPv6)
-			}
-
-			c.GetIpv6LocalLink(&l6)
-			o.SendNS(false, &l6, &ipr.IPv6)
 		}
 	}
 }
