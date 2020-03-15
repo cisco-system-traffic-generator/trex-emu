@@ -12,6 +12,7 @@ Plugins are self contained and could signal events to another plugin or to the f
 
 [options="header",cols="1,2",width="60%"]
 |=================
+| Plugin  | Description
 | arp     | RFC 826
 | icmp    | RFC 777
 | dhcpv4  | RFC 2131 client side
@@ -20,7 +21,7 @@ Plugins are self contained and could signal events to another plugin or to the f
 | dhcpv6  | RFC 8415 client side
 |=================
 
-802.1x/EAP-MD5
+on the radar 802.1x/EAP-MD5
 
 === How to build
 
