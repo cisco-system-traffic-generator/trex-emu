@@ -21,7 +21,6 @@ Plugins are self contained and could signal events to another plugin or to the f
 | dhcpv6  | RFC 8415 client side
 |=================
 
-on the radar 802.1x/EAP-MD5
 
 === How to build
 
