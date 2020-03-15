@@ -17,10 +17,6 @@ $go install -v cmd/trex-emu.go
 -----
 $source ./b
 $cd src/
-$.Build
------
-$source ./b
-$cd src/
 $go test emu/core
 $go test emu/plugins/ipv6
 $go test emu/plugins/arp
@@ -30,7 +26,6 @@ $go test emu/plugins/dhcpv6
 $go test emu/plugins/dhcp
 -----
 
------
 
 .Run
 -----
@@ -41,14 +36,15 @@ $go test emu/plugins/dhcp
 -----
 $source ./b
 $export GO111MODULE=auto; code
+-----
 
-in go setting 
+.VsCode plugin 
+-----
 "go.toolsGopath" : "/scratch/hhaim/vscode-gotools",
 "go.inferGopath": true,
 "go.useLanguageServer" :true,
 "go.buildOnSave": true,
 "go.vetOnSave": true,
-
 -----
 
 
