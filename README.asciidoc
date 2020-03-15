@@ -2,7 +2,25 @@
 
 == TRex Emulation service 
 
-first version
+The objective is to implement client side L3 protocols to simulate scale of clients and servers. (It is not limited to client protocols).
+The code is written from scratch in golang and provide a framework to write a more complex protocols via plugins. 
+The framework has a event driven architecture and provide to a protocol plugin rpc,timers,packet parsers, packet template, simulation framework, counters engine and more. 
+It is still fast and will have a cohesiveness with TRex server. trex-emu will implement the control plane protocols while trex-core server will do the fast tcp/udp flows
+One thread could achieve ~3-5MPPS which means a high rate of client creation/removal. 
+Plugins are self contained and could signal events to another plugin or to the framework using an event-bus (e.g. DHCP signal that it has a new IPv6 address)
+
+
+[options="header",cols="1,2",width="60%"]
+|=================
+| arp     | RFC 826
+| icmp    | RFC 777
+| dhcpv4  | RFC 2131 client side
+| igmp    | IGMP v3/v2/v1 RFC3376
+| ipv6    | IPv6 ND, RFC 4443,RFC 4861,RFC 4862 and  MLD and MLDv2 RFC 3810 
+| dhcpv6  | RFC 8415 client side
+|=================
+
+802.1x/EAP-MD5
 
 === How to build
 
@@ -25,7 +43,6 @@ $go test emu/plugins/ipv6
 $go test emu/plugins/dhcpv6
 $go test emu/plugins/dhcp
 -----
-
 
 .Run
 -----
