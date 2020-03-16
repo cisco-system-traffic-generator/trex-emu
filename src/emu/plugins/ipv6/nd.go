@@ -941,13 +941,6 @@ func (o *NdClientCtx) Init(base *PluginIpv6Client,
 	o.OnCreate()
 }
 
-//add Mc
-func (o *NdClientCtx) addMc(addr *core.Ipv6Key) {
-	var ipv6mc core.Ipv6Key
-	IPv6SolicitationMcAddr(addr, &ipv6mc)
-	o.mld.addMcInternal([]core.Ipv6Key{ipv6mc})
-}
-
 // in case of add
 func (o *NdClientCtx) addMcCache(addr *core.Ipv6Key) {
 	var ipv6mc core.Ipv6Key
@@ -959,7 +952,7 @@ func (o *NdClientCtx) addMcCache(addr *core.Ipv6Key) {
 func (o *NdClientCtx) removeMc(addr *core.Ipv6Key) {
 	var ipv6mc core.Ipv6Key
 	IPv6SolicitationMcAddr(addr, &ipv6mc)
-	o.mld.removeMcInternal([]core.Ipv6Key{ipv6mc})
+	o.mld.removeMcCache(ipv6mc)
 }
 
 /*OnEvent support event change of IP  */
@@ -976,7 +969,7 @@ func (o *NdClientCtx) OnEvent(msg string, a, b interface{}) {
 
 			o.nsPlug.stats.eventsChangeDHCPSrc++
 			if !newIPv6.IsZero() {
-				o.addMc(&newIPv6) // add it to MC
+				o.addMcCache(&newIPv6) // add it to MC
 				var l6 core.Ipv6Key
 				l6 = newIPv6
 				// send unsolicitate message
@@ -996,7 +989,7 @@ func (o *NdClientCtx) OnEvent(msg string, a, b interface{}) {
 		if newIPv6 != oldIPv6 {
 			o.nsPlug.stats.eventsChangeSrc++
 			if !newIPv6.IsZero() {
-				o.addMc(&newIPv6)
+				o.addMcCache(&newIPv6)
 				o.SendUnsolicitedNA()
 				o.AdvIPv6()
 			}
@@ -1039,7 +1032,11 @@ func (o *NdClientCtx) OnRemove(ctx *core.PluginCtx) {
 
 	// in case of static IPv6
 	if !o.base.Client.Ipv6.IsZero() {
-		o.mld.removeMcCache(o.base.Client.Ipv6)
+		o.removeMc(&o.base.Client.Ipv6)
+	}
+
+	if !o.base.Client.Dhcpv6.IsZero() {
+		o.removeMc(&o.base.Client.Dhcpv6)
 	}
 
 	o.base.Client.Ipv6Router = nil
