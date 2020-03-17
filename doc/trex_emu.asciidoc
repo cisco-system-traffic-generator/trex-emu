@@ -529,11 +529,11 @@ Loading profile from the console
 
     Port | Vlan tags | Tpids | #Plugins | #Clients 
     -----+-----------+-------+----------+---------
-    0   |     -      |   -    |    -     |    1     
+    0    |     -      |   -    |    -     |    1     
 
     Clients Information
 
-        MAC        |  IPv4   | DG-IPv4 | MTU  |    IPv6       |  
+        MAC           |  IPv4   | DG-IPv4 | MTU  |    IPv6    |  
     ------------------+---------+---------+------+------------+-
     00:00:00:70:00:01 | 1.1.5.2 | 1.1.5.1 | 1500 | 1234::1000 |  
 
@@ -634,7 +634,7 @@ Loading profile from the console
 ----
 
 *  Promiscuous and multicast should be turn on to forward the broadcast and multicast packets that relates to trex-emu. 
-* `emu_load_profile` removes the old profile if exists and load the new profile using SDK API. 
+* `emu_load_profile` removes the old profile if exists and load the new profile using SDK API. You can specify the rate of new clients and rate or removal.  
 * `emu_show_all` : shows all the clients 
 * `emu_show_counters` : shows the framework counters for all engines 
 * `emu_show_mbuf` : shows the framework packets buffers 
@@ -930,7 +930,7 @@ ip dhcp pool 1
 
     Port | Vlan tags | Tpids | #Plugins | #Clients 
     -----+-----------+-------+----------+---------
-    0   |     -     |   -   |    -     |    10    
+    0    |     -     |   -   |    -     |    10    
 
     Clients Information
 
@@ -1163,9 +1163,9 @@ interface TenGigabitEthernet1/0/0
     trex>emu_show_all 
     Namespace #1 Information
 
-    Port | Vlan tags | Tpids | #Plugins | #Clients 
+    Port | Vlan tags | Tpids | Plugins  | Clients 
     -----+-----------+-------+----------+---------
-    0   |     -     |   -   |    -     |    10    
+    0    |     -     |   -   |    -     |    10    
 
     Clients Information
 
@@ -1446,9 +1446,7 @@ What is missing in golang:
 
 You can but we should add a support in the framework first
 
-
 === My plugin requires TCP/TLS/QUIC socket 
-
 
 Not supported yet. The API would be event driver API. 
 
