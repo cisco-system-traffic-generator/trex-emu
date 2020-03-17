@@ -40,86 +40,92 @@ endif::backend-xhtml11[]
 This document assumes basic knowledge of TRex, and assumes that TRex is installed and configured.
 For information, see the link:trex_manual.html[manual], especially the material up to the link:trex_manual.html#_basic_usage[Basic Usage] section.
 
-== Emulation support 
+== Emulation support
 
 === High level functionality
 
-The objective is to implement client side L3 protocols i.e  arp,ipv6 nd,mld,igmp to simulate a scale of clients and servers. 
-This project is not limited to client protocols, but it is a good start. The project provides a framework to write client protocols. 
+The objective is to implement client side L3 protocols i.e ARP, IPv6, ND, MLD, IGMP in order to simulate a scale of clients and servers.
+This project is not limited to client protocols, but it is a good start. The project provides a framework to implement and use client protocols.
 
-The framework is fast enough for control protocol protocols and will work with TRex server. The very fast L7 application (on top of TCP/UDP) will run on TRex server.  One thread of trex-emu could achieve a high rate of client creation/teardown.
-Plugins are self contained and could signal events to another plugin or to the framework using an event-bus (e.g. DHCP signal that it has a new IPv6 address). The framework has an event driven architecture, this way it could achive high scale, and provides to a protocol plugin infrastructure for example rpc,timers,packet parsers simulation and more. 
+The framework is fast enough for control plane protocols and will work with TRex server. Very fast L7 applications (on top of TCP/UDP) will run on TRex server.  One single thread of TRex-EMU can achieve a high rate of client creation/teardown.
+Each of the aforementioned protocol is implemented as a plugin. These plugins are self contained and can signal events one to the other, or to the framework, using an event-bus. (e.g. DHCP signals that it has a new IPv6 address).
+The framework has an event driven architecture, this way it can scale. The framework also provides to a protocol plugin infrastructure, for example RPC, timers, packet parsers, simulation and more.
 
 
-*The main properties*:: 
+*The main properties*::
 
-* Large new client creation/teardown.  ~3K/sec for one thread.
-* Number of active client/namespace is limited only by the memory on the server. 
+* Fast client creation/teardown. ~3K/sec for one thread.
+* Number of active client/namespace is limited only by the memory on the server.
 * Packet per second (PPS) in the range of 3-5 MPPS.
-* Python 2.7/3.0 Client API expose json-rpc API.
-* Interactive support - integrate with the TRex console.
-* Modular design. Each plugin is self contained and can be tested by its own. 
-* Support the following protocols 
+* Python 2.7/3.0 Client API exposed through JSON-RPC.
+* Interactive support - Integrated with the TRex console.
+* Modular design. Each plugin is self contained and can be tested on its own.
+* TRex-EMU supports the following protocols:
 
 [options="header",cols="1,2",width="60%"]
 |=================
 | Plug-in | Description
-| arp     | RFC 826
-| icmp    | RFC 777
-| dhcpv4  | RFC 2131 client side
-| igmp    | IGMP v3/v2/v1 RFC3376
-| ipv6    | IPv6 ND, RFC 4443,RFC 4861,RFC 4862 and  MLD and MLDv2 RFC 3810 
-| dhcpv6  | RFC 8415 client side
+| ARP     | RFC 826
+| ICMP    | RFC 777
+| DHCPv4  | RFC 2131 client side
+| IGMP    | IGMP v3/v2/v1 RFC3376
+| IPv6    | IPv6 ND, RFC 4443, RFC 4861, RFC 4862 and MLD and MLDv2 RFC 3810
+| DHCPv6  | RFC 8415 client side
 |=================
 
-=== Interaction with TRex server
+=== TRex Architecture with TRex-EMU
 
-image::images/trex_arch.png[title="emu arch",align="left",width={p_width}, link="images/trex_arch.png"]
+image::images/trex_arch.png[title="TRex Architecture",align="left",width={p_width}, link="images/trex_arch.png"]
 
-trex-emu can get commands (rpc via json-rpc) from Python client and send/receive packets via ZMQ channel that connected to TRex server (rx core). Packets from the network (from TRex server physical port) that match a filter (dynamic) are forwarded to the trex-emu process. Packets from emu process are packed into the zmq channel and sent directly to the TRex physical port.
+TRex-EMU can receive commands (RPC via JSON-RPC) from a Python client and send/receive packets via a ZMQ channel that connects it to the TRex server (RX core). Packets from the network (from a TRex server physical port) that match a filter (dynamic) are forwarded to the TRex-EMU process. Packets from the EMU process are packed into the ZMQ channel and sent directly to the TRex physical port.
 
 
-=== Internal plugin architecture 
+=== Internal Emulation Server Architecture
 
-image::images/emu_arch.png[title="emu arch",align="left",width={p_width}, link="images/emu_arch.png"]
+image::images/emu_arch.png[title="Emulation Server Architecture",align="left",width={p_width}, link="images/emu_arch.png"]
 
-Each trex emulation process called `thread` could have a few `Namespaces`. 
-`Namespace` could have a unique tuple key compose from {physical-port,dot1q,qinq}. The namespace key could be extended to tunnels in the future. 
-Each `Client` can be associated with one `Namespace`. `protocol Plugin` could attach opaque object in each level (thread,namespace,client) and run a protocol logic e.g. dhcpv6 will be run in mainly in client object while mldv2 will run on namespace context. 
+Each TRex emulation process called `thread` can have a few `Namespaces`.
 
-Different plugins and frameworks could communicate throw an event bus. A plugin could register on a topic and can send an event on a specific topic (e.g. dhcpv6 send change of source ipv6).
+Each `Namespace` must have a unique tuple key, that is composed from {physical-port, dot1q, QinQ}. The namespace key could be extended to tunnels in the future. 
 
-One special thing in this model is that `Clients` can share information on the same `Namespace` this way reduce the multicast  and broadcast packet duplication. 
+Each `Client` can be associated with one `Namespace`.
 
-image::images/emu_arp.png[title="emu arch",align="left",width={p_width}, link="images/emu_arp.png"]
+Each `Protocol Plugin` can attach an opaque object at each level (thread, namespace, client) and run the protocol logic at that level. For example, DHCPv6 will be run mainly at the client level, while MLDv2 will run on a namespace context.
 
-The following figure shows that a shared ipv4 default gateway for many clients are resolved once and share with many clients. So arp broadcast packets does not need to be duplicated for each client. 
-In this example if all the clients has the same default gateway 16.0.0.1, it will have only one instance in the arp cache table and each client will have a link to it. This is a scale in the number of clients can be achieved.  
+Different plugins and frameworks can communicate through an event bus. A plugin can register on a topic (Subscriber) and can send an event on a specific topic (Publisher) (e.g. DHCPv6 can send an event upon a change of a source IPv6).
+
+Something to note in this model is that `Clients` can share information on the same `Namespace`, reducing multicast, broadcast and generally packet duplication.
+
+image::images/emu_arp.png[title="ARP Plugin",align="left",width={p_width}, link="images/emu_arp.png"]
+
+The previous figure shows a shared IPv4 default gateway for many clients, which is resolved once and shared with all the respective clients. So ARP broadcast packets do not need to be duplicated for each client.
+In this example, if all the clients had the same default gateway 16.0.0.1, we will have only one entry in the ARP cache table and each client will have a pointer to it. This is an example on how scaling in the number of clients can be achieved.  
 
 
 === EMU main objects 
 
-* *Thread*: Includes a few namespace on different physical ports.  
-* *Namespace*: A separate network entity that can include a number of clients. Each namespace has a unique  physical port, dot1q and qinq tuple key.
-* *Namespace key tuple*: A unique tuple that create the key of the namespace 
-* *Client*: Represents a separate network node in the namespace. For example a different laptop or server. Each node can have only one ipv4 source ip and a few ipv6 global and local ipv6 ip's.  
-* *Plugin*: Implement a protocol logic or a tunnel logic. Could attach an opaque object to thread,namespace and client objects and use the framework API.
+* *Thread*: Includes a few namespaces on different physical ports.
+* *Namespace*: A separate network entity that can include a number of clients. Each namespace has a unique physical port, dot1q and QinQ tuple key.
+* *Namespace key tuple*: A tuple that serves as the key of the namespace, hence must be unique per namespace.
+* *Client*: Represents a separate network node in the namespace. For example a different laptop or server. Each node can have only one IPv4 source address, and a few IPv6 global and local IPv6 addresses.
+* *Plugin*: Implements a protocol logic or a tunnel logic. Could attach an opaque object to a thread, namespace and client object and use the framework API.
 
 === EMU Thread 
 
 This object handles the following entities:
 
-* RPC over json-rpc/zmq 
-* Timer wheel 
-* Event bus 
-* ZMQ veth for tx/rx packets
+* RPC over JSON-RPC/ZMQ
+* Timer wheel
+* Event bus
+* ZMQ veth for TX/RX packets
 * Parser to dispatch packets to plugins
-* Manage vector of namespaces 
-* Manage fast zero copy packet allocation (mbuf) - inspired by BSD 
-* Counters engine 
+* Manages a set of namespaces
+* Manages fast zero copy packet allocation (mbuf) - inspired by BSD
+* Counters engine
 
 === EMU Namespace
 
+.Go
 [source,python]
 ----
 
@@ -139,20 +145,24 @@ type CNsInfo struct {
 
 
 type CTunnelDataJson struct {
-	Vport uint16    `json:"vport"`
-	Tpid  [2]uint16 `json:"tpid"`
-	Tci   [2]uint16 `json:"tci"`
+	Vport  uint16         `json:"vport"`
+	Tpid   [2]uint16      `json:"tpid"`
+	Tci    [2]uint16      `json:"tci"`
 	Plugins *MapJsonPlugs `json:"plugs"`
 }
 
 ----
 
-* Manage a vector of clients
-* Each namespace should have a key of `CTunnelDataJson` and a vector of plugins string 
-* Information per namespace has this object `CNsInfo` compose from tunnel key and active clients and plugin names 
+Properties:
 
-=== EMU Client 
+* Associated only with one thread
+* Manages a set of clients
+* Each namespace should have a tuple key, represented by `CTunnelDataJson`. and a vector of plugins string. // TODO - What is a vector of plugins string. I don't understand this.
+* Information per namespace through `CNsInfo`, which is composed from the tunnel key, active clients and plugin names.
 
+=== EMU Client
+
+.Go
 [source,python]
 ----
 
@@ -162,7 +172,7 @@ type CClientDg struct {
 	IpdgMac      MACKey `json:"rmac"`    // default
 }
 
-//CClientIpv6Nd information from learned from router
+//CClientIpv6Nd information learned from router
 type CClientIpv6Nd struct {
 	MTU        uint16  `json:"mtu"`   // MTU in L3 1500 by default
 	DgMac      MACKey  `json:"dgmac"` // router dg
@@ -170,7 +180,6 @@ type CClientIpv6Nd struct {
 	PrefixLen  uint8   `json:"prefix_len"`
 	IPv6       Ipv6Key `json:"ipv6"`
 }
-
 
 type CClient struct {
 	dlist  DList   // for adding into list
@@ -245,63 +254,75 @@ type CClientInfo struct {
 }
 ----
 
-* Associated with one namespace (and namespace is associated with one thread).
-* `CClientInfo` is the information retrieved for each client in RPC command.
-** `CClientDg` is the ipv4 and ipv6 resolved default gateway using ipv6 nd,arp 
-** `Ipv6Router` is the ipv6 router advertised information.  
-* `CClientCmd` is the rpc json information to create a new client
-* `CClientCmd.Plugins` is a vector of plugins for associating protocols plugins with a client/namespace example `[{'arp':{'enable':True}},{'icmp':{}},'dhcp':{'keep_alive':120}]`. In this example we enable `arp`,`icmp` and `dhcp` plugin for this client and we can provide a init configuration 
-* One important limitation is that client does not have a routing table in the first version only a default gateway. It was done for simplicity because the out main objective is to verify a router/switch under test. It means that one client won't be able to communicate internally (i.g. ping) to another client on the same internal namespace. 
+* Associated only with one namespace
+* `CClientInfo` is the information retrieved for each client in an incoming RPC command
+** `CClientDg` is the IPv4 and/or IPv6 resolved default gateway using IPv6 ND and/or ARP
+** `Ipv6Router` is the IPv6 router advertised information
+* `CClientCmd` is the JSON-RPC information to create a new client
+** `CClientCmd.Plugins` is a vector of plugins for associating protocols plugins with a client/namespace example 
+
+`[{'arp':{'enable':True}},{'icmp':{}},'dhcp':{'keep_alive':120}]`.
+In this example we enable `arp`,`icmp` and `dhcp` plugin for this client and we can provide a init configuration.
+* One important limitation is that the client does not have a routing table in the first version, only a default gateway. It was done for simplicity, because the main objective is to verify a router/switch under test. 
+It means that client won't be able to communicate internally (i.g. ping) to another client on the same internal namespace. // TODO - Why does a client need a routing table for this? The client uses ARP to resolve the mac of the dst IP address and if they are in the same namespace he can communicate on L2.
 
 == Getting Started Tutorials
 
-The tutorials in this section demonstrate basic use cases of trex-emu server. 
+The tutorials in this section demonstrate basic use cases of the TRex-EMU server.
 
 === Tutorial: Load TRex server, One Client with ARP/ICMP plugin 
 
-*Goal*:: 
+*Goal*::
 
-Create *one* new client with one source ipv4 configuration and ping from the router. 
-An ASR1K (Cisco IOS-XE) is used in the following tutorials and connected directly with physical port (without a switch). 
+Create *one* new client with one source IPv4 configuration and ping from the router.
+An ASR1K (Cisco IOS-XE) is used in the following tutorials and it is connected directly on a physical port (without a switch).
 
 
-* ASR1K port (Ten1/0/0) 1.1.5.1/24 (255.255.255.0) 
+* ASR1K
+** Port/Interface: (Ten1/0/0)
+** IPv4: 1.1.5.1
+** Subnet Mask: /24 (255.255.255.0)
 
-* TRex port (0) 1.1.5.2/255.255.255.0
+* TRex EMU
+** Port 0
+** IPv4: 1.1.5.2
+** Subnet Mask: /24 (255.255.255.0)
 
 *Profile*:: 
 
 link:{github_emu_path}/simple_emu.py[emu/simple_emu.py]
 
-The profile is a way to create a database (tree) of namespaces and clients in Python and push this tree to the emu server via rpc commands. Let's look into the sections of a profile. 
+This profile is a way to create a database (tree) of namespaces and clients in Python, and forward the tree to the EMU server via RPC commands. Let's look into the sections of the profile.
 
+.Python Profile
 [source,python]
 ----
-..
 class Prof1():
     def __init__(self):
         self.def_ns_plugs  = None   # <1> default plugin configuration for all ns derived from thread
-        self.def_c_plugs  = None  #<2> default plugin configuration for each clients 
+        self.def_c_plugs  = None    # <2> default plugin configuration for each client
 
     def create_profile(self, ns_size, clients_size):
         ns_list = []
 
-        # create different namespace each time
-        vport, tci, tpid = 0, [0, 0], [0, 0]   ## the default vport, tci,tpid vector <3> setting the default vport,tpid
-        ns_gen = NsGen(vport, tci, tpid, ns_size, p_inc = 1, tci_inc = 1)
+        # create a different namespace each time
+        vport, tci, tpid = 0, [0, 0], [0, 0]   # the default vport, tci,tpid vector 
+        # <3> setting the default vport,tpid
+        ns_gen = NsGen(vport, tci, tpid, ns_size, p_inc = 1, tci_inc = 1) # ns generator
         for vport, tci, tpid in ns_gen:
-            ns = EMUNamespaceObj(vport  = vport,# create a namespace 
+            # create a namespace 
+            ns = EMUNamespaceObj(vport  = vport,
                                 tci     = tci,
                                 tpid    = tpid,
-                                #plugs   = {}
-                                def_c_plugs = self.def_c_plugs # default for all the client in this namespace 
+                                def_c_plugs = self.def_c_plugs # default for all clients in this ns
                                 )
 
             mac = '00:00:00:70:00:01'  # MAC start id
-            ipv4 = '1.1.5.2'           # ipv4 start  
+            ipv4 = '1.1.5.2'           # IPv4 start  
             dg = '1.1.5.1'             # default gateway 
-            ipv6 = '1234::1000'        # ipv6 not used for now 
-            c_gen = ClientGen(mac, ipv4, dg, ipv6, clients_size, mac_inc = 1, ipv4_inc = 1, ipv6_inc = 1)
+            ipv6 = '1234::1000'        # IPv6 not used for now 
+            c_gen = ClientGen(mac, ipv4, dg, ipv6, clients_size, # client generator
+                              mac_inc = 1, ipv4_inc = 1, ipv6_inc = 1)
             
             # create a different client each time
             for i, (mac, ipv4, dg, ipv6) in enumerate(c_gen):
@@ -309,13 +330,10 @@ class Prof1():
                                       ipv4    = ipv4,
                                       ipv4_dg = dg,
                                       ipv6    = ipv6,
-                                       plugs   = {'arp': {},   # <4> this is the configuration that cvan overide the default 
-                                                  #'igmp': {},
-                                                  'icmp': {}
-                                                 },
+                                      plugs   = {'arp': {},   # <4> can override default config
+                                                 'icmp': {}}
                                       )
-                ns.add_clients(client)  ## adding the client 
-
+                ns.add_clients(client)  # adding the client 
 
             ns_list.append(ns)
 
@@ -338,30 +356,31 @@ def register():
     return Prof1()
 
 ----
-<1> The default plugin configuration for all the namespaces attached to a thread, could be None. In case a namespace has a plugin configuration it will have a priority over the default. 
-<2> The default plugin configuration for all the clients on the same namespace. In case a client has a plugin it will have a priority over the default.
-<3> Setting the namespace tuple. In this example there is tree only on port zero and no dot1q/qinq
-<4> Overide plugin configuration per client.
+<1> The default plugin configuration for all the namespaces attached to a thread, could be None. In case a namespace has a plugin configuration it will have priority over the default. 
+<2> The default plugin configuration for all the clients on the same namespace. In case a client has a plugin configuration it will have a priority over the default.
+<3> Setting the namespace tuple. In this example the key is derived only from port zero and no dot1q/QinQ.
+<4> Override plugin configuration per client.
 
-*Default plugin priority*:: 
+*Default plugin priority*::
+
 
 .Namespace plugin vector
 [options="header",cols="1,2,1",width="60%"]
 |=================
-| def_ns_plugs | EMUNamespaceObj.plugs | Results
-| `{'arp: {'enable':true}}`  | None | `{'arp: {'enable':true}}` (taken from default)
-| None   | `{'arp: {'enable':false}}` | `{'arp: {'enable':false}}` (per namespace has priority)
-| `{'arp: {'enable':true}}`| `{'arp: {'enable':false}}` | `{'arp: {'enable':false}}` (per namespace has priority)
+| def_ns_plugs | EMUNamespaceObj.plugs | Result
+| `{'arp': {'enable':true}}`  | None | `{'arp': {'enable':true}}` (taken from default)
+| None   | `{'arp': {'enable':false}}` | `{'arp': {'enable':false}}` (per namespace has priority)
+| `{'arp': {'enable':true}}`| `{'arp': {'enable':false}}` | `{'arp': {'enable':false}}` (per namespace has priority)
 |=================
 
 
 .Client plugin vector
 [options="header",cols="1,2,1",width="60%"]
 |=================
-| EMUNamespaceObj.def_c_plugs | EMUClientObj.plugs | Results
-| `{'arp: {'enable':true}}`  | None | `{'arp: {'enable':true}}` (taken from default)
-| None   | `{'arp: {'enable':false}}` | `{'arp: {'enable':false}}` (per client has priority)
-| `{'arp: {'enable':true}}`| `{'arp: {'enable':false}}` | `{'arp: {'enable':false}}` (per client has priority)
+| EMUNamespaceObj.def_c_plugs | EMUClientObj.plugs | Result
+| `{'arp': {'enable':true}}`  | None | `{'arp': {'enable':true}}` (taken from default)
+| None   | `{'arp': {'enable':false}}` | `{'arp': {'enable':false}}` (per client has priority)
+| `{'arp': {'enable':true}}`| `{'arp': {'enable':false}}` | `{'arp': {'enable':false}}` (per client has priority)
 |=================
 
 The ASR1K configuration 
@@ -376,9 +395,9 @@ interface TenGigabitEthernet1/0/0
  arp timeout 70
 ----
 
-The profile will create one clients with `1.1.5.2/24`. 
+The profile will create one client with `1.1.5.2/24`.
 
-*Start TRex as a server*::   
+*Start TRex as a server*::
 
 
 [source,bash]
@@ -386,10 +405,13 @@ The profile will create one clients with `1.1.5.2/24`.
 [bash]>sudo ./t-rex-64 -i -c 1 --software --emu 
 ----
 
-the `--emu` CLI siwtch will load ZMQ channel to tx/rx packets and will tell the script to load the trex-emu server 
+the `--emu` CLI argument will load ZMQ channel to TX/RX packets and will tell the script to load the TRex-EMU server.
 
-*Start the Console with EMU support*::   
+*Start the Console with EMU support*::
 
+Use the following command to start the console:
+
+.Console
 [source,bash]
 ----
 [bash]> ./trex-console  --emu
@@ -398,10 +420,10 @@ the `--emu` CLI siwtch will load ZMQ channel to tx/rx packets and will tell the 
 Using 'python3' as Python interpeter
 
 
-Connecting to RPC server on s:4501                 [SUCCESS]
+Connecting to RPC server on port:4501                 [SUCCESS]
 
 
-Connecting to publisher server on s:4500           [SUCCESS]
+Connecting to publisher server on port:4500           [SUCCESS]
 
 
 Acquiring ports [0, 1, 2, 3]:                [SUCCESS]
@@ -414,7 +436,7 @@ Server mode:      Stateless
 Server CPU:       2 x Intel(R) Xeon(R) CPU E5-2650 0 @ 2.00GHz
 Ports count:      4 x 10Gbps @ 82599EB 10-Gigabit SFI/SFP+ Network Connection
 
-Connecting to RPC server on s:4510               [SUCCESS]   <<< this is connected to the emu
+Connecting to RPC server on port:4510               [SUCCESS]   <<< this is connected to the emu
 
 
 Loading plugin: emu                            [SUCCESS]
@@ -458,16 +480,14 @@ trex>
 
 ----
 
-This command will load emu plugin automatically `--emu` and connect to the same server ip to zmq port 4510/rpc 
-The emu commands will registers automatically  
+*Load profile*::
 
-*Load profile*::   
+This shows how to load the previous Python profile from the console:
 
-Loading profile from the console 
-
+.Console
 [source,bash]
 ----
-    trex>portattr -a --prom on
+    trex>portattr -a --prom on #<1>
 
     Applying attributes on port(s) [0, 1, 2, 3]:       [SUCCESS]
 
@@ -509,27 +529,26 @@ Loading profile from the console
 
 
 
-    trex>emu_load_profile -f emu/simple_emu.py -t --ns 1 --clients 1
+    trex>emu_load_profile -f emu/simple_emu.py -t --ns 1 --clients 1 #<2>
 
-    Converting file to profile                         [SUCCESS]
+    Converting file to profile                          [SUCCESS]
 
     Converting profile took: 24.81 [ms]
 
     Removing old emu profile                            [SUCCESS]
 
 
-    Sending emu profile                                          
-    [SUCCESS]                
+    Sending emu profile                                 [SUCCESS]
 
     Sending profile took: 524.78 [ms]
     553.79 [ms]
 
-    trex>emu_show_all 
+    trex>emu_show_all #<3>
     Namespace #1 Information
 
-    Port | Vlan tags | Tpids | #Plugins | #Clients 
+    Port | Vlan tags | Tpids | #Plugins | #Clients
     -----+-----------+-------+----------+---------
-    0    |     -      |   -    |    -     |    1     
+    0    |     -     |   -   |    -     |    1    
 
     Clients Information
 
@@ -539,7 +558,7 @@ Loading profile from the console
 
     560.78 [ms]
 
-    trex>emu_show_client_info --mac 00:00:00:70:00:01 -p 0 --json
+    trex>emu_show_client_info --mac 00:00:00:70:00:01 -p 0 --json #<4>
     {
         "plug_names": [
             "arp",
@@ -568,7 +587,7 @@ Loading profile from the console
 
     102.34 [ms]
 
-    trex>emu_show_counters 
+    trex>emu_show_counters #<5>
     Ctx Counters
 
     name     | value 
@@ -609,7 +628,7 @@ Loading profile from the console
 
     248.72 [ms]
 
-    trex>emu_show_mbuf           
+    trex>emu_show_mbuf #<6>
     Mbuf Util
 
         Sizes:        | 128b  | 256b  | 512b  |  1k   |  2k   |  4k   | 9k 
@@ -623,7 +642,7 @@ Loading profile from the console
 
     123.68 [ms]
 
-    trex>emu_show_ns_info -p 0
+    trex>emu_show_ns_info -p 0 #<7>
     Namespace Information
 
     Port | Vlan tags | Tpids | #Plugins | #Clients 
@@ -633,20 +652,20 @@ Loading profile from the console
     108.65 [ms]
 ----
 
-*  Promiscuous and multicast should be turn on to forward the broadcast and multicast packets that relates to trex-emu. 
-* `emu_load_profile` removes the old profile if exists and load the new profile using SDK API. You can specify the rate of new clients and rate or removal.  
-* `emu_show_all` : shows all the clients 
-* `emu_show_counters` : shows the framework counters for all engines 
-* `emu_show_mbuf` : shows the framework packets buffers 
-* `emu_show_client_info`: shows info per client
-* `emu_show_ns_info`: shows info per namespace 
+<1> Promiscuous mode and multicast should be turned on to forward the broadcast and multicast packets that relate to TRex-EMU.
+<2> `emu_load_profile` removes the old profile if it exists and loads the new profile using SDK API. You can specify the rate of new clients and rate or removal.
+<3> `emu_show_all` : shows all the clients
+<4> `emu_show_client_info` : shows the client parameters
+<5> `emu_show_counters` : shows the framework counters for all engines
+<6> `emu_show_mbuf` : shows the framework packets buffers
+<7> `emu_show_ns_info`: shows info per namespace
 
-To show per plugin info use emu_xxx_yyy where xxx is the plugin name in this case let's try arp 
+To show counters per plugin info use `emu_xxx_show_counters` where xxx is the plugin name. In this case let's try ARP:
 
 [source,bash]
 ----
-  trex>emu_arp_show_counters -p 0
-    Arp Counters
+  trex>emu_arp_show_counters -p 0 #<1>
+    Arp Counters #<2>
 
             name         | value 
     ---------------------+------
@@ -660,21 +679,21 @@ To show per plugin info use emu_xxx_yyy where xxx is the plugin name in this cas
 
 ----
 
-* `emu_arp_show_counters` works per namespace so you should provide port and tunnel (if exists). 
-* The counters are global for all the clients on the same namespace as they share the arp cache table 
+<1> `emu_arp_show_counters` works per namespace so you should provide port and tunnel (if exists).
+<2> The counters are global for all the clients in the same namespace as they share the ARP cache table.
 
-*Ping from the ASR1K*::   
+*Ping from the ASR1K*::
 
 [source,bash]
 ----
-    csi-mcp-asr1k-40#show ip arp
+    csi-mcp-asr1k-40> show ip arp
     Protocol  Address          Age (min)  Hardware Addr   Type   Interface
     Internet  1.1.5.1                 -   0000.0001.0000  ARPA   TenGigabitEthernet1/0/0
     Internet  1.1.5.2                 0   0000.0070.0001  ARPA   TenGigabitEthernet1/0/0
     Internet  1.1.6.1                 -   0000.0003.0000  ARPA   TenGigabitEthernet1/1/0
     Internet  1.1.7.1                 -   0000.0005.0000  ARPA   TenGigabitEthernet1/2/0
     Internet  1.1.8.1                 -   0000.0007.0000  ARPA   TenGigabitEthernet1/3/0
-    csi-mcp-asr1k-40#ping 1.1.5.2
+    csi-mcp-asr1k-40> ping 1.1.5.2
     Type escape sequence to abort.
     Sending 5, 100-byte ICMP Echos to 1.1.5.2, timeout is 2 seconds:
     !!!!!
@@ -682,9 +701,9 @@ To show per plugin info use emu_xxx_yyy where xxx is the plugin name in this cas
     csi-mcp-asr1k-40
 ----
 
-The router ideltify the client in the arp table and it is possible to ping to it from the router. 
+The router succesfully idetified the client in the ARP table and it is possible to ping to it from the router. 
 
-Now you can try with 10,000 clients (but first you need to change the netmask to /16)
+Now you can try with 10,000 clients.
 
 [source,bash]
 ----
@@ -693,7 +712,7 @@ trex>emu_load_profile -f emu/simple_emu.py -t --ns 1 --clients 10000
 
 [NOTE]
 =====================================================================
-You will need to change the interface mask from 255.255.255.0 to 255.255.0.0
+You will need to change the interface mask from 255.255.255.0 to 255.255.0.0, from /24 to /16.
 =====================================================================
 
 
@@ -701,14 +720,14 @@ You will need to change the interface mask from 255.255.255.0 to 255.255.0.0
 
 *Goal*:: Add a few clients and some multicast address
 
-TRex support IGMPv2/v3 RFC3376 and could maintain (add/remove) scale of multicast ips. 
+TRex supports IGMPv2/v3 (RFC3376) and can maintain (add/remove) scale of multicast IPs. 
 
+.Python Profile
 [source,python]
 ----
-..
 class Prof1():
     def __init__(self):
-        self.def_ns_plugs  =  { 'igmp' : {'dmac':[0,0,0,0x70,0,1]]}}  #<1>
+        self.def_ns_plugs  =  {'igmp' : {'dmac':[0,0,0,0x70,0,1]}}  #<1>
         self.def_c_plugs  = None 
 
     def create_profile(self, ns_size, clients_size):
@@ -718,16 +737,16 @@ class Prof1():
         vport, tci, tpid = 0, [0, 0], [0, 0]   
         ns_gen = NsGen(vport, tci, tpid, ns_size, p_inc = 1, tci_inc = 1)
         for vport, tci, tpid in ns_gen:
-            ns = EMUNamespaceObj(vport  = vport,# create a namespace 
+            ns = EMUNamespaceObj(vport  = vport, # create a namespace 
                                 tci     = tci,
                                 tpid    = tpid,
                                 def_c_plugs = self.def_c_plugs
                                 )
 
             mac = '00:00:00:70:00:01'  # MAC start id
-            ipv4 = '1.1.5.2'           # ipv4 start  
+            ipv4 = '1.1.5.2'           # IPv4 start  
             dg = '1.1.5.1'             # default gateway 
-            ipv6 = '1234::1000'        # ipv6 not used for now 
+            ipv6 = '1234::1000'        # IPv6 not used for now 
             c_gen = ClientGen(mac, ipv4, dg, ipv6, clients_size, 
                     mac_inc = 1, ipv4_inc = 1, ipv6_inc = 1)
             
@@ -737,12 +756,12 @@ class Prof1():
                                       ipv4    = ipv4,
                                       ipv4_dg = dg,
                                       ipv6    = ipv6,
-                                       plugs   = {'arp': {},   
-                                                  'igmp': {},
-                                                  'icmp': {}
+                                      plugs   = {'arp': {},
+                                                 'igmp': {}, #<2>
+                                                 'icmp': {}
                                                  },
                                       )
-                ns.add_clients(client)  ## adding the client 
+                ns.add_clients(client)  # adding the client 
 
             ns_list.append(ns)
 
@@ -753,18 +772,19 @@ def register():
 
 ----
 
-* `self.def_ns_plugs  =  { 'igmp' : {'dmac':[0,0,0,0x70,0,1]]}}` is the init json for igmp plugin. The plugin works on the namespace domain (not client domain) and there is a need for *one* designator client. This client will represent the multicast groups for all the clients on the same namespace.
-In this example we took the first client MAC (`00:00:00:70:00:01`). ``'dmac':[0,0,0,0x70,0,1]` is `00:00:00:70:00:01`. BTW the above could be done using Python API too. 
-* `igmp` plugin should be enabled in the client plugs (`EMUClientObj`)
+<1> `self.def_ns_plugs  =  {'igmp' : {'dmac':[0,0,0,0x70,0,1]}}` is the init JSON for the IGMP plugin. The plugin works on a namespace level (not client level) but there is need for at least *one* designator client.
+This client will represent the multicast groups for all the clients on the same namespace.
+In this example we took the first client MAC (`00:00:00:70:00:01`).
+<2> `IGMP` plugin should be enabled in the client plugs parameter (`EMUClientObj`)
 
 .Console 
 [source,bash]
 ----
-    trex>portattr -a --prom on                                          
-    trex>emu_igmp_add_mc -p 0 --4 227.0.1.1 --4-count 10
+    trex>portattr -a --prom on
+    trex>emu_igmp_add_mc -p 0 --4 227.0.1.1 --4 -count 10 #<1>
     124.90 [ms]
 
-    trex>emu_igmp_show_mc -p 0
+    trex>emu_igmp_show_mc -p 0 #<2>
     Current mc:
 
     227.0.1.1
@@ -784,16 +804,17 @@ In this example we took the first client MAC (`00:00:00:70:00:01`). ``'dmac':[0,
 
     mtu  |       dmac        | version 
     -----+-------------------+--------
-    1500 | 00:00:00:70:00:01 |    3    
+    1500 | 00:00:00:70:00:01 |    3     #<3>
 
 ----
 
-* The first command add 227.0.1.1-227.1.11 multicast addrees 
-* The igmp packets will be sent from client 00:00:00:70:00:01 
-* The table could be seen using `emu_igmp_show_mc`
+<1> Add 227.0.1.1 to 227.0.1.11 multicast addresses (count is 10)
+<2> The table could be seen using `emu_igmp_show_mc`
+<3> The IGMP packets will be sent from client 00:00:00:70:00:01 
 
 
-*ASR1K configuration*::   
+*ASR1K configuration*:: 
+Let's see the configuration the router. The IGMP related commands are symboled with <<.
 
 .Config
 [source,bash]
@@ -807,11 +828,9 @@ interface TenGigabitEthernet1/0/0
  ip address 1.1.5.1 255.255.255.0
  ip pim sparse-dense-mode              <<
  ip igmp version 3                     <<
- ip igmp query-interval 10             <<    
+ ip igmp query-interval 10             <<
  load-interval 30
 ----
-
-Enable multicast routing and igmp
 
 .Show the groups 
 [source,bash]
@@ -835,15 +854,16 @@ Group Address    Interface                Uptime    Expires   Last Reporter
 
 === Tutorial: DHCPv4 
 
-*Goal*:: Add clients that interact with DHCP server to get the IPv4/Default gateway 
+*Goal*:: Add clients that interact with DHCP server to get the IPv4/Default gateway
 
+.Python Profile
 [source,python]
 ----
-..
 class Prof1():
     def __init__(self):
-        self.def_ns_plugs  =  { 'igmp' : {'dmac':[0,0,0,0x70,0,1]]}}  # <1>
-        self.def_c_plugs  = None 
+        self.def_ns_plugs  =  {'dhcp' : {'dmac':[0,0,0,0x70,0,1]}}  # <1>
+        self.def_c_plugs  = None
+
     def create_profile(self, ns_size, clients_size):
         ns_list = []
 
@@ -851,17 +871,18 @@ class Prof1():
         vport, tci, tpid = 0, [0, 0], [0, 0]   
         ns_gen = NsGen(vport, tci, tpid, ns_size, p_inc = 1, tci_inc = 1)
         for vport, tci, tpid in ns_gen:
-            ns = EMUNamespaceObj(vport  = vport,# create a namespace 
+            ns = EMUNamespaceObj(vport  = vport, # create a namespace 
                                 tci     = tci,
                                 tpid    = tpid,
                                 def_c_plugs = self.def_c_plugs
                                 )
 
             mac = '00:00:00:70:00:01'  # MAC start id
-            ipv4 = '0.0.0.0'           # ipv4 start  
+            ipv4 = '0.0.0.0'           # <2> IPv4 start
             dg = '0.0.0.0'             # default gateway 
-            ipv6 = '1234::1000'        # ipv6 not used for now 
-            c_gen = ClientGen(mac, ipv4, dg, ipv6, clients_size, mac_inc = 1, ipv4_inc = 0, ipv6_inc = 1)
+            ipv6 = '1234::1000'        # IPv6 not used for now 
+            c_gen = ClientGen(mac, ipv4, dg, ipv6, clients_size,
+                              mac_inc = 1, ipv4_inc = 0, ipv6_inc = 1) #<3>
             
             # create a different client each time
             for i, (mac, ipv4, dg, ipv6) in enumerate(c_gen):
@@ -869,7 +890,7 @@ class Prof1():
                                       ipv4    = ipv4,
                                       ipv4_dg = dg,
                                       ipv6    = ipv6,
-                                       plugs   = {'arp': {},   
+                                       plugs   = {'arp': {},
                                                   'igmp': {},
                                                   'icmp': {},
                                                   'dhcp': {},
@@ -887,13 +908,15 @@ def register():
 
 ----
 
-* Add 'dhcp' to the client plugin  
-* Change ipv4/dg to 0.0.0.0  
-* change `ipv4_inc` to zero as DHCP will change the IP
+<1> Add `dhcp` to the client plugin  
+<2> Change IPv4/DG to 0.0.0.0  
+<3> Change `ipv4_inc` to 0 as DHCP will change the IP
 
-Now each client will request the IPv4/Default gateway from the DHCP server and signal to arp/icmp with the right new IPv4 source addrees and default gateway. 
+Now each client will request the IPv4/Default gateway from the DHCP server and signal to ARP/ICMP with the new IPv4 source address and default gateway. 
 
-*ASR1K configuration*::   
+*ASR1K configuration*::
+
+We can configure a DHCP Pool in the router:
 
 .Config
 [source,bash]
@@ -905,10 +928,10 @@ ip dhcp pool 1
  lease 30 
 ----
 
-
+.Console
 [source,bash]
 ----
-    trex>emu_load_profile -f emu/simple_dhcp.py -t --ns 1 --clients 10
+    trex>emu_load_profile -f emu/simple_dhcp.py -t --ns 1 --clients 10 #<1>
 
     Converting file to profile                                   10
     [SUCCESS]
@@ -934,7 +957,7 @@ ip dhcp pool 1
 
     Clients Information
 
-        MAC        |   IPv4   | DG-IPv4 | MTU  |        IPv6             
+           MAC        |   IPv4   | DG-IPv4 | MTU  |        IPv6             
     ------------------+----------+---------+------+---------------------+
     00:00:00:70:00:01 | 1.1.5.22 | 1.1.5.1 | 1500 | fe80::200:ff:fe70:1 |
     00:00:00:70:00:02 | 1.1.5.72 | 1.1.5.1 | 1500 | fe80::200:ff:fe70:2 |
@@ -950,7 +973,7 @@ ip dhcp pool 1
     990.49 [ms]
 
     trex>
-    trex>emu_dhcp_show_counters -p 0 --mac 00:00:00:70:00:01
+    trex>emu_dhcp_show_counters -p 0 --mac 00:00:00:70:00:01 #<2>
     Dhcp Counters
 
         name      | value 
@@ -964,14 +987,14 @@ ip dhcp pool 1
     229.34 [ms]
 ----
 
+<1> Load the `dhcp` profile
+<2> The `dhcp` plugin works per client, so the MAC should be provided to get the counters
 
-* dhcp plugin works per client, so the MAC should be provided to get the counters 
 
-
-.Show
+.DHCP stats in ASR
 [source,bash]
 ----
-    #show ip  dhcp server statistics 
+ >show ip  dhcp server statistics 
     Memory usage         65910
     Address pools        1
     Database agents      0
@@ -1030,25 +1053,26 @@ ip dhcp pool 1
 
 === Tutorial: IPv6/MLDv2/DHCPV6
 
-*Goal*:: Add clients with static IPv6 and global SLAAC ipv6 address and dhcpv6 
+*Goal*:: Add clients with static IPv6 and global SLAAC IPv6 address and DHCPv6
 
-IPv6 client side are based on the folowing RFC
- 
+IPv6 client side is based on the following RFCs:
+
 * RFC 4443
 * RFC 4861
-* RFC 4862 
-* MLD1/MLDv2 RFC 3810. 
+* RFC 4862
+* MLD1/MLDv2 RFC 3810.
 
-It was written from scratch so it might have some issues. 
+It was written from scratch so it might have some issues.
 
+.Python Profile
 [source,python]
 ----
-..
 class Prof1():
     def __init__(self):
-        self.def_ns_plugs  =  { 'igmp' : {'dmac':[0,0,0,0x70,0,1]]},
-                                'dhcpv6' : {'dmac':[0,0,0,0x70,0,1]]}}  # <1>
+        self.def_ns_plugs  =  {'ipv6' : {'dmac':[0,0,0,0x70,0,1]},
+                               'dhcpv6' : {'dmac':[0,0,0,0x70,0,1]}}  # <1>
         self.def_c_plugs  = None 
+    
     def create_profile(self, ns_size, clients_size):
         ns_list = []
 
@@ -1056,17 +1080,17 @@ class Prof1():
         vport, tci, tpid = 0, [0, 0], [0, 0]   
         ns_gen = NsGen(vport, tci, tpid, ns_size, p_inc = 1, tci_inc = 1)
         for vport, tci, tpid in ns_gen:
-            ns = EMUNamespaceObj(vport  = vport,# create a namespace 
+            ns = EMUNamespaceObj(vport  = vport, # create a namespace
                                 tci     = tci,
                                 tpid    = tpid,
                                 def_c_plugs = self.def_c_plugs
                                 )
 
             mac = '00:00:00:70:00:01'  # MAC start id
-            ipv4 = '0.0.0.0'           # ipv4 start  
+            ipv4 = '0.0.0.0'           # IPv4 start  
             dg = '0.0.0.0'             # default gateway 
-            ipv6 = '2001:DB8:1::2'         # ipv6 not used for now 
-            c_gen = ClientGen(mac, ipv4, dg, ipv6, clients_size, 
+            ipv6 = '2001:DB8:1::2'     # IPv6 not used for now 
+            c_gen = ClientGen(mac, ipv4, dg, ipv6, clients_size,
                               mac_inc = 1, ipv4_inc = 0, ipv6_inc = 1)
             
             # create a different client each time
@@ -1075,9 +1099,9 @@ class Prof1():
                                       ipv4    = ipv4,
                                       ipv4_dg = dg,
                                       ipv6    = ipv6,
-                                       plugs   = {'ipv6': {},   
+                                       plugs   = {'ipv6': {}, # <2>
                                                   'dhcpv6': {},
-                                                 },
+                                                 }
                                       )
                 ns.add_clients(client)  ## adding the client 
 
@@ -1091,11 +1115,13 @@ def register():
 
 ----
 
-* `def_ns_plugs` add `'dhcpv6' : {'dmac':[0,0,0,0x70,0,1]]}` this will add the first client as a designator for the mldv2 
-* Client plugins add `ipv6` and `dhcpv6`
+<1> `def_ns_plugs` add `ipv6` and `'dhcpv6' : {'dmac':[0,0,0,0x70,0,1]}`. This will add the first client as a designator for MLDv2.
+<2> Client plugins add `ipv6` and `dhcpv6`
 
 
-*ASR1K configuration*::   
+*ASR1K configuration*::
+
+Let's configure IPv6 and DHCPv6 in the router:
 
 .ASR1K Config
 [source,bash]
@@ -1127,7 +1153,7 @@ interface TenGigabitEthernet1/0/0
 .Console
 [source,bash]
 ----
-    trex>emu_load_profile -f emu/simple_dhcp.py -t --ns 1 --clients 10
+    trex>emu_load_profile -f emu/simple_ipv6.py -t --ns 1 --clients 10 //TODO renamed the file here to simple_ipv6. what is the real name of the file
 
     trex>emu_show_client_info -p 0 --mac 00:00:00:70:00:01 --json
     {
@@ -1169,7 +1195,7 @@ interface TenGigabitEthernet1/0/0
 
     Clients Information
 
-        MAC        | MTU  |     IPv6      | DHCP DG-IPv6 |     IPv6 Local            |         
+           MAC        | MTU  |     IPv6      |  DHCP DG-IPv6   |     IPv6 Local      |
     ------------------+------+---------------+--------------+---------------------+---
     00:00:00:70:00:01 | 1500 | 2001:db8:1::2 | 2001:DB8:1201::1| fe80::200:ff:fe70:1 |
     00:00:00:70:00:02 | 1500 | 2001:db8:1::3 | 2001:DB8:1201::2| fe80::200:ff:fe70:2 |
@@ -1184,7 +1210,7 @@ interface TenGigabitEthernet1/0/0
 
     1.31 [sec]
 
-    trex>emu_dhcpv6_show_counters -p 0 --mac 00:00:00:70:00:01        
+    trex>emu_dhcpv6_show_counters -p 0 --mac 00:00:00:70:00:01
     Dhcpv6 Counters
 
         name      | value 
@@ -1205,7 +1231,7 @@ state |        mac        | refc | resolve |        ipv6
 
 359.88 [ms]
 
-trex>emu_ipv6_show_mld -p 0  
+trex>emu_ipv6_show_mld -p 0
 Current mld:
 
 ff02::1
@@ -1244,9 +1270,7 @@ ff02::1:ff6b:eb42
 
 ----
 
-
-
-.ASR1K Show
+.ASR1K Show Stats
 [source,bash]
 ----
 
@@ -1343,12 +1367,14 @@ Success rate is 100 percent (5/5), round-trip min/avg/max = 101/108/117 ms
 ----
 
 
-* Every client advertise all the global ipv6 ip using ns packet and its own local-ipv6. 
-* MLDv2 is used (mldv1 is supported too but less effient) to publish the solicited multicast addrees for each IPv6 global addrees.  
-* DHCPv6 does as not have default gateway, only the Slaac can be user or explict addrees 
+* Every client advertises all its global IPv6 addresses using NS packets and its own local-IPv6.
+* MLDv2 is used (MLDv1 is supported too but less efficient) to publish the solicited multicast addrees for each IPv6 global addrees.
+* DHCPv6 does not offer a default gateway, SLAAC can be used or an explicit addrees.
 
 
 === Python API 
+
+Let us see an example of how to the Python API. More can be found on the SDK documentation.
 
 .API example 
 [source,python]
@@ -1380,74 +1406,81 @@ Success rate is 100 percent (5/5), round-trip min/avg/max = 101/108/117 ms
 ----
 
 
-This script assume there is a trex-emu server running on port 4510. It connects and load a profile with tunables and then print all the clients. 
-
-For all the API plugin details and more examples have a look in the Python API doc. 
+This script assumes there is a TRex-EMU server running on port 4510. It connects and loads a profile with tunables and then prints all the clients. 
 
 
 === Tutorial: Debug tools
 
-* traces could be taken from TRex server in the usual way 
-* To debug trex-emu packet traces `trex-emu  -m | tee /tmp/a.pcap`. It will create a file with k12 packet format 
-* To debug the rpc channel use  `trex-emu  -v`
+Basic debugging can be performed using the following steps:
+
+* Traces can be taken from the TRex server the usual way.
+* To debug TRex-EMU packet traces use: `trex-emu  -m | tee /tmp/a.pcap`. It will create a file using the k12 packet format.
+* To debug the RPC channel use `trex-emu  -v`.
 
 
 
 == FAQ 
 
-=== I want to add more protocols how could I do it? 
+=== I want to add more protocols, how can I do it?
 
-The framework is written in golang. I would start with icmp plugin as it is the simplest example. 
+The framework is written in Golang. I would start with ICMP plugin as it is the simplest example.
 
-=== Is it possible to sync ASTF/STL clients addrees with trex-emu ?
+=== Is it possible to sync ASTF/STL clients addresses with TRex-EMU?
 
-I would like to create 1000 clients using trex-emu and use the same dhcp/dhcpv6 address with ASTF/STL profile. 
+I would like to create 1000 clients using TRex-EMU and use the same DHCP/DHCPv6 address with ASTF/STL profile.
 
-For STL you can use Field engine but it is limited with side. We would create a indirect table that could be fill with the information from trex-emu. 
+For STL you can use the Field engine but it is limited with side. We would create a indirect table that could be filled with the information from TRex-EMU. //TODO - What do you mean it is limited with side?
 
-for ASTF there is no support and the MAC,IPv4,IPv6 should be static. 
+For ASTF there is no support and the MAC, IPv4, IPv6 would be static.
 
-=== Why did you write all the RFC from scratch? 
+=== Why did you write all the RFCs from scratch?
 
-Wouldn't it be easier to use a user space tcp/ip stack for example linux or freebsd? The answer is that for traffic generation the split betwean kernel and user space was a big challenge to solve our scale objective (e.g. high rate of creation of clients) and cohesiveness betwean protocols. For example DHCP and 802.1x is a user space while arp/ipv6 nd is kernel. Another example IGMP is a user space socket option. To control many clients imp there is a need to create many processes that open socket to Linux namespace and this is not scalable.
+Wouldn't it be easier to use a user space TCP/IP stack for example Linux or FreeBSD?
 
-The is a big penalty in this method. There is a need to write from scratch the protocols, but there are some pluses:
+The answer is that for traffic generation, the separation between kernel and user space presents a big challenge to our main objectives:
 
-1. The scale is very high 
-2. There is no separation betwean kernel/user-space
-3. Can manipulate the code for traffic generation exception 
-4. It's fun to write in go long  
+* Scale (e.g. high rate of client creation)
+* Cohesiveness between protocols.
+
+For example DHCP and 802.1x are implemented in user space while ARP/IPv6 ND are implemented in the kernel.
+Another example, IGMP is a user space socket option. To control many IGMP clients, one needs to create many processes that open sockets to Linux namespaces and this is not scalable.
+
+The is a big penalty in our decision. We need to write from scratch the protocols, but there are some advantages:
+
+1. The scale is very high
+2. There is no separation between kernel/user-space
+3. Can manipulate the code for traffic generation purposes
+4. It's fun to write in Golang
 
 
-=== Why golang and not Python or c++
+=== Why Golang and not Python or C++?
 
-First, golang was an experiment. You can see from the code that this is the first time the developers write in golang. However, it is hard now to go back to c++. 
+First, Golang was an experiment. You can see from the code that this is the first time the developers write in Golang. However, it is hard now to go back to C++.
 
 Why not Python?
 
 Python has a few drawbacks for this project:
 
-1. Speed: x50 slower than golang 
-2. Dynamic language: hard to tag and control a large code base 
-
+1. Speed: x50 slower than Golang
+2. Dynamic language: hard to tag and control a large code base
 
 
 Why not C++?
 
-1. Speed was not a concern and trex-core became slow to build 
-2. We wanted a scalable and more modular design as the scale in trex-emu is more from a functionality point of view (more protocol support, development speed etc) and not PPS.
+1. Speed was not a concern and TRex-core became slow to build.
+2. We wanted a scalable and more modular design as the scale in TRex-EMU is more from a functionality point of view (more protocol support, development speed etc) and not PPS.
 
-What is missing in golang:
+What is missing in Golang:
 
-1. Generic, interface{} is not enough  
+1. Generic, interface{} is not enough.
 
 
-=== I need to write a tunnel plugin like ppoe/gre can I  do it?
+=== I need to write a tunnel plugin like PPPoE/GRE, can I do it?
 
-You can but we should add a support in the framework first
+You can, but we should support it in the framework first.
 
-=== My plugin requires TCP/TLS/QUIC socket 
+=== My plugin requires TCP/TLS/QUIC socket, can I use TRex-EMU?
 
-Not supported yet. The API would be event driver API. 
+Not supported yet. The API would be an event driver API.
 
 

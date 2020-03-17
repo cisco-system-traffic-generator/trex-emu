@@ -2,23 +2,33 @@
 
 == TRex Emulation service 
 
-The objective is to implement client side L3 protocols to simulate scale of clients and servers. (It is not limited to client protocols).
-The code is written from scratch in golang and provide a framework to write a more complex protocols via plugins. 
-The framework has a event driven architecture and provide to a protocol plugin rpc,timers,packet parsers, packet template, simulation framework, counters engine and more. 
-It is still fast and will have a cohesiveness with TRex server. trex-emu will implement the control plane protocols while trex-core server will do the fast tcp/udp flows
-One thread could achieve ~3-5MPPS which means a high rate of client creation/removal. 
-Plugins are self contained and could signal events to another plugin or to the framework using an event-bus (e.g. DHCP signal that it has a new IPv6 address)
+The objective is to implement client side L3 protocols i.e ARP, IPv6, ND, MLD, IGMP in order to simulate a scale of clients and servers.
+This project is not limited to client protocols, but it is a good start. The project provides a framework to implement and use client protocols.
 
+The framework is fast enough for control plane protocols and will work with TRex server. Very fast L7 applications (on top of TCP/UDP) will run on TRex server.  One single thread of TRex-EMU can achieve a high rate of client creation/teardown.
+Each of the aforementioned protocol is implemented as a plugin. These plugins are self contained and can signal events one to the other, or to the framework, using an event-bus. (e.g. DHCP signals that it has a new IPv6 address).
+The framework has an event driven architecture, this way it can scale. The framework also provides to a protocol plugin infrastructure, for example RPC, timers, packet parsers, simulation and more.
+
+
+**The main properties**:
+
+* Fast client creation/teardown. ~3K/sec for one thread.
+* Number of active client/namespace is limited only by the memory on the server.
+* Packet per second (PPS) in the range of 3-5 MPPS.
+* Python 2.7/3.0 Client API exposed through JSON-RPC.
+* Interactive support - Integrated with the TRex console.
+* Modular design. Each plugin is self contained and can be tested on its own.
+* TRex-EMU supports the following protocols:
 
 [options="header",cols="1,2",width="60%"]
 |=================
 | Plug-in | Description
-| arp     | RFC 826
-| icmp    | RFC 777
-| dhcpv4  | RFC 2131 client side
-| igmp    | IGMP v3/v2/v1 RFC3376
-| ipv6    | IPv6 ND, RFC 4443,RFC 4861,RFC 4862 and  MLD and MLDv2 RFC 3810 
-| dhcpv6  | RFC 8415 client side
+| ARP     | RFC 826
+| ICMP    | RFC 777
+| DHCPv4  | RFC 2131 client side
+| IGMP    | IGMP v3/v2/v1 RFC3376
+| IPv6    | IPv6 ND, RFC 4443, RFC 4861, RFC 4862 and MLD and MLDv2 RFC 3810
+| DHCPv6  | RFC 8415 client side
 |=================
 
 
@@ -65,5 +75,5 @@ $export GO111MODULE=auto; code
 -----
 
 
-NOTE: ZMQ was build to x86. you should add the share object to LDD path for installing the package. see how to build it
+NOTE: ZMQ was build to x86. You should add the share object to the LDD path for installing the package. See how to build it.
 
