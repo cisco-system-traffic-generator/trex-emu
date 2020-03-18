@@ -1153,7 +1153,7 @@ interface TenGigabitEthernet1/0/0
 .Console
 [source,bash]
 ----
-    trex>emu_load_profile -f emu/simple_ipv6.py -t --ns 1 --clients 10 //TODO renamed the file here to simple_ipv6. what is the real name of the file
+    trex>emu_load_profile -f emu/simple_ipv6.py -t --ns 1 --clients 10 
 
     trex>emu_show_client_info -p 0 --mac 00:00:00:70:00:01 --json
     {
@@ -1429,7 +1429,7 @@ The framework is written in Golang. I would start with ICMP plugin as it is the 
 
 I would like to create 1000 clients using TRex-EMU and use the same DHCP/DHCPv6 address with ASTF/STL profile.
 
-For STL you can use the Field engine but it is limited with side. We would create a indirect table that could be filled with the information from TRex-EMU. //TODO - What do you mean it is limited with side?
+For STL you can use the Field engine but it is limited with the scale of ip pool. We would create a indirect table that could be filled with the information from TRex-EMU. 
 
 For ASTF there is no support and the MAC, IPv4, IPv6 would be static.
 
