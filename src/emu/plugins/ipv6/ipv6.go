@@ -344,7 +344,7 @@ type (
 	ApiMldNsIterResult struct {
 		Empty   bool           `json:"empty"`
 		Stopped bool           `json:"stopped"`
-		Vec     []core.Ipv6Key `json:"data"`
+		Vec     []MldEntryDataJson `json:"data"`
 	}
 
 	ApiMldSetHandler struct{}
@@ -514,14 +514,14 @@ func (h ApiMldNsIterHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawM
 		return &res, nil
 	}
 
-	keys, err2 := ipv6Ns.mld.GetNext(p.Count)
+	entries, err2 := ipv6Ns.mld.GetNext(p.Count)
 	if err2 != nil {
 		return nil, &jsonrpc.Error{
 			Code:    jsonrpc.ErrorCodeInvalidRequest,
 			Message: err2.Error(),
 		}
 	}
-	res.Vec = keys
+	res.Vec = entries
 	return &res, nil
 }
 

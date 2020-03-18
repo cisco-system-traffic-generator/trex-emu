@@ -363,6 +363,18 @@ type MldEntry struct {
 	refc       uint16 /* ref counter for none management clients.  add ref/remove ref*/
 }
 
+type MldEntryDataJson struct {
+	Ipv6       core.Ipv6Key `json:"ipv6"`
+	Management bool         `json:"management"`
+	Refc       uint16       `json:"refc"`
+}
+
+func (o *MldEntryDataJson) SetJson(ent *MldEntry) {
+	o.Ipv6 = ent.Ipv6
+	o.Management = ent.management
+	o.Refc = ent.refc
+}
+
 type MapIgmp map[core.Ipv6Key]*MldEntry
 
 //IgmpFlowTbl  map/dlist of the mld entries
@@ -578,8 +590,8 @@ func (o *mldNsCtx) IterIsStopped() bool {
 	return !o.iterReady
 }
 
-func (o *mldNsCtx) GetNext(n uint16) ([]core.Ipv6Key, error) {
-	r := make([]core.Ipv6Key, 0)
+func (o *mldNsCtx) GetNext(n uint16) ([]MldEntryDataJson, error) {
+	r := make([]MldEntryDataJson, 0)
 
 	if !o.iterReady {
 		return r, fmt.Errorf(" Iterator is not ready- reset the iterator")
@@ -599,7 +611,9 @@ func (o *mldNsCtx) GetNext(n uint16) ([]core.Ipv6Key, error) {
 			break
 		}
 		ent := covertToIgmpEntry(o.iter.Val())
-		r = append(r, ent.Ipv6)
+		var entryDataJSON MldEntryDataJson
+		entryDataJSON.SetJson(ent)
+		r = append(r, entryDataJSON)
 		o.iter.Next()
 	}
 	return r, nil
