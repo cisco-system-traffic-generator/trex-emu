@@ -654,11 +654,25 @@ This shows how to load the previous Python profile from the console:
 
 <1> Promiscuous mode and multicast should be turned on to forward the broadcast and multicast packets that relate to TRex-EMU.
 <2> `emu_load_profile` removes the old profile if it exists and loads the new profile using SDK API. You can specify the rate of new clients and rate or removal.
+Emu profiles have their own argparser, if you wish to see profile's tunables run:
+*emu_load_profile -f emu/simple_emu.py -t --help*
 <3> `emu_show_all` : shows all the clients
 <4> `emu_show_client_info` : shows the client parameters
 <5> `emu_show_counters` : shows the framework counters for all engines
 <6> `emu_show_mbuf` : shows the framework packets buffers
 <7> `emu_show_ns_info`: shows info per namespace
+
+[IMPORTANT]
+====================================================================================================================
+In order to make that separation between load_profile flags and profile
+tuneables, -t MUST be at the end.i.e:
+[source,bash]
+----
+emu_load_profile -f emu/simple_emu.py --max 100 -t --ns 1--clients 10 // Good.
+emu_load_profile -f emu/simple_emu.py -t --ns 1--clients 10 --max 100 // Bad, "max" flag is not a profile tuneable.
+----
+====================================================================================================================
+
 
 To show counters per plugin info use `emu_xxx_show_counters` where xxx is the plugin name. In this case let's try ARP:
 
