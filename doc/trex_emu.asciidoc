@@ -668,8 +668,8 @@ In order to make that separation between load_profile flags and profile
 tuneables, -t MUST be at the end.i.e:
 [source,bash]
 ----
-emu_load_profile -f emu/simple_emu.py --max 100 -t --ns 1--clients 10 // Good.
-emu_load_profile -f emu/simple_emu.py -t --ns 1--clients 10 --max 100 // Bad, "max" flag is not a profile tuneable.
+emu_load_profile -f emu/simple_emu.py --max 100 -t --ns 1 --clients 10 // Good.
+emu_load_profile -f emu/simple_emu.py -t --ns 1 --clients 10 --max 100 // Bad, "max" flag is not a profile tuneable.
 ----
 ====================================================================================================================
 
