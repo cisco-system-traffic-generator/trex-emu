@@ -33,14 +33,14 @@ The framework has an event driven architecture, this way it can scale. The frame
 
 **TRex Architecture with TRex-EMU**:
 
-image::doc/images/trex_arch.png[title="TRex Architecture",align="left",width={p_width}, link="doc/images/trex_arch.png"]
+image::doc/images/trex_arch.png[title="TRex Architecture",align="left",width=300, link="doc/images/trex_arch.png"]
 
 TRex-EMU can receive commands (RPC via JSON-RPC) from a Python client and send/receive packets via a ZMQ channel that connects it to the TRex server (RX core). Packets from the network (from a TRex server physical port) that match a filter (dynamic) are forwarded to the TRex-EMU process. Packets from the EMU process are packed into the ZMQ channel and sent directly to the TRex physical port.
 
 
 **TRex-EMU Architecture**:
 
-image::doc/images/emu_arch.png[title="Emulation Server Architecture",align="left",width={p_width}, link="doc/images/emu_arch.png"]
+image::doc/images/emu_arch.png[title="Emulation Server Architecture",align="left",width=300, link="doc/images/emu_arch.png"]
 
 Each TRex emulation process called `thread` can have a few `Namespaces`.
 
@@ -54,7 +54,7 @@ Different plugins and frameworks can communicate through an event bus. A plugin 
 
 Something to note in this model is that `Clients` can share information on the same `Namespace`, reducing multicast, broadcast and generally packet duplication.
 
-image::doc/images/emu_arp.png[title="ARP Plugin",align="left",width={p_width}, link="doc/images/emu_arp.png"]
+image::doc/images/emu_arp.png[title="ARP Plugin",align="left",width=300, link="doc/images/emu_arp.png"]
 
 The previous figure shows a shared IPv4 default gateway for many clients, which is resolved once and shared with all the respective clients. So ARP broadcast packets do not need to be duplicated for each client.
 In this example, if all the clients had the same default gateway 16.0.0.1, we will have only one entry in the ARP cache table and each client will have a pointer to it. This is an example on how scaling in the number of clients can be achieved.  
