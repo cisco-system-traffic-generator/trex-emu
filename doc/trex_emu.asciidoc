@@ -407,6 +407,7 @@ The profile will create one client with `1.1.5.2/24`.
 
 the `--emu` CLI argument will load ZMQ channel to TX/RX packets and will tell the script to load the TRex-EMU server.
 
+
 *Start the Console with EMU support*::
 
 Use the following command to start the console:
@@ -1385,10 +1386,23 @@ Success rate is 100 percent (5/5), round-trip min/avg/max = 101/108/117 ms
 * MLDv2 is used (MLDv1 is supported too but less efficient) to publish the solicited multicast addrees for each IPv6 global addrees.
 * DHCPv6 does not offer a default gateway, SLAAC can be used or an explicit addrees.
 
+=== Tutorial: Load TRex server in multi-core
+
+EMU supports multi-core (STL and ASTF) in software mode, where the filter in done by each DP core, similar to BIRD integration.
+To run in this mode, do this: 
+
+[source,bash]
+----
+[bash]>sudo ./t-rex-64 -i -c 4 --software --emu 
+----
+
+from Console, you should enter `service mode filter` with mask of `emu` mode (which will forward all the supported protocols to emu server)
 
 === Python API 
 
 Let us see an example of how to the Python API. More can be found on the SDK documentation.
+
+[TO DO LINK to API and reference per plugin ]
 
 .API example 
 [source,python]
@@ -1423,15 +1437,24 @@ Let us see an example of how to the Python API. More can be found on the SDK doc
 This script assumes there is a TRex-EMU server running on port 4510. It connects and loads a profile with tunables and then prints all the clients. 
 
 
+
 === Tutorial: Debug tools
 
 Basic debugging can be performed using the following steps:
 
-* Traces can be taken from the TRex server the usual way.
-* To debug TRex-EMU packet traces use: `trex-emu  -m | tee /tmp/a.pcap`. It will create a file using the k12 packet format.
-* To debug the RPC channel use `trex-emu  -v`.
+* Traces can be taken from the TRex server, the usual way.
+* To debug TRex-EMU using interanl packet traces do this:
+** run trex server with `--emu-zmq` instead of `--emu`. This will just open the zmq channel and not load the emu server 
+** open another terminal and run `trex-emu  -m | tee /tmp/a.pcap`. It will create a file using the k12 packet format.
+* To debug the RPC channel use `trex-emu -v`.
+* To run trex-emu in remote node do this: 
 
-
+[source,bash]
+----
+ $trex-console -s csi-kiwi-02 --emu --emu-server {emu-server-ip}
+ $trex-emu -m -S {trex-server-ip} | tee /scrach/hhaim/arp1.pcap
+ $ sudo ./t-rex-64 -i -c 4 --iom 0 --software --emu-zmq
+----
 
 == FAQ 
 
