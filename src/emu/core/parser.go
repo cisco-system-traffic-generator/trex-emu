@@ -55,6 +55,7 @@ type ParserCb func(ps *ParserPacketState) int
 type ParserStats struct {
 	errInternalHandler    uint64
 	errParser             uint64
+	errEAPolTooShort      uint64
 	errArpTooShort        uint64
 	errIcmpv4TooShort     uint64
 	errIgmpv4TooShort     uint64
@@ -67,6 +68,9 @@ type ParserStats struct {
 	errIPv4cs             uint64
 	errTCP                uint64
 	errUDP                uint64
+	eapolPkts             uint64
+	eapolBytes            uint64
+
 	arpPkts               uint64
 	arpBytes              uint64
 	icmpPkts              uint64
@@ -99,6 +103,31 @@ type ParserStats struct {
 
 func newParserStatsDb(o *ParserStats) *CCounterDb {
 	db := NewCCounterDb("parser")
+
+	db.Add(&CCounterRec{
+		Counter:  &o.errEAPolTooShort,
+		Name:     "errEAPolTooShort",
+		Help:     "eap packets are too short",
+		Unit:     "pkts",
+		DumpZero: false,
+		Info:     ScERROR})
+
+	db.Add(&CCounterRec{
+		Counter:  &o.eapolPkts,
+		Name:     "eapolPkts",
+		Help:     "eapol packets",
+		Unit:     "pkts",
+		DumpZero: false,
+		Info:     ScINFO})
+
+	db.Add(&CCounterRec{
+		Counter:  &o.eapolBytes,
+		Name:     "eapolBytes",
+		Help:     "eapol bytes",
+		Unit:     "bytes",
+		DumpZero: false,
+		Info:     ScINFO})
+
 	db.Add(&CCounterRec{
 		Counter:  &o.errInternalHandler,
 		Name:     "errInternalHandler",
@@ -428,6 +457,7 @@ type Parser struct {
 	tcp    ParserCb
 	udp    ParserCb
 	icmpv6 ParserCb
+	eapol  ParserCb
 	Cdb    *CCounterDb
 }
 
@@ -454,6 +484,10 @@ func (o *Parser) Register(protocol string) {
 	if protocol == "dhcpv6" {
 		o.dhcpv6 = getProto("dhcpv6")
 	}
+	if protocol == "dot1x" {
+		o.eapol = getProto("dot1x")
+	}
+
 }
 
 func (o *Parser) Init(tctx *CThreadCtx) {
@@ -612,6 +646,17 @@ func (o *Parser) ParsePacket(m *Mbuf) int {
 	nextHdr = layers.EthernetType(ethHeader.GetNextProtocol())
 	for {
 		switch nextHdr {
+		case layers.EthernetTypeEAPOL:
+			if packetSize < uint32(offset+4) {
+				o.stats.errEAPolTooShort++
+				return PARSER_ERR
+			}
+			ps.L3 = offset
+			tun.Set(&d)
+			o.stats.eapolPkts++
+			o.stats.eapolBytes += uint64(packetSize)
+			return o.eapol(&ps)
+
 		case layers.EthernetTypeARP:
 			if packetSize < uint32(offset+layers.ARPHeaderSize) {
 				o.stats.errArpTooShort++

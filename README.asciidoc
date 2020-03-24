@@ -29,6 +29,7 @@ The framework has an event driven architecture, this way it can scale. The frame
 | IGMP    | IGMP v3/v2/v1 RFC3376
 | IPv6    | IPv6 ND, RFC 4443, RFC 4861, RFC 4862 and MLD and MLDv2 RFC 3810
 | DHCPv6  | RFC 8415 client side
+| DOT1X   | EAP-MD5/EAP-MSCHAPv2  RFC 3748, IEEE 802.1X-2001
 |=================
 
 **TRex Architecture with TRex-EMU**:

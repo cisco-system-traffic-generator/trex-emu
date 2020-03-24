@@ -6,7 +6,9 @@
 package arp
 
 import (
+	"crypto/md5"
 	"emu/core"
+	"encoding/hex"
 	"external/google/gopacket"
 	"external/google/gopacket/layers"
 	"flag"
@@ -489,6 +491,21 @@ func rpcQueue2(tctx *core.CThreadCtx, test *ArpTestBase) int {
 }
 
 func TestPluginArp9(t *testing.T) {
+	password := "432768ec1d"
+	challenge := "a1501e8bb2701d3d9b535594993f67a7"
+	hexchal, _ := hex.DecodeString(challenge)
+	fmt.Printf(" %s \n", hex.Dump(hexchal))
+	fmt.Printf("%x", md5.Sum([]byte(fmt.Sprintf("%s%s%s", "\x00", password, string(hexchal)))))
+	//201089abdf8683ab52f37ee9eb0ab68e
+	b := make([]byte, 0)
+	b = append(b, 0)
+	b = append(b, []byte(password)...)
+	b = append(b, hexchal...)
+	fmt.Printf(" %s \n", hex.Dump(b))
+	sum := md5.Sum(b)
+	fmt.Printf("\n%x", sum)
+
+	fmt.Printf(" hey \n")
 
 	/*a := &ArpTestBase{
 		testname:     "arp9",

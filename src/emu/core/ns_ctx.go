@@ -507,6 +507,15 @@ func (o *CNSCtx) IterIsStopped() bool {
 	return !o.iterReady
 }
 
+func (o *CNSCtx) GetFirstClient() *CClient {
+	if o.clientHead.IsEmpty() {
+		return nil
+	} else {
+		client := castDlistClient(o.clientHead.next)
+		return client
+	}
+}
+
 // GetNext return error in case the epoc was changed, use
 func (o *CNSCtx) GetNext(n uint16) ([]*MACKey, error) {
 

@@ -8,8 +8,8 @@ package layers
 
 import (
 	"encoding/binary"
-	"fmt"
 	"external/google/gopacket"
+	"fmt"
 )
 
 type EAPCode uint8
@@ -50,6 +50,9 @@ func (e *EAP) DecodeFromBytes(data []byte, df gopacket.DecodeFeedback) error {
 	e.Code = EAPCode(data[0])
 	e.Id = data[1]
 	e.Length = binary.BigEndian.Uint16(data[2:4])
+	if uint16(len(data)) < e.Length {
+		return fmt.Errorf("invalid EAP length %d", e.Length)
+	}
 	switch {
 	case e.Length > 4:
 		e.Type = EAPType(data[4])

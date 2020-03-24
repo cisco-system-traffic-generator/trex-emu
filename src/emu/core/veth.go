@@ -16,13 +16,24 @@ type VethStats struct {
 	RxPkts           uint64
 	RxBytes          uint64
 	RxParseErr       uint64
+	RxZmqErr         uint64
 	RxBatch          uint64
 	TxBatch          uint64
 	TxDropNotResolve uint64 /* no resolved dg */
+
 }
 
 func NewVethStatsDb(o *VethStats) *CCounterDb {
 	db := NewCCounterDb("veth")
+
+	db.Add(&CCounterRec{
+		Counter:  &o.RxZmqErr,
+		Name:     "RxZmqErr",
+		Help:     "RxZmqErr",
+		Unit:     "pkts",
+		DumpZero: false,
+		Info:     ScERROR})
+
 	db.Add(&CCounterRec{
 		Counter:  &o.TxPkts,
 		Name:     "TxPkts",

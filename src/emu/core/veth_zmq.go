@@ -25,6 +25,7 @@ import (
 	"encoding/binary"
 	zmq "external/pebbe/zmq4"
 	"fmt"
+	"time"
 )
 
 const (
@@ -97,9 +98,11 @@ func (o *VethIFZmq) rxThread() {
 	for {
 		msg, err := o.rxSocket.RecvBytes(0)
 		if err != nil {
-			panic(err)
+			time.Sleep(10 * time.Millisecond)
+			o.stats.RxZmqErr++
+		} else {
+			o.cn <- msg
 		}
-		o.cn <- msg
 	}
 }
 

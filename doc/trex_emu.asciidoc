@@ -71,6 +71,7 @@ The framework has an event driven architecture, this way it can scale. The frame
 | IGMP    | IGMP v3/v2/v1 RFC3376
 | IPv6    | IPv6 ND, RFC 4443, RFC 4861, RFC 4862 and MLD and MLDv2 RFC 3810
 | DHCPv6  | RFC 8415 client side
+| DOT1X   | EAP-MD5/EAP-MSCHAPv2  RFC 3748, IEEE 802.1X-2001
 |=================
 
 === TRex Architecture with TRex-EMU
@@ -1385,6 +1386,183 @@ Success rate is 100 percent (5/5), round-trip min/avg/max = 101/108/117 ms
 * Every client advertises all its global IPv6 addresses using NS packets and its own local-IPv6.
 * MLDv2 is used (MLDv1 is supported too but less efficient) to publish the solicited multicast addrees for each IPv6 global addrees.
 * DHCPv6 does not offer a default gateway, SLAAC can be used or an explicit addrees.
+
+=== Tutorial: Dot1x
+
+*Goal*:: To authenticate up to 2000 clients on one ports of C9300 switch (up to 50K per switch)
+
+
+EMU can supports EAP-MD5 and EAP-MSCHAPv2 (PEAP,TTLS and EAP-TLS is not supported yet)
+Multi-AUTH and Single host is supported (multicast and unicast)
+
+
+*The Setup is*::
+
+                                            (G2/0/21)   ----  TRex port 0 (1.1.1.3)
+freeRadius 1.1.1.2 ---  Cisco C9300/24 ports   
+                                            (G2/0/20)   ----  TRex port 1 (1.1.1.4)  
+
+
+.freeRadius add /etc/freeradius/3.0/clients.conf
+[source,bash]
+----
+
+client switch1 {
+        ipv4addr        = *
+        secret          = switch1
+}
+----
+
+switch1 will be the salt of the Switch client 
+
+
+Add a few users to the Radius 
+
+.freeRadius add /etc/freeradius/3.0/users
+[source,bash]
+----
+test1 Cleartext-Password := "test1"
+test2 Cleartext-Password := "test2"
+test3 Cleartext-Password := "test3"
+test4 Cleartext-Password := "test4"
+test5 Cleartext-Password := "test5"
+test6 Cleartext-Password := "test6"
+test7 Cleartext-Password := "test7"
+test8 Cleartext-Password := "test8"
+test9 Cleartext-Password := "test9"
+----
+
+.freeRadius test it
+[source,bash]
+----
+radtest  -t eap-md5 test1 test1 1.1.1.2  0 switch1
+----
+
+
+.Cat9K configuration dot1x
+[source,bash]
+----
+
+dot1x system-auth-control
+dot1x eapol version 2
+dot1x logging verbose
+
+
+radius server rad1
+ address ipv4 1.1.1.2 auth-port 1812 acct-port 1813
+ key switch1
+
+aaa group server radius radg1
+ server name rad1
+!
+aaa authentication dot1x default group rad1g
+
+
+interface GigabitEthernet2/0/21
+ switchport access vlan 2000
+ switchport mode access
+ authentication timer reauthenticate 1
+ access-session host-mode multi-auth
+ access-session control-direction in
+ access-session port-control auto
+ dot1x pae authenticator
+ dot1x timeout quiet-period 1
+ dot1x timeout server-timeout 1
+ dot1x timeout tx-period 1
+ dot1x timeout start-period 1
+ dot1x timeout held-period 1
+ dot1x timeout auth-period 1
+ spanning-tree portfast
+ service-policy type control subscriber DOT1X-1
+
+policy-map type control subscriber DOT1X-1
+ event session-started match-all
+  10 class always do-all
+   10 authenticate using dot1x priority 10
+
+----
+
+.Profile
+[source,bash]
+----
+        vport, tci, tpid = 0, [0, 0], [0x00, 0x00]
+        ns_gen = NsGen(vport, tci, tpid, ns_size, p_inc = 1, tci_inc = 1)
+        for vport, tci, tpid in ns_gen:
+            ns = EMUNamespaceObj(vport  = vport,
+                                tci     = tci,
+                                tpid    = tpid,
+                                def_c_plugs = self.def_c_plugs
+                                )
+
+            mac = '00:00:00:70:00:01'
+            ipv4 = '1.1.1.3'
+            dg = '1.1.1.2'
+            
+
+            c_gen = ClientGen(mac, ipv4, dg, clients_size, mac_inc = 1, ipv4_inc = 1)
+            # create a different client each time
+            for i, (mac, ipv4, dg, ipvv6) in enumerate(c_gen):
+
+                
+                u = "test{}".format(i+1)
+                print(u)
+                client = EMUClientObj(mac     = mac,
+                                      ipv4    = ipv4,
+                                      ipv4_dg = dg,
+                                      plugs   = {'arp': {},
+                                                 'dot1x': {'user':u,'password':u},  
+						                        'icmp':{}
+                                                },
+                                      )
+                ns.add_clients(client)
+
+----
+
+
+* To Force MSCHAPv2 add 'flags':1, this will disable EAP-MD5 ('dot1x': {'user':u,'password':u,'flags':1},)
+
+.Cat9K debug
+[source,bash]
+----
+
+    -stack-197.72#show dot1x st
+    9300-stack-197.72#show dot1x statistics 
+    Dot1x Global Statistics for
+    --------------------------------------------
+    RxStart = 8     RxLogoff = 0    RxResp = 10      RxRespID = 13
+    RxReq = 0       RxInvalid = 0   RxLenErr = 0
+    RxTotal = 33
+
+    TxStart = 0     TxLogoff = 0    TxResp = 0
+    TxReq = 20       ReTxReq = 0     ReTxReqFail = 3
+    TxReqID = 13         ReTxReqID = 0       ReTxReqIDFail = 0
+    TxTotal = 33
+
+
+    9300-stack-197.72#show authentication sessions interface GigabitEthernet 2/0/21
+    Interface                MAC Address    Method  Domain  Status Fg  
+    -------------------------------------------------------------------
+    Gi2/0/21                 0000.0070.0001 dot1x   DATA    Auth        
+    Gi2/0/21                 0000.0070.0002 dot1x   DATA    Auth        
+
+    Key to Session Events Blocked Status Flags:
+
+    A - Applying Policy (multi-line status for details)
+    D - Awaiting Deletion
+    F - Final Removal in progress
+    I - Awaiting IIF ID allocation
+    P - Pushed Session
+    R - Removing User Profile (multi-line status for details)
+    U - Applying User Profile (multi-line status for details)
+    X - Unknown Blocker
+
+    Runnable methods list:
+    Handle  Priority  Name
+        9         5  dot1x
+        7         5  dot1xSup
+        13        10  webauth
+        10        15  mab
+----
 
 === Tutorial: Load TRex server in multi-core
 

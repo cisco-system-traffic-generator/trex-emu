@@ -10,6 +10,7 @@ import (
 	zmq "external/pebbe/zmq4"
 	"fmt"
 	"log"
+	"time"
 )
 
 var method_repo []cRpcMethodRec = make([]cRpcMethodRec, 0)
@@ -79,10 +80,15 @@ func (o *CZmqJsonRPC2) NewZmqRpc(serverPort uint16, simulation bool) {
 
 func (o *CZmqJsonRPC2) rxThread() {
 	for {
-		msg, _ := o.socket.RecvBytes(0)
-		o.cn <- msg
-		res := <-o.cn
-		o.socket.SendBytes(res, 0)
+		msg, err := o.socket.RecvBytes(0)
+		if err != nil {
+			time.Sleep(10 * time.Millisecond)
+		} else {
+			o.cn <- msg
+			res := <-o.cn
+			o.socket.SendBytes(res, 0)
+
+		}
 	}
 }
 
@@ -114,7 +120,11 @@ func (o *CZmqJsonRPC2) HandleReq(req []byte) []byte {
 
 // HandleReqRes this is an help
 func (o *CZmqJsonRPC2) HandleReqRes() {
-	msg, _ := o.socket.RecvBytes(0)
-	res := o.HandleReq(msg)
-	o.socket.SendBytes(res, 0)
+	msg, err := o.socket.RecvBytes(0)
+	if err != nil {
+		time.Sleep(10 * time.Millisecond)
+	} else {
+		res := o.HandleReq(msg)
+		o.socket.SendBytes(res, 0)
+	}
 }
