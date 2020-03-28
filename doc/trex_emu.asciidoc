@@ -158,7 +158,7 @@ Properties:
 
 * Associated only with one thread
 * Manages a set of clients
-* Each namespace should have a tuple key, represented by `CTunnelDataJson`. and a vector of plugins string. // TODO - What is a vector of plugins string. I don't understand this.
+* Each namespace should have a tuple key, represented by `CTunnelDataJson`, and a vector of containing the names of the plugins that can transmit in this tunnel.
 * Information per namespace through `CNsInfo`, which is composed from the tunnel key, active clients and plugin names.
 
 === EMU Client
@@ -217,10 +217,10 @@ type CClientCmd struct {
 	Ipv6   Ipv6Key `json:"ipv6"`  // source global ipv6 
 	DgIpv6 Ipv6Key `json:"dg_ipv6"` // ipv6 default gateway 
 
-	Ipv6ForceDGW   bool   `json:"ipv4_force_dg"` // force static default gateway 
-	Ipv6ForcedgMac MACKey `json:"ipv4_force_mac"` // the mac of the forced default gateway 
-	ForceDGW       bool   `json:"ipv6_force_dg"` // forced ipv4 default gateway 
-	Ipv4ForcedgMac MACKey `json:"ipv6_force_mac"` // the MAC of the ipv4 forced default gateway 
+	Ipv6ForceDGW   bool   `json:"ipv6_force_dg"` // force static default gateway 
+	Ipv6ForcedgMac MACKey `json:"ipv6_force_mac"` // the mac of the forced default gateway 
+	ForceDGW       bool   `json:"ipv4_force_dg"` // forced ipv4 default gateway 
+	Ipv4ForcedgMac MACKey `json:"ipv4_force_mac"` // the MAC of the ipv4 forced default gateway 
 
 	Plugins *MapJsonPlugs `json:"plugs"` // list of plugins
 }
@@ -241,10 +241,10 @@ type CClientInfo struct {
 	DgIpv6    Ipv6Key `json:"dg_ipv6"`
 	DhcpIpv6  Ipv6Key `json:"dhcp_ipv6"`
 
-	Ipv6ForceDGW   bool   `json:"ipv4_force_dg"`
-	Ipv6ForcedgMac MACKey `json:"ipv4_force_mac"`
-	ForceDGW       bool   `json:"ipv6_force_dg"`
-	Ipv4ForcedgMac MACKey `json:"ipv6_force_mac"`
+	Ipv6ForceDGW   bool   `json:"ipv6_force_dg"`
+	Ipv6ForcedgMac MACKey `json:"ipv6_force_mac"`
+	ForceDGW       bool   `json:"ipv4_force_dg"`
+	Ipv4ForcedgMac MACKey `json:"ipv4_force_mac"`
 
 	DGW *CClientDg `json:"dgw"`
 
@@ -264,8 +264,9 @@ type CClientInfo struct {
 
 `[{'arp':{'enable':True}},{'icmp':{}},'dhcp':{'keep_alive':120}]`.
 In this example we enable `arp`,`icmp` and `dhcp` plugin for this client and we can provide a init configuration.
-* One important limitation is that the client does not have a routing table in the first version, only a default gateway. It was done for simplicity, because the main objective is to verify a router/switch under test. 
-It means that client won't be able to communicate internally (i.g. ping) to another client on the same internal namespace. // TODO - Why does a client need a routing table for this? The client uses ARP to resolve the mac of the dst IP address and if they are in the same namespace he can communicate on L2.
+
+* One important limitation is that the client does not have a routing table in the first version, only a default gateway. It was done for simplicity, because the main objective is to verify a router/switch under test.
+
 
 == Getting Started Tutorials
 
@@ -364,6 +365,7 @@ def register():
 
 *Default plugin priority*::
 
+The following table summarizies how the status of each plugin is set:
 
 .Namespace plugin vector
 [options="header",cols="1,2,1",width="60%"]
@@ -411,7 +413,7 @@ the `--emu` CLI argument will load ZMQ channel to TX/RX packets and will tell th
 
 *Start the Console with EMU support*::
 
-Use the following command to start the console:
+Use the following command to start the console with EMU support. Note that the commands are relative to the version and commands can be removed and added throughout releases.
 
 .Console
 [source,bash]
@@ -1621,17 +1623,17 @@ This script assumes there is a TRex-EMU server running on port 4510. It connects
 Basic debugging can be performed using the following steps:
 
 * Traces can be taken from the TRex server, the usual way.
-* To debug TRex-EMU using interanl packet traces do this:
-** run trex server with `--emu-zmq` instead of `--emu`. This will just open the zmq channel and not load the emu server 
-** open another terminal and run `trex-emu  -m | tee /tmp/a.pcap`. It will create a file using the k12 packet format.
-* To debug the RPC channel use `trex-emu -v`.
-* To run trex-emu in remote node do this: 
+* To debug TRex-EMU using internal packet traces perform the following:
+** Run trex server with `--emu-zmq` instead of `--emu`. This will just open the zmq channel and not load the emu server 
+** Open another terminal and run `trex-emu  -m | tee /tmp/a.pcap`. It will create a file using the k12 packet format.
+* To debug the RPC channel, or to see all of the RPC traffic use `trex-emu -v`.
+* You can even run it remotely, but the order of the following commands is important:
 
 [source,bash]
 ----
- $trex-console -s csi-kiwi-02 --emu --emu-server {emu-server-ip}
- $trex-emu -m -S {trex-server-ip} | tee /scrach/hhaim/arp1.pcap
- $ sudo ./t-rex-64 -i -c 4 --iom 0 --software --emu-zmq
+ $ sudo ./t-rex-64 -i -c 1 --iom 0 --software --emu-zmq
+ $ trex-emu -m -S {trex-server-ip} | tee /tmp/a.pcap
+ $ trex-console -s {trex-server-ip} --emu --emu-server {emu-server-ip}
 ----
 
 == FAQ 
