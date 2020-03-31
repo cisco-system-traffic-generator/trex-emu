@@ -7,6 +7,7 @@ package dot1x
 
 import (
 	"encoding/binary"
+	"strings"
 )
 
 const (
@@ -43,8 +44,9 @@ func (o *EapMschapv2Handler) BuildResp(d *Dot1xMethodData) (bool, bool, []byte) 
 
 				if (OpCode == MS_CHAPV2_SUCCESS) && (MSLength > 45) {
 					s := string(d.eap.TypeData[4:])
-					if len(s) == 42 {
-						if s == o.authenticatorResponse {
+					if len(s) >= 42 {
+						first := strings.Split(s, " ")
+						if first[0] == o.authenticatorResponse {
 							return true, true, []byte{MS_CHAPV2_SUCCESS}
 						}
 					}
