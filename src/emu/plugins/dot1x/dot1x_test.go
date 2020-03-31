@@ -304,10 +304,6 @@ func TestPlugindot1x_4(t *testing.T) {
 	a.Run(t)
 }
 
-//1d26fddba3f9ad3f360d86eba7cba4b5
-//hhaim
-//cc2221916ff64b685df4d431cb93083d
-
 func TestPlugindot1x_5(t *testing.T) {
 	b := []byte{}
 	b = b[:0] //[id,password,challeng]
@@ -327,6 +323,53 @@ func TestPlugindot1x_6(t *testing.T) {
 	//b = append(b, []byte{0x1d, 0x26, 0xfd, 0xdb, 0xa3, 0xf9, 0xad, 0x3f, 0x36, 0x0d, 0x86, 0xeb, 0xa7, 0xcb, 0xa4, 0xb5}...)
 	r := md5.Sum(b)
 	fmt.Printf("%s\n", hex.Dump(r[:]))
+}
+
+type Dot1xRpcCtx struct {
+	tctx  *core.CThreadCtx
+	timer core.CHTimerObj
+	test  *Dot1xTestBase
+}
+
+func (o *Dot1xRpcCtx) OnEvent(a, b interface{}) {
+	fmt.Printf("add request %v %v \n", a, b)
+
+	o.tctx.Veth.AppendSimuationRPC([]byte(`{"jsonrpc": "2.0", 
+	"method":"dot1x_client_cnt", 
+	"params": {"tun": {"vport":1,"tci":[1,2]}, "mac":[0, 0, 1, 0, 0, 1] }, 
+	"id": 3 }`))
+
+	o.tctx.Veth.AppendSimuationRPC([]byte(`{"jsonrpc": "2.0", 
+	"method":"dot1x_client_info", 
+	"params": {"tun": {"vport":1,"tci":[1,2]}, "macs":[[0, 0, 1, 0, 0, 1]] }, 
+	"id": 3 }`))
+
+}
+
+func rpcQueue(tctx *core.CThreadCtx, test *Dot1xTestBase) int {
+	timerw := tctx.GetTimerCtx()
+	ticks := timerw.DurationToTicks(50 * time.Second)
+	var arpctx Dot1xRpcCtx
+	arpctx.timer.SetCB(&arpctx, test.cbArg1, test.cbArg2)
+	arpctx.tctx = tctx
+	arpctx.test = test
+	timerw.StartTicks(&arpctx.timer, ticks)
+	return 0
+}
+
+func TestPlugindot1x_7(t *testing.T) {
+	a := &Dot1xTestBase{
+		testname:     "dot1x_7",
+		dropAll:      false,
+		monitor:      false,
+		match:        1,
+		capture:      true,
+		duration:     60 * time.Second,
+		clientsToSim: 1,
+		cb:           rpcQueue,
+		cbArg1:       1,
+	}
+	a.Run(t)
 }
 
 func init() {

@@ -228,6 +228,12 @@ type Dot1xMethodIF interface {
 
 type MethodToHandler map[uint8]Dot1xMethodIF
 
+type Dot1xClientInfo struct {
+	State          uint8 `json:"state"`
+	SelectedMethod uint8 `json:"method"`
+	EapVer         uint8 `json:"eap_version"`
+}
+
 //PluginDot1xClient information per client
 type PluginDot1xClient struct {
 	core.PluginBase
@@ -676,7 +682,8 @@ func (o PluginDot1xNsReg) NewPlugin(ctx *core.PluginCtx, initJson []byte) *core.
 /*******************************************/
 /*  RPC commands */
 type (
-	ApiDot1xClientCntHandler struct{}
+	ApiDot1xClientCntHandler  struct{}
+	ApiDot1xClientInfoHandler struct{}
 )
 
 func getNs(ctx interface{}, params *fastjson.RawMessage) (*PluginDot1xNs, *jsonrpc.Error) {
@@ -707,6 +714,32 @@ func getClientPlugin(ctx interface{}, params *fastjson.RawMessage) (*PluginDot1x
 	pClient := plug.Ext.(*PluginDot1xClient)
 
 	return pClient, nil
+}
+
+func (h ApiDot1xClientInfoHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
+
+	var plugs []*core.PluginBase
+	var err error
+	tctx := ctx.(*core.CThreadCtx)
+	plugs, err = tctx.GetClientsPlugin(params, DOT1X_PLUG)
+	if err != nil {
+		return nil, &jsonrpc.Error{
+			Code:    jsonrpc.ErrorCodeInvalidRequest,
+			Message: err.Error(),
+		}
+	}
+
+	res := make([]Dot1xClientInfo, len(plugs))
+	for i, p := range plugs {
+		rp := &res[i]
+		var pc *PluginDot1xClient
+		pc = p.Ext.(*PluginDot1xClient)
+		rp.State = pc.smState
+		rp.SelectedMethod = pc.selectedMethod
+		rp.EapVer = pc.eapVer
+	}
+
+	return res, nil
 }
 
 func (h ApiDot1xClientCntHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
@@ -745,6 +778,8 @@ func init() {
 
 	  aa - misc
 	*/
+
+	core.RegisterCB("dot1x_client_info", ApiDot1xClientInfoHandler{}, false) // get info per array
 
 	core.RegisterCB("dot1x_client_cnt", ApiDot1xClientCntHandler{}, false) // get counters/meta
 	// TBD getter for the client info

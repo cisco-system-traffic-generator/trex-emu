@@ -38,9 +38,9 @@ type CTunnelData struct {
 
 /* CTunnelDataJson json representation of tunnel data */
 type CTunnelDataJson struct {
-	Vport uint16    `json:"vport"`
-	Tpid  [2]uint16 `json:"tpid"`
-	Tci   [2]uint16 `json:"tci"`
+	Vport   uint16        `json:"vport"`
+	Tpid    [2]uint16     `json:"tpid"`
+	Tci     [2]uint16     `json:"tci"`
 	Plugins *MapJsonPlugs `json:"plugs"`
 }
 
@@ -337,6 +337,47 @@ func (o *CThreadCtx) MainLoop() {
 	}
 	o.Veth.SimulatorCleanup()
 	o.MPool.ClearCache()
+}
+
+func (o *CThreadCtx) GetClientsPlugin(params *fastjson.RawMessage, plugin string) ([]*PluginBase, error) {
+	var tun CTunnelKey
+	var keys []MACKey
+	var err error
+
+	err = o.UnmarshalTunnel(*params, &tun)
+	if err != nil {
+		return nil, err
+	}
+
+	keys, err = o.UnmarshalMacKeys(*params)
+	if err != nil {
+		return nil, err
+	}
+
+	ns := o.GetNs(&tun)
+	if ns == nil {
+		err = fmt.Errorf(" error there is no valid namespace for this tunnel ")
+		return nil, err
+	}
+	var r []*PluginBase
+	r = make([]*PluginBase, 0)
+
+	for _, k := range keys {
+		client := ns.CLookupByMac(&k)
+		if client == nil {
+			err = fmt.Errorf("Error there is no valid client %v for this MAC ", &k)
+			return nil, err
+		}
+
+		plug := client.PluginCtx.Get(plugin)
+		if plug == nil {
+			err = fmt.Errorf("Error there is no valid plugin %s for this client ", plugin)
+			return nil, err
+		}
+		r = append(r, plug)
+	}
+
+	return r, nil
 }
 
 func (o *CThreadCtx) GetClientPlugin(params *fastjson.RawMessage, plugin string) (*PluginBase, error) {
