@@ -6,6 +6,7 @@
 package core
 
 import (
+	"math"
 	"time"
 )
 
@@ -111,4 +112,32 @@ func (o *TimerCtx) HandleTicks() {
 	o.Ticks++
 	o.timerw.OnTick(eTIMERW_SECOND_LEVEL_BURST)
 	o.Timer.Reset(o.TickDuration)
+}
+
+/*
+Calculate the number of ticks and the burstSize in a duration of time.
+There might be need to send just one packet (no burst) if the duration is long enough,
+or to send a burst of packets every 1 tick.
+Params:
+duration: Duration between two consecutive calls, DeltaTime.
+
+Returns:
+ticks: How many ticks in this durations
+burstSize : How many packets to send on each tick size.
+*/
+func (o *TimerCtx) DurationToTicksBurst(duration time.Duration) (ticks, burstSize uint32) {
+	if duration >= o.TickDuration {
+		/* The duration is more then the granularity, so no need to sends burts of packets.
+		   However there might be cases like duration = 15 msec, but the granularity is 10 msec,
+		   in these cases we make the duration smaller, so we might actually finish faster. */
+		return o.DurationToTicks(duration), 1
+	}
+	if duration == 0 {
+		panic("Shouldn't call with duration 0")
+	}
+	/* The duration is smaller then the minimal tick granularity, so need to do bursts each 1 ticks.
+	   In cases like 3 msec but the granularity is 10 msec, we would send 9 packets, so it can take longer.
+	   In cases like 6 msec but the granulatiry is 10 msec, we would sent 12 packets so it can overflow */
+	return 1, uint32(math.Round(float64(o.TickDuration) / float64(duration)))
+
 }

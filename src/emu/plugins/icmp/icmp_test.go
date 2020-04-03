@@ -7,6 +7,7 @@ package icmp
 
 import (
 	"emu/core"
+	"encoding/binary"
 	"external/google/gopacket"
 	"external/google/gopacket/layers"
 	"flag"
@@ -25,6 +26,7 @@ type IcmpTestBase struct {
 	duration     time.Duration
 	clientsToSim int
 	cb           IcmpTestCb
+	amount       uint32
 	cbArg1       interface{}
 	cbArg2       interface{}
 }
@@ -112,6 +114,73 @@ type IcmpQueryCtx struct {
 	timer core.CHTimerObj
 	cnt   uint16
 	match uint8
+}
+
+type IcmpQueryCtxRpc struct {
+	tctx   *core.CThreadCtx
+	timer  core.CHTimerObj
+	cnt    uint16
+	match  uint8
+	amount uint32
+}
+
+func (o *IcmpQueryCtxRpc) OnEvent(a, b interface{}) {
+	if o.cnt == 0 {
+		// First Iteration sending ping.
+		o.tctx.Veth.AppendSimuationRPC([]byte(`{"jsonrpc": "2.0",
+			"method":"icmp_c_start_ping",
+			"params": {"tun": {"vport":1,"tci":[1,2]}, "mac": [0, 0, 1, 0, 0, 0], "amount": 5, "pace": 1, "dst": [16, 0, 0, 1], "pktSize": 70},
+			"id": 3}`))
+	} else {
+		if o.cnt%5 == 0 {
+			// Once in 5 iterations collect the results.
+			o.tctx.Veth.AppendSimuationRPC([]byte(`{"jsonrpc": "2.0",
+			"method":"icmp_c_get_ping_stats",
+			"params": {"tun": {"vport":1,"tci":[1,2]}, "mac": [0, 0, 1, 0, 0, 0]},
+			"id": 3}`))
+		}
+		b := make([]byte, 20)                             // the length of the whole package is 50 bytes, total packet size is 70
+		binary.BigEndian.PutUint64(b, 0xc15c0c15c0be5be5) // magic
+		binary.BigEndian.PutUint64(b[8:], 128)            // fixed timestamp for simulation
+		buf := gopacket.NewSerializeBuffer()
+		opts := gopacket.SerializeOptions{FixLengths: true, ComputeChecksums: true}
+		gopacket.SerializeLayers(buf, opts,
+			&layers.Ethernet{
+				SrcMAC:       net.HardwareAddr{0, 0, 0, 2, 0, 0},
+				DstMAC:       net.HardwareAddr{0, 0, 1, 0, 0, 0},
+				EthernetType: layers.EthernetTypeDot1Q,
+			},
+			&layers.Dot1Q{
+				Priority:       uint8(0),
+				VLANIdentifier: uint16(1),
+				Type:           layers.EthernetTypeDot1Q,
+			},
+			&layers.Dot1Q{
+				Priority:       uint8(0),
+				VLANIdentifier: uint16(2),
+				Type:           layers.EthernetTypeIPv4,
+			},
+			&layers.IPv4{Version: 4,
+				IHL:      5,
+				TTL:      64,
+				Id:       0xcc,
+				SrcIP:    net.IPv4(16, 0, 0, 1),
+				DstIP:    net.IPv4(16, 0, 0, 0),
+				Protocol: layers.IPProtocolICMPv4},
+			&layers.ICMPv4{TypeCode: layers.CreateICMPv4TypeCode(layers.ICMPv4TypeEchoReply, 0), Id: 0x1234, Seq: 0xabcd + o.cnt - 1},
+			gopacket.Payload(b),
+		)
+		m := o.tctx.MPool.Alloc(uint16(256))
+		m.SetVPort(1)
+		m.Append(buf.Bytes())
+		o.tctx.Veth.OnRx(m)
+	}
+	if uint32(o.cnt) < o.amount {
+		timerw := o.tctx.GetTimerCtx()
+		ticks := timerw.DurationToTicks(time.Duration(time.Second))
+		timerw.StartTicks(&o.timer, ticks)
+	}
+	o.cnt++
 }
 
 func (o *IcmpQueryCtx) OnEvent(a, b interface{}) {
@@ -204,6 +273,17 @@ func Cb4(tctx *core.CThreadCtx, test *IcmpTestBase) int {
 	return 0
 }
 
+func rpcQueue(tctx *core.CThreadCtx, test *IcmpTestBase) int {
+	timerw := tctx.GetTimerCtx()
+	ticks := timerw.DurationToTicks(2 * time.Second)
+	var tstctx IcmpQueryCtxRpc
+	tstctx.amount = test.amount
+	tstctx.timer.SetCB(&tstctx, test.cbArg1, test.cbArg2)
+	tstctx.tctx = tctx
+	timerw.StartTicks(&tstctx.timer, ticks)
+	return 0
+}
+
 /*TestPluginIcmp1 - does not answer to default gateway, should repeat query */
 func TestPluginIcmp1(t *testing.T) {
 	a := &IcmpTestBase{
@@ -229,6 +309,20 @@ func TestPluginIcmp2(t *testing.T) {
 		cb:           Cb4,
 	}
 	a.Run(t, false) // the timestamp making a new json due to the timestamp. skip the it
+}
+
+func TestPluginIcmp3(t *testing.T) {
+	a := &IcmpTestBase{
+		testname:     "icmp3",
+		monitor:      true,
+		match:        2,
+		capture:      true,
+		duration:     3 * time.Minute,
+		clientsToSim: 1,
+		amount:       5,
+		cb:           rpcQueue,
+	}
+	a.Run(t, true)
 }
 
 func init() {

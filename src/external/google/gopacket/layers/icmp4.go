@@ -215,6 +215,26 @@ func (o ICMPv4Header) SetTypeCode(code ICMPv4TypeCode) {
 	binary.BigEndian.PutUint16(o[0:2], uint16(code))
 }
 
+//GetSequenceNumber returns the Sequence number of an ICMPv4 Header, use only when you know there is a sequence number.
+func (o ICMPv4Header) GetSequenceNumber() uint16 {
+	return binary.BigEndian.Uint16(o[6:8])
+}
+
+//SetSequenceNumber set the Sequence number on an ICMPv4 Header, use only when you know there is a sequence number.
+func (o ICMPv4Header) SetSequenceNumber(seq uint16) {
+	binary.BigEndian.PutUint16(o[6:8], seq)
+}
+
+//GetTimestamp returns the timestamp we put on the payload of an ICMPv4Header. Use with caution, only when you SetTimestamp on your own.
+func (o ICMPv4Header) GetTimestamp() uint64 {
+	return binary.BigEndian.Uint64(o[16:])
+}
+
+//SetTimestamp sets a timestamp on the payload of an ICMPv4Header. Use with caution.
+func (o ICMPv4Header) SetTimestamp(timestamp uint64) {
+	binary.BigEndian.PutUint64(o[16:], timestamp)
+}
+
 func UpdateInetChecksum(pkt uint16,
 	oldVal uint16,
 	newVal uint16) uint16 {
@@ -245,6 +265,23 @@ func (o ICMPv4Header) UpdateChecksum2(old uint16, new uint16) {
 		new)
 
 	binary.BigEndian.PutUint16(o[2:4], newCs)
+}
+
+//UpdateChecksum is an extension of UpdateChecksum to work with uint64
+func (o ICMPv4Header) UpdateChecksum3(old uint64, new uint64) {
+	var newCs uint16
+	for i := 0; i < 4; i++ {
+		shift := uint8(16 * i)
+		partialOld := old >> shift
+		partialNew := new >> shift
+
+		newCs = UpdateInetChecksum(
+			binary.BigEndian.Uint16(o[2:4]),
+			uint16(partialOld),
+			uint16(partialNew))
+
+		binary.BigEndian.PutUint16(o[2:4], newCs)
+	}
 }
 
 // ICMPv4 is the layer for IPv4 ICMP packet data.

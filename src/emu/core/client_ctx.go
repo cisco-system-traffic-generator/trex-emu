@@ -99,10 +99,10 @@ type CClientCmd struct {
 	Ipv6   Ipv6Key `json:"ipv6"`
 	DgIpv6 Ipv6Key `json:"dg_ipv6"`
 
-	Ipv6ForceDGW   bool   `json:"ipv4_force_dg"`
-	Ipv6ForcedgMac MACKey `json:"ipv4_force_mac"`
-	ForceDGW       bool   `json:"ipv6_force_dg"`
-	Ipv4ForcedgMac MACKey `json:"ipv6_force_mac"`
+	Ipv6ForceDGW   bool   `json:"ipv6_force_dg"`
+	Ipv6ForcedgMac MACKey `json:"ipv6_force_mac"`
+	ForceDGW       bool   `json:"ipv4_force_dg"`
+	Ipv4ForcedgMac MACKey `json:"ipv4_force_mac"`
 
 	Plugins *MapJsonPlugs `json:"plugs"`
 }
@@ -123,10 +123,10 @@ type CClientInfo struct {
 	DgIpv6    Ipv6Key `json:"dg_ipv6"`
 	DhcpIpv6  Ipv6Key `json:"dhcp_ipv6"`
 
-	Ipv6ForceDGW   bool   `json:"ipv4_force_dg"`
-	Ipv6ForcedgMac MACKey `json:"ipv4_force_mac"`
-	ForceDGW       bool   `json:"ipv6_force_dg"`
-	Ipv4ForcedgMac MACKey `json:"ipv6_force_mac"`
+	Ipv6ForceDGW   bool   `json:"ipv6_force_dg"`
+	Ipv6ForcedgMac MACKey `json:"ipv6_force_mac"`
+	ForceDGW       bool   `json:"ipv4_force_dg"`
+	Ipv4ForcedgMac MACKey `json:"ipv4_force_mac"`
 
 	DGW *CClientDg `json:"dgw"`
 
@@ -367,4 +367,15 @@ func (o *CClient) GetInfo() *CClientInfo {
 	info.PlugNames = o.PluginCtx.GetAllPlugNames()
 
 	return &info
+}
+
+func (o *CClient) ResolveIPv4DGMac() (MACKey, bool) {
+	var zero_mac MACKey
+	if o.ForceDGW {
+		return o.Ipv4ForcedgMac, true
+	}
+	if o.DGW == nil || o.DGW.IpdgResolved == false {
+		return zero_mac, false
+	}
+	return o.DGW.IpdgMac, true
 }

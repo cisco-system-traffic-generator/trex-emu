@@ -5,18 +5,19 @@
 
 package icmp
 
-/* basic support for ICMP, ping does not work right now. just answer to
+/* basic support for ICMP
 
 EchoRequest
 TimestampRequest
-
-TBD - need to add support for ping command
+Ping
 
 */
 
 import (
 	"emu/core"
+	"emu/plugins/ping"
 	"encoding/binary"
+	"errors"
 	"external/google/gopacket/layers"
 	"external/osamingo/jsonrpc"
 	"net"
@@ -30,14 +31,15 @@ const (
 )
 
 type IcmpNsStats struct {
-	pktRxIcmpQuery         uint64
-	pktTxIcmpResponse      uint64
-	pktTxIcmpQuery         uint64
-	pktRxIcmpResponse      uint64
-	pktRxErrTooShort       uint64
-	pktRxErrUnhandled      uint64
-	pktRxErrMulticastB     uint64
-	pktRxNoClientUnhandled uint64
+	pktRxIcmpQuery          uint64
+	pktTxIcmpResponse       uint64
+	pktTxIcmpQuery          uint64
+	pktRxIcmpResponse       uint64
+	pktRxErrTooShort        uint64
+	pktRxErrUnhandled       uint64
+	pktRxErrMulticastB      uint64
+	pktRxNoClientUnhandled  uint64
+	pktRxIcmpDstUnreachable uint64
 }
 
 func NewIcmpNsStatsDb(o *IcmpNsStats) *core.CCounterDb {
@@ -98,6 +100,13 @@ func NewIcmpNsStatsDb(o *IcmpNsStats) *core.CCounterDb {
 		Unit:     "ops",
 		DumpZero: false,
 		Info:     core.ScINFO})
+	db.Add(&core.CCounterRec{
+		Counter:  &o.pktRxIcmpDstUnreachable,
+		Name:     "pktRxIcmpDstUnreachable",
+		Help:     "rx destination unreachable",
+		Unit:     "ops",
+		DumpZero: false,
+		Info:     core.ScINFO})
 
 	return db
 }
@@ -106,6 +115,8 @@ func NewIcmpNsStatsDb(o *IcmpNsStats) *core.CCounterDb {
 type PluginIcmpClient struct {
 	core.PluginBase
 	icmpNsPlug *PluginIcmpNs
+	ping       *ping.Ping
+	pingData   *ApiIcmpClientStartPingHandler
 }
 
 var icmpEvents = []string{}
@@ -127,6 +138,7 @@ func (o *PluginIcmpClient) OnEvent(msg string, a, b interface{}) {
 }
 
 func (o *PluginIcmpClient) OnRemove(ctx *core.PluginCtx) {
+	o.StopPing()
 	/* force removing the link to the client */
 	ctx.UnregisterEvents(&o.PluginBase, icmpEvents)
 }
@@ -134,11 +146,107 @@ func (o *PluginIcmpClient) OnRemove(ctx *core.PluginCtx) {
 func (o *PluginIcmpClient) OnCreate() {
 }
 
-func (o *PluginIcmpClient) SendPing(dst uint32) {
-	if !o.Client.Ipv4.IsZero() {
-		//TBD o.Tctx.Veth.SendBuffer(false, o.Client, o.arpPktTemplate)
-		//TBD need to add callback per client for resolve ip,mac
+//StartPing creates a ping object in case there isn't any.
+func (o *PluginIcmpClient) StartPing(data *ApiIcmpClientStartPingHandler) bool {
+	if o.ping != nil {
+		return false
 	}
+	o.pingData = data
+	params := ping.PingParams{Amount: data.Amount, Pace: data.Pace, Timeout: data.Timeout}
+	o.ping = ping.NewPing(params, o.Ns, o)
+	o.ping.StartPinging()
+	return true
+}
+
+func (o *PluginIcmpClient) StopPing() bool {
+	if o.ping == nil {
+		return false
+	}
+	o.ping.OnRemove()
+	return true
+}
+
+func (o *PluginIcmpClient) GetPingCounters(params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
+	if o.ping == nil {
+		return nil, &jsonrpc.Error{
+			Code:    jsonrpc.ErrorCodeInvalidRequest,
+			Message: "No available ping at the moment. Expired or not started.",
+		}
+	}
+	return o.ping.GetPingCounters(params)
+}
+
+//handleEchoReply passes the packet to handle to Ping in case it is has an active Ping.
+func (o *PluginIcmpClient) handleEchoReply(seq, id uint16, payload []byte) bool {
+	stats := o.icmpNsPlug.stats
+	if len(payload) < 16 {
+		stats.pktRxErrTooShort++
+		return false
+	}
+	if o.ping != nil {
+		o.ping.HandleEchoReply(seq, id, payload)
+		return true
+	} else {
+		stats.pktRxErrUnhandled++
+		return false
+	}
+}
+
+//handleDestinationUnreachable passes the packet to handle to Ping in case it is has an active Ping.
+func (o *PluginIcmpClient) handleDestinationUnreachable(id uint16) bool {
+	if o.ping != nil {
+		o.ping.HandleDestinationUnreachable(id)
+		return true
+	}
+	o.icmpNsPlug.stats.pktRxErrUnhandled++
+	return false
+}
+
+// PreparePacketTemplate implements ping.PingClientIF.PreparePacketTemplate by creating an ICMPv4 packet with the id and seq received.
+// It must put the magic as the first 8 bytes of the payload.
+// It returns the offset of the icmpHeader in the packet and the packet.
+func (o *PluginIcmpClient) PreparePingPacketTemplate(id, seq uint16, magic uint64) (icmpHeaderOffset int, pkt []byte) {
+	myIPv4 := o.Client.Ipv4
+	dstIPv4 := o.pingData.Dst
+	pkt = o.Client.GetL2Header(false, uint16(layers.EthernetTypeIPv4))
+	dstMac, ok := o.Client.ResolveIPv4DGMac()
+	if ok {
+		layers.EthernetHeader(pkt).SetDestAddress(dstMac[:])
+	}
+	ipHeaderOffset := len(pkt)
+	ipHeader := core.PacketUtlBuild(
+		&layers.IPv4{Version: 4, IHL: 5,
+			TTL:      ping.DefaultPingTTL,
+			Id:       0xcc,
+			SrcIP:    net.IPv4(myIPv4[0], myIPv4[1], myIPv4[2], myIPv4[3]),
+			DstIP:    net.IPv4(dstIPv4[0], dstIPv4[1], dstIPv4[2], dstIPv4[3]),
+			Protocol: layers.IPProtocolICMPv4})
+	pkt = append(pkt, ipHeader...)
+	icmpHeaderOffset = len(pkt)
+	icmpHeader := core.PacketUtlBuild(
+		&layers.ICMPv4{TypeCode: layers.CreateICMPv4TypeCode(layers.ICMPv4TypeEchoRequest, 0), Id: id, Seq: seq})
+	pkt = append(pkt, icmpHeader...)
+	payload := make([]byte, int(o.pingData.PktSize)-len(pkt))
+	binary.BigEndian.PutUint64(payload, magic) // Put a magic in our packets to verify that they contain valid timestamps
+	pkt = append(pkt, payload...)
+	layers.ICMPv4Header(pkt[icmpHeaderOffset:]).UpdateChecksum()
+	ipv4Header := layers.IPv4Header(pkt[ipHeaderOffset : ipHeaderOffset+20])
+	ipv4Header.SetLength(uint16(len(pkt) - ipHeaderOffset))
+	ipv4Header.UpdateChecksum()
+	return icmpHeaderOffset, pkt
+}
+
+// UpdateTxIcmpQuery implements ping.PingClientIF.UpdateTxIcmpQuery by incrementing the Tx Query every time an echo request is sent.
+func (o *PluginIcmpClient) UpdateTxIcmpQuery(pktSent uint64) {
+	o.icmpNsPlug.stats.pktTxIcmpQuery += pktSent
+
+}
+
+//OnPingRemove implements ping.PingClientIF.OnPingRemove by updating the ping
+//corresponding fields when a ping is finishing or is stopped..
+func (o *PluginIcmpClient) OnPingRemove() {
+	o.ping = nil
+	o.pingData = nil
 }
 
 // PluginIcmpNs icmp information per namespace
@@ -216,6 +324,74 @@ func (o *PluginIcmpNs) HandleEcho(ps *core.ParserPacketState, ts bool) {
 	o.Tctx.Veth.Send(mc)
 }
 
+//HandleEchoReply handles an ICMP Echo-Reply that is received in the ICMP namespace.
+func (o *PluginIcmpNs) HandleEchoReply(ps *core.ParserPacketState) int {
+	p := ps.M.GetData()
+	eth := layers.EthernetHeader(p[0:12])
+
+	var dstMac core.MACKey
+	copy(dstMac[:], eth.GetDestAddress()[:6])
+
+	var ipv4 layers.IPv4
+	err := ipv4.DecodeFromBytes(p[ps.L3:ps.L3+20], o)
+	if err != nil {
+		o.stats.pktRxErrTooShort++
+		return core.PARSER_ERR
+	}
+
+	var icmpv4 layers.ICMPv4
+	err = icmpv4.DecodeFromBytes(p[ps.L4:], o)
+	if err != nil {
+		o.stats.pktRxErrTooShort++
+		return core.PARSER_ERR
+	}
+
+	if icmpClient, err := o.GetIcmpClientByMac(dstMac); err != nil {
+		o.stats.pktRxNoClientUnhandled++
+		return core.PARSER_OK
+	} else {
+		if icmpClient.handleEchoReply(icmpv4.Seq, icmpv4.Id, icmpv4.Payload) {
+			o.stats.pktRxIcmpResponse++
+		}
+		return core.PARSER_OK
+	}
+}
+
+//HandleDestinationUnreachable handles an ICMP Destination Unreacheable that is received in the ICMP namespace.
+func (o *PluginIcmpNs) HandleDestinationUnreachable(ps *core.ParserPacketState) int {
+	p := ps.M.GetData()
+	eth := layers.EthernetHeader(p[0:12])
+
+	var dstMac core.MACKey
+	copy(dstMac[:], eth.GetDestAddress()[:6])
+
+	var ipv4 layers.IPv4
+	err := ipv4.DecodeFromBytes(p[ps.L3:ps.L3+20], o)
+	if err != nil {
+		o.stats.pktRxErrTooShort++
+		return core.PARSER_ERR
+	}
+
+	// We will do a hack here for destination unreachable like packets, they have an ICMP Header nested in an ICMP Header,
+	// here we parse the nested one.
+	var icmpv4 layers.ICMPv4
+	err = icmpv4.DecodeFromBytes(p[ps.L4+28:], o) // This doesn't support Destination Unreachable like packets,
+	if err != nil {
+		o.stats.pktRxErrTooShort++
+		return core.PARSER_ERR
+	}
+
+	if icmpClient, err := o.GetIcmpClientByMac(dstMac); err != nil {
+		o.stats.pktRxNoClientUnhandled++
+		return core.PARSER_OK
+	} else {
+		if icmpClient.handleDestinationUnreachable(icmpv4.Id) {
+			o.stats.pktRxIcmpDstUnreachable++
+		}
+		return core.PARSER_OK
+	}
+}
+
 /* HandleRxIcmpPacket -1 for parser error, 0 valid  */
 func (o *PluginIcmpNs) HandleRxIcmpPacket(ps *core.ParserPacketState) int {
 
@@ -264,12 +440,38 @@ func (o *PluginIcmpNs) HandleRxIcmpPacket(ps *core.ParserPacketState) int {
 		o.HandleEcho(ps, false)
 	case layers.CreateICMPv4TypeCode(layers.ICMPv4TypeTimestampRequest, 0):
 		o.HandleEcho(ps, true)
-
+	case layers.CreateICMPv4TypeCode(layers.ICMPv4TypeEchoReply, 0):
+		res := o.HandleEchoReply(ps)
+		if res == core.PARSER_ERR {
+			return core.PARSER_ERR
+		}
+	case layers.CreateICMPv4TypeCode(layers.ICMPv4TypeDestinationUnreachable, layers.ICMPv4CodeHost):
+		res := o.HandleDestinationUnreachable(ps)
+		if res == core.PARSER_ERR {
+			return core.PARSER_ERR
+		}
 	default:
 		o.stats.pktRxErrUnhandled++
 	}
 
 	return 0
+}
+
+//GetIcmpClientByMac is a method of the ICMP Namespace that returns the Icmp Client given its MAC address.
+func (o *PluginIcmpNs) GetIcmpClientByMac(mackey core.MACKey) (*PluginIcmpClient, error) {
+
+	client := o.Ns.CLookupByMac(&mackey)
+
+	if client == nil {
+		return nil, errors.New("No Client Found with given MAC.")
+	}
+
+	cplg := client.PluginCtx.Get(ICMP_PLUG)
+	if cplg == nil {
+		return nil, errors.New("Plugin not registered in context.")
+	}
+	icmpCPlug := cplg.Ext.(*PluginIcmpClient)
+	return icmpCPlug, nil
 }
 
 // HandleRxIcmpPacket Parser call this function with mbuf from the pool
@@ -314,6 +516,17 @@ type (
 	ApiIcmpNsCntValueParams  struct { /* +tunnel*/
 		Zero bool `json:"zero"` /* dump zero too */
 	}
+	ApiIcmpClientStartPingHandler struct {
+		Amount  uint32       `json:"amount"  validate:"ne=0"`   // Amount of echo requests to send
+		Pace    float32      `json:"pace"    validate:"ne=0"`   // Pace of sending the Echo-Requests in packets per second.
+		Dst     core.Ipv4Key `json:"dst"`                       // The destination IPv4
+		Timeout uint8        `json:"timeout" validate:"ne=0"`   // Timeout from last ping until the stats are deleted.
+		PktSize uint16       `json:"pktSize" validate:"gte=64"` // PktSize in bytes
+	}
+
+	ApiIcmpClientStopPingHandler struct{}
+
+	ApiIcmpClientGetPingStatsHandler struct{}
 
 	ApiIcmpNsCntHandler struct{}
 )
@@ -345,6 +558,54 @@ func getClient(ctx interface{}, params *fastjson.RawMessage) (*PluginIcmpClient,
 	icmpClient := plug.Ext.(*PluginIcmpClient)
 
 	return icmpClient, nil
+}
+
+/* ServeJSONRPC for ApiIcmpClientStartPingHandler starts a Ping instance.
+Returns True if it sucessfully started the ping, else False. */
+func (h ApiIcmpClientStartPingHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
+
+	tctx := ctx.(*core.CThreadCtx)
+
+	icmpClient, err := getClient(ctx, params)
+	if err != nil {
+		return nil, err
+	}
+
+	p := ApiIcmpClientStartPingHandler{Amount: ping.DefaultPingAmount, Pace: ping.DefaultPingPace, Dst: icmpClient.Client.DgIpv4,
+		Timeout: ping.DefaultPingTimeout, PktSize: ping.DefaultPingPktSize}
+
+	err1 := tctx.UnmarshalValidate(*params, &p)
+	if err1 != nil {
+		return nil, &jsonrpc.Error{
+			Code:    jsonrpc.ErrorCodeInvalidRequest,
+			Message: err1.Error(),
+		}
+	}
+	return icmpClient.StartPing(&p), nil
+}
+
+/* ServeJSONRPC for ApiIcmpClientStopPingHandler stops an ongoing ping.
+Returns True if it sucessfully stopped the ping, else False. */
+func (h ApiIcmpClientStopPingHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
+
+	icmpClient, err := getClient(ctx, params)
+	if err != nil {
+		return nil, err
+	}
+
+	return icmpClient.StopPing(), nil
+}
+
+/* ServeJSONRPC for ApiIcmpClientGetPingStatsHandler returns the statistics of an ongoing ping. If there is no ongoing ping
+it will return an error */
+func (h ApiIcmpClientGetPingStatsHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
+
+	icmpClient, err := getClient(ctx, params)
+	if err != nil {
+		return nil, err
+	}
+
+	return icmpClient.GetPingCounters(params)
 }
 
 func (h ApiIcmpNsCntHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
@@ -389,6 +650,9 @@ func init() {
 	*/
 
 	core.RegisterCB("icmp_ns_cnt", ApiIcmpNsCntHandler{}, true)
+	core.RegisterCB("icmp_c_start_ping", ApiIcmpClientStartPingHandler{}, true)
+	core.RegisterCB("icmp_c_stop_ping", ApiIcmpClientStopPingHandler{}, true)
+	core.RegisterCB("icmp_c_get_ping_stats", ApiIcmpClientGetPingStatsHandler{}, true)
 
 	/* register callback for rx side*/
 	core.ParserRegister("icmp", HandleRxIcmpPacket)

@@ -40,6 +40,14 @@ func (o EthernetHeader) SetDestAddress(d []byte) {
 	copy(o[0:6], d[:])
 }
 
+func (o EthernetHeader) GetSrcAddress() []byte {
+	return o[6:12]
+}
+
+func (o EthernetHeader) GetDestAddress() []byte {
+	return o[0:6]
+}
+
 func (o EthernetHeader) SetBroadcast() {
 	copy(o[0:6], []byte{0xff, 0xff, 0xff, 0xff, 0xff, 0xff})
 }
