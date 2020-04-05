@@ -52,7 +52,8 @@ const (
 type MldNsInit struct {
 	Mtu           uint16         `json:"mtu" validate:"required,gte=256,lte=9000"`
 	DesignatorMac core.MACKey    `json:"dmac"`
-	Vec           []core.Ipv6Key `json:"vec"` // add mc
+	Vec           []core.Ipv6Key `json:"vec"`     // add mc
+	Version       uint16         `json:"version"` // the init version, 1 or 2 (default)
 }
 
 var IN6_IS_ADDR_UNSPECIFIED = []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
@@ -325,7 +326,7 @@ func NewMldNsStatsDb(o *mldNsStats) *core.CCounterDb {
 	db.Add(&core.CCounterRec{
 		Counter:  &o.pktNoDesignatorClient,
 		Name:     "pktNoDesignatorClient",
-		Help:     "no designator client with this MAC addr ",
+		Help:     "No designator client was defined. MLD will not work without it",
 		Unit:     "pkts",
 		DumpZero: false,
 		Info:     core.ScERROR})
@@ -571,6 +572,9 @@ func (o *mldNsCtx) Init(base *PluginIpv6Ns, ctx *core.CThreadCtx, initJson []byt
 		}
 		if len(init.Vec) > 0 {
 			o.addMc(init.Vec)
+		}
+		if init.Version == 1 {
+			o.mldVersion = MLD_VERSION_1
 		}
 	}
 }
