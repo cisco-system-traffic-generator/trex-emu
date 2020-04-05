@@ -18,8 +18,8 @@ inijson :
 		Mtu           uint16         `json:"mtu" validate:"required,gte=256,lte=9000"`
 		DesignatorMac core.MACKey    `json:"dmac"`  // mac addrees of the client that represent the network
 		Vec           []core.Ipv4Key `json:"vec"` // add mc
+		Version       uint16 		 `json:"version"` // the init version
 	}
-
 */
 
 import (
@@ -114,7 +114,8 @@ func calcTimerInfo(totalrecords uint32,
 type IgmpNsInit struct {
 	Mtu           uint16         `json:"mtu" validate:"required,gte=256,lte=9000"`
 	DesignatorMac core.MACKey    `json:"dmac"`
-	Vec           []core.Ipv4Key `json:"vec"` // add mc
+	Vec           []core.Ipv4Key `json:"vec"`     // add mc
+	Version       uint16         `json:"version"` // the init version of IGMP, it will learn from Query
 }
 
 type IgmpNsStats struct {
@@ -327,7 +328,7 @@ func NewIgmpNsStatsDb(o *IgmpNsStats) *core.CCounterDb {
 	db.Add(&core.CCounterRec{
 		Counter:  &o.pktNoDesignatorClient,
 		Name:     "pktNoDesignatorClient",
-		Help:     "no designator client with this MAC addr ",
+		Help:     "No designator client with this MAC addr, igmp won't work with one clients assigned ",
 		Unit:     "pkts",
 		DumpZero: false,
 		Info:     core.ScERROR})
@@ -335,7 +336,7 @@ func NewIgmpNsStatsDb(o *IgmpNsStats) *core.CCounterDb {
 	db.Add(&core.CCounterRec{
 		Counter:  &o.pktNoDesignatorClientIPv4,
 		Name:     "pktNoDesignatorClientIPv4",
-		Help:     "no designator client with this valid IPv4 addr ",
+		Help:     "The designator client has no valid IPv4 addr ",
 		Unit:     "pkts",
 		DumpZero: false,
 		Info:     core.ScERROR})
@@ -530,6 +531,9 @@ func NewIgmpNs(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
 		}
 		if len(init.Vec) > 0 {
 			o.addMc(init.Vec)
+		}
+		if init.Version == 2 {
+			o.igmpVersion = IGMP_VERSION_2
 		}
 	}
 

@@ -366,14 +366,14 @@
 							"zero": false
 						},
 						{
-							"help": "no designator client with this MAC addr ",
+							"help": "No designator client with this MAC addr, igmp won't work with one clients assigned ",
 							"info": 20,
 							"name": "pktNoDesignatorClient",
 							"unit": "pkts",
 							"zero": false
 						},
 						{
-							"help": "no designator client with this valid IPv4 addr ",
+							"help": "The designator client has no valid IPv4 addr ",
 							"info": 20,
 							"name": "pktNoDesignatorClientIPv4",
 							"unit": "pkts",
