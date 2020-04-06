@@ -19,9 +19,12 @@ RFC4941: random local ipv6 using md5
 
 import (
 	"emu/core"
+	"emu/plugins/ping"
 	"encoding/binary"
+	"errors"
 	"external/google/gopacket/layers"
 	"external/osamingo/jsonrpc"
+	"net"
 
 	"github.com/intel-go/fastjson"
 )
@@ -31,14 +34,15 @@ const (
 )
 
 type pingNsStats struct {
-	pktRxIcmpQuery         uint64
-	pktTxIcmpResponse      uint64
-	pktTxIcmpQuery         uint64
-	pktRxIcmpResponse      uint64
-	pktRxErrTooShort       uint64
-	pktRxErrUnhandled      uint64
-	pktRxErrMulticastB     uint64
-	pktRxNoClientUnhandled uint64
+	pktRxIcmpQuery          uint64
+	pktTxIcmpResponse       uint64
+	pktTxIcmpQuery          uint64
+	pktRxIcmpResponse       uint64
+	pktRxErrTooShort        uint64
+	pktRxErrUnhandled       uint64
+	pktRxErrMulticastB      uint64
+	pktRxNoClientUnhandled  uint64
+	pktRxIcmpDstUnreachable uint64
 }
 
 func NewpingNsStatsDb(o *pingNsStats) *core.CCounterDb {
@@ -99,6 +103,13 @@ func NewpingNsStatsDb(o *pingNsStats) *core.CCounterDb {
 		Unit:     "ops",
 		DumpZero: false,
 		Info:     core.ScINFO})
+	db.Add(&core.CCounterRec{
+		Counter:  &o.pktRxIcmpDstUnreachable,
+		Name:     "pktRxIcmpDstUnreachable",
+		Help:     "rx destination unreachable",
+		Unit:     "ops",
+		DumpZero: false,
+		Info:     core.ScINFO})
 
 	return db
 }
@@ -108,6 +119,8 @@ type PluginIpv6Client struct {
 	core.PluginBase
 	ipv6NsPlug *PluginIpv6Ns
 	nd         NdClientCtx
+	pingData   *ApiIpv6StartPingHandler
+	ping       *ping.Ping
 }
 
 var icmpEvents = []string{core.MSG_UPDATE_IPV6_ADDR,
@@ -140,11 +153,116 @@ func (o *PluginIpv6Client) OnRemove(ctx *core.PluginCtx) {
 func (o *PluginIpv6Client) OnCreate() {
 }
 
-func (o *PluginIpv6Client) SendPing(dst uint32) {
-	if !o.Client.Ipv4.IsZero() {
-		//TBD o.Tctx.Veth.SendBuffer(false, o.Client, o.arpPktTemplate)
-		//TBD need to add callback per client for resolve ip,mac
+//StartPing creates a ping object in case there isn't any.
+func (o *PluginIpv6Client) StartPing(data *ApiIpv6StartPingHandler) bool {
+	if o.ping != nil {
+		return false
 	}
+	o.pingData = data
+	params := ping.PingParams{Amount: data.Amount, Pace: data.Pace, Timeout: data.Timeout}
+	o.ping = ping.NewPing(params, o.Ns, o)
+	o.ping.StartPinging()
+	return true
+}
+
+func (o *PluginIpv6Client) StopPing() bool {
+	if o.ping == nil {
+		return false
+	}
+	o.ping.OnRemove()
+	return true
+}
+
+func (o *PluginIpv6Client) GetPingCounters(params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
+	if o.ping == nil {
+		return nil, &jsonrpc.Error{
+			Code:    jsonrpc.ErrorCodeInvalidRequest,
+			Message: "No available ping at the moment. Expired or not started.",
+		}
+	}
+	return o.ping.GetPingCounters(params)
+}
+
+//handleEchoReply passes the packet to handle to Ping in case it is has an active Ping.
+func (o *PluginIpv6Client) handleEchoReply(seq, id uint16, payload []byte) bool {
+	stats := o.ipv6NsPlug.stats
+	if len(payload) < 16 {
+		stats.pktRxErrTooShort++
+		return false
+	}
+	if o.ping != nil {
+		o.ping.HandleEchoReply(seq, id, payload)
+		return true
+	} else {
+		stats.pktRxErrUnhandled++
+		return false
+	}
+}
+
+//handleDestinationUnreachable passes the packet to handle to Ping in case it is has an active Ping.
+func (o *PluginIpv6Client) handleDestinationUnreachable(id uint16) bool {
+	if o.ping != nil {
+		o.ping.HandleDestinationUnreachable(id)
+		return true
+	}
+	o.ipv6NsPlug.stats.pktRxErrUnhandled++
+	return false
+}
+
+// PreparePacketTemplate implements ping.PingClientIF.PreparePacketTemplate by creating an ICMPv6 packet with the id and seq received.
+// It must put the magic as the first 8 bytes of the payload.
+// It returns the offset of the icmpHeader in the packet and the packet.
+func (o *PluginIpv6Client) PreparePingPacketTemplate(id, seq uint16, magic uint64) (icmpHeaderOffset int, pkt []byte) {
+	srcIPv6 := o.pingData.Src
+	dstIPv6 := o.pingData.Dst
+	pkt = o.Client.GetL2Header(false, uint16(layers.EthernetTypeIPv6))
+	dstMac, ok := o.Client.ResolveIPv6DGMac()
+	if ok {
+		layers.EthernetHeader(pkt).SetDestAddress(dstMac[:])
+	}
+	ipHeaderOffset := len(pkt)
+	ipHeader := core.PacketUtlBuild(
+		&layers.IPv6{
+			Version:      6,
+			TrafficClass: 0,
+			FlowLabel:    0,
+			Length:       0,
+			NextHeader:   layers.IPProtocolICMPv6,
+			HopLimit:     ping.DefaultPingTTL,
+			SrcIP: net.IP{srcIPv6[0], srcIPv6[1], srcIPv6[2], srcIPv6[3], srcIPv6[4], srcIPv6[5], srcIPv6[6], srcIPv6[7],
+				srcIPv6[8], srcIPv6[9], srcIPv6[10], srcIPv6[11], srcIPv6[12], srcIPv6[13], srcIPv6[14], srcIPv6[15]},
+			DstIP: net.IP{dstIPv6[0], dstIPv6[1], dstIPv6[2], dstIPv6[3], dstIPv6[4], dstIPv6[5], dstIPv6[6], dstIPv6[7],
+				dstIPv6[8], dstIPv6[9], dstIPv6[10], dstIPv6[11], dstIPv6[12], dstIPv6[13], dstIPv6[14], dstIPv6[15]},
+		})
+	pkt = append(pkt, ipHeader...)
+	icmpHeaderOffset = len(pkt)
+	icmpHeader := core.PacketUtlBuild(
+		&layers.ICMPv6{TypeCode: layers.CreateICMPv6TypeCode(layers.ICMPv6TypeEchoRequest, 0)})
+	payload := make([]byte, int(o.pingData.PayloadSize+4))
+	binary.BigEndian.PutUint16(payload[0:2], id)
+	binary.BigEndian.PutUint16(payload[2:4], seq)
+	// Put a magic in our packets to verify that they contain valid timestamps. The difference with ICMPv4 is that in ICMPv6, id and seq
+	// are part of the payload, hence we start from 4.
+	binary.BigEndian.PutUint64(payload[4:], magic)
+	icmpHeader = append(icmpHeader, payload...)
+	pkt = append(pkt, icmpHeader...)
+	ipv6Header := layers.IPv6Header(pkt[ipHeaderOffset : ipHeaderOffset+40])
+	ipv6Header.SetPyloadLength(uint16(len(pkt) - icmpHeaderOffset))
+	ipv6Header.FixIcmpL4Checksum(pkt[icmpHeaderOffset:], 0)
+	return icmpHeaderOffset, pkt
+}
+
+// UpdateTxIcmpQuery implements ping.PingClientIF.UpdateTxIcmpQuery by incrementing the Tx Query every time an echo request is sent.
+func (o *PluginIpv6Client) UpdateTxIcmpQuery(pktSent uint64) {
+	o.ipv6NsPlug.stats.pktTxIcmpQuery += pktSent
+
+}
+
+// OnPingRemove implements ping.PingClientIF.OnPingRemove by updating the ping
+// corresponding fields when a ping is finishing or is stopped..
+func (o *PluginIpv6Client) OnPingRemove() {
+	o.ping = nil
+	o.pingData = nil
 }
 
 // PluginIpv6Ns information per namespace
@@ -229,6 +347,64 @@ func (o *PluginIpv6Ns) HandleEcho(ps *core.ParserPacketState, ts bool) {
 	o.Tctx.Veth.Send(mc)
 }
 
+//HandleEchoReply handles an ICMP Echo-Reply that is received in the ICMP namespace.
+func (o *PluginIpv6Ns) HandleEchoReply(ps *core.ParserPacketState) int {
+	p := ps.M.GetData()
+	eth := layers.EthernetHeader(p[0:12])
+
+	var dstMac core.MACKey
+	copy(dstMac[:], eth.GetDestAddress()[:6])
+
+	var icmpv6 layers.ICMPv6
+	err := icmpv6.DecodeFromBytes(p[ps.L4:], o)
+	if err != nil {
+		o.stats.pktRxErrTooShort++
+		return core.PARSER_ERR
+	}
+	id := binary.BigEndian.Uint16(icmpv6.Payload[0:2])
+	seq := binary.BigEndian.Uint16(icmpv6.Payload[2:4])
+	payload := icmpv6.Payload[4:]
+
+	if c, err := o.GetIcmpClientByMac(dstMac); err != nil {
+		o.stats.pktRxNoClientUnhandled++
+		return core.PARSER_OK
+	} else {
+		if c.handleEchoReply(seq, id, payload) {
+			o.stats.pktRxIcmpResponse++
+		}
+		return core.PARSER_OK
+	}
+}
+
+//HandleDestinationUnreachable handles an ICMP Destination Unreacheable that is received in the ICMP namespace.
+func (o *PluginIpv6Ns) HandleDestinationUnreachable(ps *core.ParserPacketState) int {
+	p := ps.M.GetData()
+	eth := layers.EthernetHeader(p[0:12])
+
+	var dstMac core.MACKey
+	copy(dstMac[:], eth.GetDestAddress()[:6])
+
+	// We will do a hack here for destination unreachable like packets, they have an ICMP Header nested in an ICMP Header,
+	// here we parse the nested one.
+	var icmpv6 layers.ICMPv6
+	err := icmpv6.DecodeFromBytes(p[ps.L4+48:], o) // This doesn't support Destination Unreachable like packets,
+	if err != nil {
+		o.stats.pktRxErrTooShort++
+		return core.PARSER_ERR
+	}
+	id := binary.BigEndian.Uint16(icmpv6.Payload[0:2])
+
+	if icmpClient, err := o.GetIcmpClientByMac(dstMac); err != nil {
+		o.stats.pktRxNoClientUnhandled++
+		return core.PARSER_OK
+	} else {
+		if icmpClient.handleDestinationUnreachable(id) {
+			o.stats.pktRxIcmpDstUnreachable++
+		}
+		return core.PARSER_OK
+	}
+}
+
 /* HandleRxIcmpPacket -1 for parser error, 0 valid  */
 func (o *PluginIpv6Ns) HandleRxIpv6Packet(ps *core.ParserPacketState) int {
 
@@ -282,6 +458,22 @@ func (o *PluginIpv6Ns) HandleRxIpv6Packet(ps *core.ParserPacketState) int {
 		layers.CreateICMPv6TypeCode(layers.ICMPv6TypeNeighborAdvertisement, 0),
 		layers.CreateICMPv6TypeCode(layers.ICMPv6TypeRedirect, 0):
 		return o.nd.HandleRxIpv6NdPacket(ps, icmpv6.TypeCode) // MLD, MLDv2
+	case layers.CreateICMPv6TypeCode(layers.ICMPv6TypeEchoReply, 0):
+		res := o.HandleEchoReply(ps)
+		if res == core.PARSER_ERR {
+			return core.PARSER_ERR
+		}
+	case layers.CreateICMPv6TypeCode(layers.ICMPv6TypeDestinationUnreachable, layers.ICMPv6CodeNoRouteToDst),
+		layers.CreateICMPv6TypeCode(layers.ICMPv6TypeDestinationUnreachable, layers.ICMPv6CodeAdminProhibited),
+		layers.CreateICMPv6TypeCode(layers.ICMPv6TypeDestinationUnreachable, layers.ICMPv6CodeBeyondScopeOfSrc),
+		layers.CreateICMPv6TypeCode(layers.ICMPv6TypeDestinationUnreachable, layers.ICMPv6CodeAddressUnreachable),
+		layers.CreateICMPv6TypeCode(layers.ICMPv6TypeDestinationUnreachable, layers.ICMPv6CodePortUnreachable),
+		layers.CreateICMPv6TypeCode(layers.ICMPv6TypeDestinationUnreachable, layers.ICMPv6CodeSrcAddressFailedPolicy),
+		layers.CreateICMPv6TypeCode(layers.ICMPv6TypeDestinationUnreachable, layers.ICMPv6CodeRejectRouteToDst):
+		res := o.HandleDestinationUnreachable(ps)
+		if res == core.PARSER_ERR {
+			return core.PARSER_ERR
+		}
 
 	default:
 		o.stats.pktRxErrUnhandled++
@@ -305,6 +497,23 @@ func HandleRxIcmpv6Packet(ps *core.ParserPacketState) int {
 	}
 	icmpPlug := nsplg.Ext.(*PluginIpv6Ns)
 	return icmpPlug.HandleRxIpv6Packet(ps)
+}
+
+//GetIcmpClientByMac is a method of the ICMP Namespace that returns the Icmp Client given its MAC address.
+func (o *PluginIpv6Ns) GetIcmpClientByMac(mackey core.MACKey) (*PluginIpv6Client, error) {
+
+	client := o.Ns.CLookupByMac(&mackey)
+
+	if client == nil {
+		return nil, errors.New("No Client Found with given MAC.")
+	}
+
+	cplg := client.PluginCtx.Get(IPV6_PLUG)
+	if cplg == nil {
+		return nil, errors.New("Plugin not registered in context.")
+	}
+	ipv6CPlug := cplg.Ext.(*PluginIpv6Client)
+	return ipv6CPlug, nil
 }
 
 // Tx side client get an event and decide to act !
@@ -342,8 +551,8 @@ type (
 		Count uint16 `json:"count" validate:"required,gte=0,lte=255"`
 	}
 	ApiMldNsIterResult struct {
-		Empty   bool           `json:"empty"`
-		Stopped bool           `json:"stopped"`
+		Empty   bool               `json:"empty"`
+		Stopped bool               `json:"stopped"`
 		Vec     []MldEntryDataJson `json:"data"`
 	}
 
@@ -371,6 +580,19 @@ type (
 		Stopped bool             `json:"stopped"`
 		Vec     []Ipv6NsCacheRec `json:"data"`
 	}
+
+	ApiIpv6StartPingHandler struct {
+		Amount      uint32       `json:"amount"  validate:"ne=0"`       // Amount of echo requests to send
+		Pace        float32      `json:"pace"    validate:"ne=0"`       // Pace of sending the Echo-Requests in packets per second.
+		Dst         core.Ipv6Key `json:"dst"`                           // The destination IPv6
+		Src         core.Ipv6Key `json:"src"`                           // The source IPv6
+		Timeout     uint8        `json:"timeout" validate:"ne=0"`       // Timeout from last ping until the stats are deleted.
+		PayloadSize uint16       `json:"payloadSize" validate:"gte=16"` // Payload size bytes
+	}
+
+	ApiIpv6StopPingHandler struct{}
+
+	ApiIpv6GetPingStatsHandler struct{}
 )
 
 func getNsPlugin(ctx interface{}, params *fastjson.RawMessage) (*PluginIpv6Ns, error) {
@@ -621,6 +843,82 @@ func (h ApiNdNsIterHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMe
 	return &res, nil
 }
 
+/* ServeJSONRPC for ApiIpv6StartPingHandler starts a Ping instance.
+Returns True if it sucessfully started the ping, else False. */
+func (h ApiIpv6StartPingHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
+
+	tctx := ctx.(*core.CThreadCtx)
+
+	c, err := getClient(ctx, params)
+	if err != nil {
+		return nil, err
+	}
+
+	dg, resolved := c.Client.ResolveDGIPv6()
+
+	p := ApiIpv6StartPingHandler{Amount: ping.DefaultPingAmount, Pace: ping.DefaultPingPace, Dst: dg,
+		Src: c.Client.ResolveSourceIPv6(), Timeout: ping.DefaultPingTimeout, PayloadSize: ping.DefaultPingPayloadSize}
+
+	err1 := tctx.UnmarshalValidate(*params, &p)
+	if err1 != nil {
+		return nil, &jsonrpc.Error{
+			Code:    jsonrpc.ErrorCodeInvalidRequest,
+			Message: err1.Error(),
+		}
+	}
+	if !resolved && dg == p.Dst {
+		return resolved, &jsonrpc.Error{
+			Code:    jsonrpc.ErrorCodeInvalidRequest,
+			Message: "Destination address not provided and default gateway not resolved.",
+		}
+	}
+	ok := c.Client.OwnsIPv6(p.Src)
+	if !ok {
+		return ok, &jsonrpc.Error{
+			Code:    jsonrpc.ErrorCodeInvalidRequest,
+			Message: "Can't use this source IPv6 for this client.",
+		}
+	}
+	ok = c.StartPing(&p)
+	if !ok {
+		return ok, &jsonrpc.Error{
+			Code:    jsonrpc.ErrorCodeInvalidRequest,
+			Message: "Client is already pinging or in timeout.",
+		}
+	}
+	return ok, nil
+}
+
+/* ServeJSONRPC for ApiIpv6StopPingHandler stops an ongoing ping.
+Returns True if it sucessfully stopped the ping, else False. */
+func (h ApiIpv6StopPingHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
+
+	c, err := getClient(ctx, params)
+	if err != nil {
+		return nil, err
+	}
+	ok := c.StopPing()
+	if !ok {
+		return ok, &jsonrpc.Error{
+			Code:    jsonrpc.ErrorCodeInvalidRequest,
+			Message: "There is no active pinging.",
+		}
+	}
+	return ok, nil
+}
+
+/* ServeJSONRPC for ApiIpv6GetPingStatsHandler returns the statistics of an ongoing ping. If there is no ongoing ping
+it will return an error */
+func (h ApiIpv6GetPingStatsHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
+
+	c, err := getClient(ctx, params)
+	if err != nil {
+		return nil, err
+	}
+
+	return c.GetPingCounters(params)
+}
+
 func init() {
 
 	/* register of plugins callbacks for ns,c level  */
@@ -644,13 +942,16 @@ func init() {
 	  aa - misc
 	*/
 
-	core.RegisterCB("ipv6_ns_cnt", ApiIpv6NsCntHandler{}, false)          // get counter mld/icmp/nd
-	core.RegisterCB("ipv6_mld_ns_add", ApiMldNsAddHandler{}, false)       // mld add
-	core.RegisterCB("ipv6_mld_ns_remove", ApiMldNsRemoveHandler{}, false) // mld remove
-	core.RegisterCB("ipv6_mld_ns_iter", ApiMldNsIterHandler{}, false)     // mld iterator
-	core.RegisterCB("ipv6_mld_ns_get_cfg", ApiMldGetHandler{}, false)     // mld Get
-	core.RegisterCB("ipv6_mld_ns_set_cfg", ApiMldSetHandler{}, false)     // mld Set
-	core.RegisterCB("ipv6_nd_ns_iter", ApiNdNsIterHandler{}, false)       // nd ipv6 cache table iterator
+	core.RegisterCB("ipv6_ns_cnt", ApiIpv6NsCntHandler{}, false)               // get counter mld/icmp/nd
+	core.RegisterCB("ipv6_mld_ns_add", ApiMldNsAddHandler{}, false)            // mld add
+	core.RegisterCB("ipv6_mld_ns_remove", ApiMldNsRemoveHandler{}, false)      // mld remove
+	core.RegisterCB("ipv6_mld_ns_iter", ApiMldNsIterHandler{}, false)          // mld iterator
+	core.RegisterCB("ipv6_mld_ns_get_cfg", ApiMldGetHandler{}, false)          // mld Get
+	core.RegisterCB("ipv6_mld_ns_set_cfg", ApiMldSetHandler{}, false)          // mld Set
+	core.RegisterCB("ipv6_nd_ns_iter", ApiNdNsIterHandler{}, false)            // nd ipv6 cache table iterator
+	core.RegisterCB("ipv6_start_ping", ApiIpv6StartPingHandler{}, true)        // start ping
+	core.RegisterCB("ipv6_stop_ping", ApiIpv6StopPingHandler{}, true)          // stop ping
+	core.RegisterCB("ipv6_get_ping_stats", ApiIpv6GetPingStatsHandler{}, true) // get ping stats
 
 	/* register callback for rx side*/
 	core.ParserRegister("icmpv6", HandleRxIcmpv6Packet) // support mld/icmp/nd

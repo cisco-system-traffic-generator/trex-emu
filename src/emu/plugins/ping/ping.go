@@ -34,11 +34,11 @@ type PingClientIF interface {
 }
 
 const (
-	DefaultPingAmount  = 5   // Default amount of Echo - Requests
-	DefaultPingPace    = 1.0 // Default pace of packets per second to send.
-	DefaultPingTimeout = 5   // Default timeout from when the last packet was sent till the stats are deleted
-	DefaultPingPktSize = 64  // Default packet size for Echo-Requests.
-	DefaultPingTTL     = 64  // Default TTL on an Echo-Request packet.
+	DefaultPingAmount      = 5   // Default amount of Echo - Requests
+	DefaultPingPace        = 1.0 // Default pace of packets per second to send.
+	DefaultPingTimeout     = 5   // Default timeout from when the last packet was sent till the stats are deleted
+	DefaultPingPayloadSize = 16  // Default payload size for Echo-Requests.
+	DefaultPingTTL         = 64  // Default TTL on an Echo-Request packet.
 )
 
 // PingParams contains a part of the RPC params that are independent of the ICMP version.

@@ -363,7 +363,7 @@ func (o *CClient) GetInfo() *CClientInfo {
 
 	info.Ipv6Router = o.Ipv6Router
 	info.Ipv6DGW = o.Ipv6DGW
-	
+
 	info.PlugNames = o.PluginCtx.GetAllPlugNames()
 
 	return &info
@@ -378,4 +378,55 @@ func (o *CClient) ResolveIPv4DGMac() (MACKey, bool) {
 		return zero_mac, false
 	}
 	return o.DGW.IpdgMac, true
+}
+
+func (o *CClient) ResolveIPv6DGMac() (MACKey, bool) {
+	var zero_mac MACKey
+	if o.Ipv6ForceDGW {
+		return o.Ipv6ForcedgMac, true
+	}
+	if o.Ipv6DGW != nil && o.Ipv6DGW.IpdgResolved {
+		return o.Ipv6DGW.IpdgMac, true
+	}
+	if o.Ipv6Router != nil {
+		return o.Ipv6Router.DgMac, true
+	}
+	return zero_mac, false
+}
+
+func (o *CClient) ResolveSourceIPv6() Ipv6Key {
+	if !o.Dhcpv6.IsZero() {
+		return o.Dhcpv6
+	}
+	if !o.Ipv6.IsZero() {
+		return o.Ipv6
+	}
+	var ipv6Slaac Ipv6Key
+	if o.GetIpv6Slaac(&ipv6Slaac) {
+		return ipv6Slaac
+	}
+	panic("No IPv6 found for this client!")
+}
+
+func (o *CClient) ResolveDGIPv6() (ipv6 Ipv6Key, resolved bool) {
+	var zeroIpv6 Ipv6Key
+	ipv6, resolved = zeroIpv6, false
+	if !o.DgIpv6.IsZero() {
+		ipv6, resolved = o.DgIpv6, true
+	}
+	if o.Ipv6Router != nil {
+		ipv6, resolved = o.Ipv6Router.IPv6, true
+	}
+	return ipv6, resolved
+}
+
+func (o *CClient) OwnsIPv6(ipv6 Ipv6Key) bool {
+	var ipv6Slaac Ipv6Key
+	o.GetIpv6Slaac(&ipv6Slaac)
+	var ipv6Local Ipv6Key
+	o.GetIpv6LocalLink(&ipv6Local)
+	if (ipv6 == o.Dhcpv6) || (ipv6 == o.Ipv6) || (ipv6 == ipv6Slaac) || (ipv6 == ipv6Local) {
+		return true
+	}
+	return false
 }

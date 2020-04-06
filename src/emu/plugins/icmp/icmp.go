@@ -226,7 +226,7 @@ func (o *PluginIcmpClient) PreparePingPacketTemplate(id, seq uint16, magic uint6
 	icmpHeader := core.PacketUtlBuild(
 		&layers.ICMPv4{TypeCode: layers.CreateICMPv4TypeCode(layers.ICMPv4TypeEchoRequest, 0), Id: id, Seq: seq})
 	pkt = append(pkt, icmpHeader...)
-	payload := make([]byte, int(o.pingData.PktSize)-len(pkt))
+	payload := make([]byte, int(o.pingData.PayloadSize))
 	binary.BigEndian.PutUint64(payload, magic) // Put a magic in our packets to verify that they contain valid timestamps
 	pkt = append(pkt, payload...)
 	layers.ICMPv4Header(pkt[icmpHeaderOffset:]).UpdateChecksum()
@@ -445,7 +445,11 @@ func (o *PluginIcmpNs) HandleRxIcmpPacket(ps *core.ParserPacketState) int {
 		if res == core.PARSER_ERR {
 			return core.PARSER_ERR
 		}
-	case layers.CreateICMPv4TypeCode(layers.ICMPv4TypeDestinationUnreachable, layers.ICMPv4CodeHost):
+	case layers.CreateICMPv4TypeCode(layers.ICMPv4TypeDestinationUnreachable, layers.ICMPv4CodeNet),
+		layers.CreateICMPv4TypeCode(layers.ICMPv4TypeDestinationUnreachable, layers.ICMPv4CodeHost),
+		layers.CreateICMPv4TypeCode(layers.ICMPv4TypeDestinationUnreachable, layers.ICMPv4CodeProtocol),
+		layers.CreateICMPv4TypeCode(layers.ICMPv4TypeDestinationUnreachable, layers.ICMPv4CodePort),
+		layers.CreateICMPv4TypeCode(layers.ICMPv4TypeDestinationUnreachable, layers.ICMPv4CodeFragmentationNeeded):
 		res := o.HandleDestinationUnreachable(ps)
 		if res == core.PARSER_ERR {
 			return core.PARSER_ERR
@@ -517,11 +521,11 @@ type (
 		Zero bool `json:"zero"` /* dump zero too */
 	}
 	ApiIcmpClientStartPingHandler struct {
-		Amount  uint32       `json:"amount"  validate:"ne=0"`   // Amount of echo requests to send
-		Pace    float32      `json:"pace"    validate:"ne=0"`   // Pace of sending the Echo-Requests in packets per second.
-		Dst     core.Ipv4Key `json:"dst"`                       // The destination IPv4
-		Timeout uint8        `json:"timeout" validate:"ne=0"`   // Timeout from last ping until the stats are deleted.
-		PktSize uint16       `json:"pktSize" validate:"gte=64"` // PktSize in bytes
+		Amount      uint32       `json:"amount"  validate:"ne=0"`       // Amount of echo requests to send
+		Pace        float32      `json:"pace"    validate:"ne=0"`       // Pace of sending the Echo-Requests in packets per second.
+		Dst         core.Ipv4Key `json:"dst"`                           // The destination IPv4
+		Timeout     uint8        `json:"timeout" validate:"ne=0"`       // Timeout from last ping until the stats are deleted.
+		PayloadSize uint16       `json:"payloadSize" validate:"gte=16"` // Payload size in bytes
 	}
 
 	ApiIcmpClientStopPingHandler struct{}
@@ -572,7 +576,7 @@ func (h ApiIcmpClientStartPingHandler) ServeJSONRPC(ctx interface{}, params *fas
 	}
 
 	p := ApiIcmpClientStartPingHandler{Amount: ping.DefaultPingAmount, Pace: ping.DefaultPingPace, Dst: icmpClient.Client.DgIpv4,
-		Timeout: ping.DefaultPingTimeout, PktSize: ping.DefaultPingPktSize}
+		Timeout: ping.DefaultPingTimeout, PayloadSize: ping.DefaultPingPayloadSize}
 
 	err1 := tctx.UnmarshalValidate(*params, &p)
 	if err1 != nil {
@@ -581,7 +585,14 @@ func (h ApiIcmpClientStartPingHandler) ServeJSONRPC(ctx interface{}, params *fas
 			Message: err1.Error(),
 		}
 	}
-	return icmpClient.StartPing(&p), nil
+	ok := icmpClient.StartPing(&p)
+	if !ok {
+		return nil, &jsonrpc.Error{
+			Code:    jsonrpc.ErrorCodeInvalidRequest,
+			Message: "Client is already pinging or in timeout.",
+		}
+	}
+	return ok, nil
 }
 
 /* ServeJSONRPC for ApiIcmpClientStopPingHandler stops an ongoing ping.
@@ -592,8 +603,14 @@ func (h ApiIcmpClientStopPingHandler) ServeJSONRPC(ctx interface{}, params *fast
 	if err != nil {
 		return nil, err
 	}
-
-	return icmpClient.StopPing(), nil
+	ok := icmpClient.StopPing()
+	if !ok {
+		return ok, &jsonrpc.Error{
+			Code:    jsonrpc.ErrorCodeInvalidRequest,
+			Message: "There is no active pinging.",
+		}
+	}
+	return ok, nil
 }
 
 /* ServeJSONRPC for ApiIcmpClientGetPingStatsHandler returns the statistics of an ongoing ping. If there is no ongoing ping
