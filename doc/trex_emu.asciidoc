@@ -301,71 +301,47 @@ This profile is a way to create a database (tree) of namespaces and clients in P
 ----
 class Prof1():
     def __init__(self):
-        self.def_ns_plugs  = None   # <1> default plugin configuration for all ns derived from thread
-        self.def_c_plugs  = None    # <2> default plugin configuration for each client
+        self.def_ns_plugs = None   #<1>
+        self.def_c_plugs  = None   #<2>  
 
     def create_profile(self, ns_size, clients_size):
         ns_list = []
 
-        # create a different namespace each time
-        vport, tci, tpid = 0, [0, 0], [0, 0]   # the default vport, tci,tpid vector 
-        # <3> setting the default vport,tpid
-        ns_gen = NsGen(vport, tci, tpid, ns_size, p_inc = 1, tci_inc = 1) # ns generator
-        for vport, tci, tpid in ns_gen:
-            # create a namespace 
-            ns = EMUNamespaceObj(vport  = vport,
-                                tci     = tci,
-                                tpid    = tpid,
-                                def_c_plugs = self.def_c_plugs # default for all clients in this ns
-                                )
+        # create different namespace each time
+        vport, tci, tpid = 0, [0, 0], [0x00, 0x00]
+        for j in range(vport, ns_size + vport):
+            ns_key = EMUNamespaceKey(vport  = j,         
+                                    tci     = tci,
+                                    tpid    = tpid)
+            ns = EMUNamespaceObj(ns_key = ns_key, def_c_plugs = self.def_c_plugs)   # create namespace
 
-            mac = '00:00:00:70:00:01'  # MAC start id
-            ipv4 = '1.1.5.2'           # IPv4 start  
-            dg = '1.1.5.1'             # default gateway 
-            ipv6 = '1234::1000'        # IPv6 not used for now 
-            c_gen = ClientGen(mac, ipv4, dg, ipv6, clients_size, # client generator
-                              mac_inc = 1, ipv4_inc = 1, ipv6_inc = 1)
-            
+            mac = Mac('00:00:00:70:00:01')
+            ipv4 = Ipv4('1.1.5.2')
+            dg = Ipv4('1.1.5.1')
+
             # create a different client each time
-            for i, (mac, ipv4, dg, ipv6) in enumerate(c_gen):
-                client = EMUClientObj(mac     = mac,
-                                      ipv4    = ipv4,
-                                      ipv4_dg = dg,
-                                      ipv6    = ipv6,
-                                      plugs   = {'arp': {},   # <4> can override default config
-                                                 'icmp': {}}
+            for i in range(clients_size):       
+                client = EMUClientObj(mac     = mac[i].V(),   # create clients 
+                                      ipv4    = ipv4[i].V(),
+                                      ipv4_dg = dg.V(),
+                                      plugs   = {'arp': {},
+                                                 'icmp': {}, #<3>
+                                                },
                                       )
-                ns.add_clients(client)  # adding the client 
-
+                ns.add_clients(client)
             ns_list.append(ns)
 
         return EMUProfile(ns = ns_list, def_ns_plugs = self.def_ns_plugs)
 
-    def get_profile(self, tuneables):
-        # Argparse for tunables
-        parser = argparse.ArgumentParser(description='Argparser for simple emu profile.')
-        parser.add_argument('--ns', type = int, default = 1,
-                    help='Number of namespaces to create')
-        parser.add_argument('--clients', type = int, default = 15,
-                    help='Number of clients to create in each namespace')
-
-        args = parser.parse_args(tuneables)
-
-        return self.create_profile(args.ns, args.clients)
-
-
-def register():
-    return Prof1()
 
 ----
 <1> The default plugin configuration for all the namespaces attached to a thread, could be None. In case a namespace has a plugin configuration it will have priority over the default. 
 <2> The default plugin configuration for all the clients on the same namespace. In case a client has a plugin configuration it will have a priority over the default.
-<3> Setting the namespace tuple. In this example the key is derived only from port zero and no dot1q/QinQ.
-<4> Override plugin configuration per client.
+<3> Override plugin configuration per client, only arp and icmp 
 
 *Default plugin priority*::
 
-The following table summarizies how the status of each plugin is set:
+The following table shows how the status of each plugin is set:
 
 .Namespace plugin vector
 [options="header",cols="1,2,1",width="60%"]
@@ -533,7 +509,7 @@ This shows how to load the previous Python profile from the console:
 
 
 
-    trex>emu_load_profile -f emu/simple_emu.py -t --ns 1 --clients 1 #<2>
+    trex>emu_load_profile -f emu/simple_ipv4.py -t --ns 1 --clients 1 #<2>
 
     Converting file to profile                          [SUCCESS]
 
@@ -725,7 +701,7 @@ Now you can try with 10,000 clients.
 
 [source,bash]
 ----
-trex>emu_load_profile -f emu/simple_emu.py -t --ns 1 --clients 10000
+trex>emu_load_profile -f emu/simple_ipv4.py -t --ns 1 --clients 10000
 ----
 
 [NOTE]
@@ -898,7 +874,6 @@ class Prof1():
             mac = '00:00:00:70:00:01'  # MAC start id
             ipv4 = '0.0.0.0'           # <2> IPv4 start
             dg = '0.0.0.0'             # default gateway 
-            ipv6 = '1234::1000'        # IPv6 not used for now 
             c_gen = ClientGen(mac, ipv4, dg, ipv6, clients_size,
                               mac_inc = 1, ipv4_inc = 0, ipv6_inc = 1) #<3>
             
@@ -1582,9 +1557,24 @@ from Console, you should enter `service mode filter` with mask of `emu` mode (wh
 
 Let us see an example of how to the Python API. More can be found on the SDK documentation.
 
-[TO DO LINK to API and reference per plugin ]
+First we need to move the mode to service mode filter to get the packets to EMU (this should be done with TRex server client STL or ASTF)
 
-.API example 
+.TRex server move to filter mode 
+[source,python]
+----
+    c_trex = STLClient()
+    c_trex.connect()
+
+    my_ports=[0,1]
+    c_trex.acquire(ports=my_ports, force=True)
+    c_trex.set_port_attr(promiscuous=True)
+    trex_c.set_service_mode(ports = my_ports, enabled = False, filtered = True, mask = (NO_TCP_UDP_MASK | DHCP_MASK ))
+
+----
+
+Then we can connect to the EMU server 
+
+.EMU API example 
 [source,python]
 ----
 
@@ -1613,9 +1603,7 @@ Let us see an example of how to the Python API. More can be found on the SDK doc
 
 ----
 
-
 This script assumes there is a TRex-EMU server running on port 4510. It connects and loads a profile with tunables and then prints all the clients. 
-
 
 
 === Tutorial: Debug tools
