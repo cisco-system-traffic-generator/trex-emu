@@ -721,48 +721,39 @@ TRex supports IGMPv2/v3 (RFC3376) and can maintain (add/remove) scale of multica
 ----
 class Prof1():
     def __init__(self):
-        self.def_ns_plugs  =  {'igmp' : {'dmac':[0,0,0,0x70,0,1]}}  #<1>
-        self.def_c_plugs  = None 
+        self.mac = Mac('00:00:00:70:00:01')     #<1> 
+        self.def_ns_plugs  = {'igmp' : {'dmac':self.mac.V()}} 
+        self.def_c_plugs  = None
 
     def create_profile(self, ns_size, clients_size):
         ns_list = []
 
         # create different namespace each time
-        vport, tci, tpid = 0, [0, 0], [0, 0]   
-        ns_gen = NsGen(vport, tci, tpid, ns_size, p_inc = 1, tci_inc = 1)
-        for vport, tci, tpid in ns_gen:
-            ns = EMUNamespaceObj(vport  = vport, # create a namespace 
-                                tci     = tci,
-                                tpid    = tpid,
-                                def_c_plugs = self.def_c_plugs
-                                )
+        vport, tci, tpid = 0, [0, 0], [0x00, 0x00]
+        for j in range(vport, ns_size + vport):
+            ns_key = EMUNamespaceKey(vport  = j,
+                                    tci     = tci,
+                                    tpid    = tpid)
+            ns = EMUNamespaceObj(ns_key = ns_key, def_c_plugs = self.def_c_plugs)
 
-            mac = '00:00:00:70:00:01'  # MAC start id
-            ipv4 = '1.1.5.2'           # IPv4 start  
-            dg = '1.1.5.1'             # default gateway 
-            ipv6 = '1234::1000'        # IPv6 not used for now 
-            c_gen = ClientGen(mac, ipv4, dg, ipv6, clients_size, 
-                    mac_inc = 1, ipv4_inc = 1, ipv6_inc = 1)
-            
+            mac = self.mac 
+            ipv4 = Ipv4('1.1.5.2')
+            dg = Ipv4('1.1.5.1')
+
             # create a different client each time
-            for i, (mac, ipv4, dg, ipv6) in enumerate(c_gen):
-                client = EMUClientObj(mac     = mac,
-                                      ipv4    = ipv4,
-                                      ipv4_dg = dg,
-                                      ipv6    = ipv6,
+            for i in range(clients_size):       
+                client = EMUClientObj(mac     = mac[i].V(),
+                                      ipv4    = ipv4[i].V(),
+                                      ipv4_dg = dg.V(),
                                       plugs   = {'arp': {},
-                                                 'igmp': {}, #<2>
-                                                 'icmp': {}
-                                                 },
+                                                 'icmp': {},
+                                                 'igmp': {},  #<2> 
+                                                },
                                       )
-                ns.add_clients(client)  # adding the client 
-
+                ns.add_clients(client)
             ns_list.append(ns)
 
         return EMUProfile(ns = ns_list, def_ns_plugs = self.def_ns_plugs)
-
-def register():
-    return Prof1()
 
 ----
 
@@ -855,52 +846,42 @@ Group Address    Interface                Uptime    Expires   Last Reporter
 ----
 class Prof1():
     def __init__(self):
-        self.def_ns_plugs  =  {'dhcp' : {'dmac':[0,0,0,0x70,0,1]}}  # <1>
+        self.mac = Mac('00:00:00:70:00:01')
+        self.def_ns_plugs  = {'igmp' : {'dmac':self.mac.V()}} 
         self.def_c_plugs  = None
 
     def create_profile(self, ns_size, clients_size):
         ns_list = []
 
         # create different namespace each time
-        vport, tci, tpid = 0, [0, 0], [0, 0]   
-        ns_gen = NsGen(vport, tci, tpid, ns_size, p_inc = 1, tci_inc = 1)
-        for vport, tci, tpid in ns_gen:
-            ns = EMUNamespaceObj(vport  = vport, # create a namespace 
-                                tci     = tci,
-                                tpid    = tpid,
-                                def_c_plugs = self.def_c_plugs
-                                )
+        vport, tci, tpid = 0, [0, 0], [0x00, 0x00]
+        for j in range(vport, ns_size + vport):
+            ns_key = EMUNamespaceKey(vport  = j,
+                                    tci     = tci,
+                                    tpid    = tpid)
+            ns = EMUNamespaceObj(ns_key = ns_key, def_c_plugs = self.def_c_plugs)
 
-            mac = '00:00:00:70:00:01'  # MAC start id
-            ipv4 = '0.0.0.0'           # <2> IPv4 start
-            dg = '0.0.0.0'             # default gateway 
-            c_gen = ClientGen(mac, ipv4, dg, ipv6, clients_size,
-                              mac_inc = 1, ipv4_inc = 0, ipv6_inc = 1) #<3>
-            
+            mac = self.mac 
+            ipv4 = Ipv4('0.0.0.0')  
+            dg = Ipv4('0.0.0.0')    # <2> 
+
             # create a different client each time
-            for i, (mac, ipv4, dg, ipv6) in enumerate(c_gen):
-                client = EMUClientObj(mac     = mac,
-                                      ipv4    = ipv4,
-                                      ipv4_dg = dg,
-                                      ipv6    = ipv6,
-                                       plugs   = {'arp': {},
-                                                  'igmp': {},
-                                                  'icmp': {},
-                                                  'dhcp': {},
-                                                 },
+            for i in range(clients_size):       
+                client = EMUClientObj(mac     = mac[i].V(),
+                                      ipv4    = ipv4.V(), #<3>
+                                      ipv4_dg = dg.V(),
+                                      plugs   = {'arp': {},
+                                                 'icmp': {},
+                                                 'igmp': {}, #<1>
+                                                 'dhcp': {}
+                                                },
                                       )
-                ns.add_clients(client)  ## adding the client 
-
-
+                ns.add_clients(client)
             ns_list.append(ns)
 
         return EMUProfile(ns = ns_list, def_ns_plugs = self.def_ns_plugs)
 
-def register():
-    return Prof1()
-
 ----
-
 <1> Add `dhcp` to the client plugin  
 <2> Change IPv4/DG to 0.0.0.0  
 <3> Change `ipv4_inc` to 0 as DHCP will change the IP
@@ -1062,52 +1043,44 @@ It was written from scratch so it might have some issues.
 ----
 class Prof1():
     def __init__(self):
-        self.def_ns_plugs  =  {'ipv6' : {'dmac':[0,0,0,0x70,0,1]},
-                               'dhcpv6' : {'dmac':[0,0,0,0x70,0,1]}}  # <1>
-        self.def_c_plugs  = None 
-    
+        self.mac = Mac('00:00:00:70:00:01')
+        self.def_ns_plugs  = {'ipv6' : {'dmac':self.mac.V()}} #<1>
+        self.def_c_plugs  = None
+
     def create_profile(self, ns_size, clients_size):
         ns_list = []
 
         # create different namespace each time
-        vport, tci, tpid = 0, [0, 0], [0, 0]   
-        ns_gen = NsGen(vport, tci, tpid, ns_size, p_inc = 1, tci_inc = 1)
-        for vport, tci, tpid in ns_gen:
-            ns = EMUNamespaceObj(vport  = vport, # create a namespace
-                                tci     = tci,
-                                tpid    = tpid,
-                                def_c_plugs = self.def_c_plugs
-                                )
+        vport, tci, tpid = 0, [0, 0], [0x00, 0x00]
+        for j in range(vport, ns_size + vport):
+            ns_key = EMUNamespaceKey(vport  = j,
+                                    tci     = tci,
+                                    tpid    = tpid)
+            ns = EMUNamespaceObj(ns_key = ns_key, def_c_plugs = self.def_c_plugs)
 
-            mac = '00:00:00:70:00:01'  # MAC start id
-            ipv4 = '0.0.0.0'           # IPv4 start  
-            dg = '0.0.0.0'             # default gateway 
-            ipv6 = '2001:DB8:1::2'     # IPv6 not used for now 
-            c_gen = ClientGen(mac, ipv4, dg, ipv6, clients_size,
-                              mac_inc = 1, ipv4_inc = 0, ipv6_inc = 1)
-            
+            mac = self.mac
+            ipv6 = Ipv6("2001:DB8:1::2")
+
             # create a different client each time
-            for i, (mac, ipv4, dg, ipv6) in enumerate(c_gen):
-                client = EMUClientObj(mac     = mac,
-                                      ipv4    = ipv4,
-                                      ipv4_dg = dg,
-                                      ipv6    = ipv6,
-                                       plugs   = {'ipv6': {}, # <2>
-                                                  'dhcpv6': {},
-                                                 }
+            for i in range(clients_size):       
+                client = EMUClientObj(mac     = mac[i].V(),
+                                      ipv6    = ipv6[i].V(),  
+
+                                      plugs   = {'ipv6': {},
+                                                 'dhcpv6': {},#<2>
+                                                },
                                       )
-                ns.add_clients(client)  ## adding the client 
-
-
+                ns.add_clients(client)
             ns_list.append(ns)
 
         return EMUProfile(ns = ns_list, def_ns_plugs = self.def_ns_plugs)
 
-def register():
-    return Prof1()
+    def get_profile(self, tuneables):
+        args = get_args.get_args(tuneables)
+        return self.create_profile(args.ns, args.clients)
+
 
 ----
-
 <1> `def_ns_plugs` add `ipv6` and `'dhcpv6' : {'dmac':[0,0,0,0x70,0,1]}`. This will add the first client as a designator for MLDv2.
 <2> Client plugins add `ipv6` and `dhcpv6`
 
@@ -1462,36 +1435,42 @@ policy-map type control subscriber DOT1X-1
 .Profile
 [source,bash]
 ----
+class Prof1():
+    def __init__(self):
+        self.def_ns_plugs  = None
+        self.def_c_plugs  = None
+
+    def create_profile(self, ns_size, clients_size):
+        ns_list = []
+
+        # create different namespace each time
         vport, tci, tpid = 0, [0, 0], [0x00, 0x00]
-        ns_gen = NsGen(vport, tci, tpid, ns_size, p_inc = 1, tci_inc = 1)
-        for vport, tci, tpid in ns_gen:
-            ns = EMUNamespaceObj(vport  = vport,
-                                tci     = tci,
-                                tpid    = tpid,
-                                def_c_plugs = self.def_c_plugs
-                                )
+        for j in range(vport, ns_size + vport):
+            ns_key = EMUNamespaceKey(vport  = j,
+                                    tci     = tci,
+                                    tpid    = tpid)
+            ns = EMUNamespaceObj(ns_key = ns_key, def_c_plugs = self.def_c_plugs)
 
-            mac = '00:00:00:70:00:01'
-            ipv4 = '1.1.1.3'
-            dg = '1.1.1.2'
-            
+            mac = Mac('00:00:00:70:00:01')
+            ipv4 = Ipv4('1.1.5.2')
+            dg = Ipv4('1.1.5.1')
+            u = "test{}".format(i+1)
 
-            c_gen = ClientGen(mac, ipv4, dg, clients_size, mac_inc = 1, ipv4_inc = 1)
             # create a different client each time
-            for i, (mac, ipv4, dg, ipvv6) in enumerate(c_gen):
-
-                
-                u = "test{}".format(i+1)
-                print(u)
-                client = EMUClientObj(mac     = mac,
-                                      ipv4    = ipv4,
-                                      ipv4_dg = dg,
+            for i in range(clients_size):       
+                client = EMUClientObj(mac     = mac[i].V(),
+                                      ipv4    = ipv4[i].V(),
+                                      ipv4_dg = dg.V(),
                                       plugs   = {'arp': {},
-                                                 'dot1x': {'user':u,'password':u},  
-						                        'icmp':{}
+                                                 'icmp': {},
+                                                 'dot1x': {'user':u,'password':u,'flags':1},
                                                 },
                                       )
                 ns.add_clients(client)
+            ns_list.append(ns)
+
+        return EMUProfile(ns = ns_list, def_ns_plugs = self.def_ns_plugs)
+
 
 ----
 
