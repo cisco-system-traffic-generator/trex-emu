@@ -21,7 +21,7 @@
                     0
                 ],
                 "pace": 1,
-                "pktSize": 70,
+                "payloadSize": 20,
                 "tun": {
                     "tci": [
                         1,

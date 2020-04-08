@@ -369,29 +369,27 @@ func (o *CClient) GetInfo() *CClientInfo {
 	return &info
 }
 
-func (o *CClient) ResolveIPv4DGMac() (MACKey, bool) {
-	var zero_mac MACKey
+func (o *CClient) ResolveIPv4DGMac() (mac MACKey, ok bool) {
 	if o.ForceDGW {
-		return o.Ipv4ForcedgMac, true
+		mac, ok = o.Ipv4ForcedgMac, true
 	}
-	if o.DGW == nil || o.DGW.IpdgResolved == false {
-		return zero_mac, false
+	if o.DGW != nil && o.DGW.IpdgResolved {
+		mac, ok = o.DGW.IpdgMac, true
 	}
-	return o.DGW.IpdgMac, true
+	return mac, ok
 }
 
-func (o *CClient) ResolveIPv6DGMac() (MACKey, bool) {
-	var zero_mac MACKey
+func (o *CClient) ResolveIPv6DGMac() (mac MACKey, ok bool) {
 	if o.Ipv6ForceDGW {
-		return o.Ipv6ForcedgMac, true
+		mac, ok = o.Ipv6ForcedgMac, true
 	}
 	if o.Ipv6DGW != nil && o.Ipv6DGW.IpdgResolved {
-		return o.Ipv6DGW.IpdgMac, true
+		mac, ok = o.Ipv6DGW.IpdgMac, true
 	}
 	if o.Ipv6Router != nil {
-		return o.Ipv6Router.DgMac, true
+		mac, ok = o.Ipv6Router.DgMac, true
 	}
-	return zero_mac, false
+	return mac, ok
 }
 
 func (o *CClient) ResolveSourceIPv6() Ipv6Key {
@@ -408,16 +406,14 @@ func (o *CClient) ResolveSourceIPv6() Ipv6Key {
 	panic("No IPv6 found for this client!")
 }
 
-func (o *CClient) ResolveDGIPv6() (ipv6 Ipv6Key, resolved bool) {
-	var zeroIpv6 Ipv6Key
-	ipv6, resolved = zeroIpv6, false
+func (o *CClient) ResolveDGIPv6() (ipv6 Ipv6Key, ok bool) {
 	if !o.DgIpv6.IsZero() {
-		ipv6, resolved = o.DgIpv6, true
+		ipv6, ok = o.DgIpv6, true
 	}
 	if o.Ipv6Router != nil {
-		ipv6, resolved = o.Ipv6Router.IPv6, true
+		ipv6, ok = o.Ipv6Router.IPv6, true
 	}
-	return ipv6, resolved
+	return ipv6, ok
 }
 
 func (o *CClient) OwnsIPv6(ipv6 Ipv6Key) bool {
@@ -427,6 +423,30 @@ func (o *CClient) OwnsIPv6(ipv6 Ipv6Key) bool {
 	o.GetIpv6LocalLink(&ipv6Local)
 	if (ipv6 == o.Dhcpv6) || (ipv6 == o.Ipv6) || (ipv6 == ipv6Slaac) || (ipv6 == ipv6Local) {
 		return true
+	}
+	return false
+}
+
+func (o *CClient) ResolveDGv6() (ipv6 Ipv6Key, mac MACKey, ok bool) {
+	if !o.DgIpv6.IsZero() {
+		// The Ipv6 Default Gateway is assigned, the Mac is either forced or resolved
+		if o.Ipv6ForceDGW {
+			ipv6, mac, ok = o.DgIpv6, o.Ipv6ForcedgMac, true
+		} else if o.Ipv6DGW != nil && o.Ipv6DGW.IpdgResolved {
+			ipv6, mac, ok = o.DgIpv6, o.Ipv6DGW.IpdgMac, true
+		}
+	} else if o.Ipv6Router != nil {
+		// The Ipv6 and mac are learned from a RA
+		ipv6, mac, ok = o.Ipv6Router.IPv6, o.Ipv6Router.DgMac, true
+	}
+	return ipv6, mac, ok
+}
+
+func (o *CClient) IsDGIpv6(ipv6 Ipv6Key) bool {
+	if ipv6 == o.DgIpv6 {
+		return true
+	} else if o.Ipv6Router != nil {
+		return ipv6 == o.Ipv6Router.IPv6
 	}
 	return false
 }

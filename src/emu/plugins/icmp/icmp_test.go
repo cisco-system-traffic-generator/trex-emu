@@ -129,7 +129,7 @@ func (o *IcmpQueryCtxRpc) OnEvent(a, b interface{}) {
 		// First Iteration sending ping.
 		o.tctx.Veth.AppendSimuationRPC([]byte(`{"jsonrpc": "2.0",
 			"method":"icmp_c_start_ping",
-			"params": {"tun": {"vport":1,"tci":[1,2]}, "mac": [0, 0, 1, 0, 0, 0], "amount": 5, "pace": 1, "dst": [16, 0, 0, 1], "pktSize": 70},
+			"params": {"tun": {"vport":1,"tci":[1,2]}, "mac": [0, 0, 1, 0, 0, 0], "amount": 5, "pace": 1, "dst": [16, 0, 0, 1], "payloadSize": 20},
 			"id": 3}`))
 	} else {
 		if o.cnt%5 == 0 {
@@ -139,7 +139,7 @@ func (o *IcmpQueryCtxRpc) OnEvent(a, b interface{}) {
 			"params": {"tun": {"vport":1,"tci":[1,2]}, "mac": [0, 0, 1, 0, 0, 0]},
 			"id": 3}`))
 		}
-		b := make([]byte, 20)                             // the length of the whole package is 50 bytes, total packet size is 70
+		b := make([]byte, 20)                             // payload size being 20
 		binary.BigEndian.PutUint64(b, 0xc15c0c15c0be5be5) // magic
 		binary.BigEndian.PutUint64(b[8:], 128)            // fixed timestamp for simulation
 		buf := gopacket.NewSerializeBuffer()

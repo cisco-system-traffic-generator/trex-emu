@@ -145,6 +145,7 @@ func (o *PluginIpv6Client) OnEvent(msg string, a, b interface{}) {
 }
 
 func (o *PluginIpv6Client) OnRemove(ctx *core.PluginCtx) {
+	o.StopPing()
 	/* force removing the link to the client */
 	o.nd.OnRemove(ctx)
 	ctx.UnregisterEvents(&o.PluginBase, icmpEvents)
@@ -216,9 +217,17 @@ func (o *PluginIpv6Client) PreparePingPacketTemplate(id, seq uint16, magic uint6
 	srcIPv6 := o.pingData.Src
 	dstIPv6 := o.pingData.Dst
 	pkt = o.Client.GetL2Header(false, uint16(layers.EthernetTypeIPv6))
-	dstMac, ok := o.Client.ResolveIPv6DGMac()
-	if ok {
-		layers.EthernetHeader(pkt).SetDestAddress(dstMac[:])
+	if !o.Client.IsDGIpv6(dstIPv6) {
+		dstMac, ok := o.Client.ResolveIPv6DGMac()
+		if ok {
+			layers.EthernetHeader(pkt).SetDestAddress(dstMac[:])
+		}
+	} else {
+		dgIpv6, dgMac, ok := o.Client.ResolveDGv6()
+		if ok {
+			dstIPv6 = dgIpv6
+			layers.EthernetHeader(pkt).SetDestAddress(dgMac[:])
+		}
 	}
 	ipHeaderOffset := len(pkt)
 	ipHeader := core.PacketUtlBuild(
@@ -238,12 +247,12 @@ func (o *PluginIpv6Client) PreparePingPacketTemplate(id, seq uint16, magic uint6
 	icmpHeaderOffset = len(pkt)
 	icmpHeader := core.PacketUtlBuild(
 		&layers.ICMPv6{TypeCode: layers.CreateICMPv6TypeCode(layers.ICMPv6TypeEchoRequest, 0)})
-	payload := make([]byte, int(o.pingData.PayloadSize+4))
-	binary.BigEndian.PutUint16(payload[0:2], id)
-	binary.BigEndian.PutUint16(payload[2:4], seq)
-	// Put a magic in our packets to verify that they contain valid timestamps. The difference with ICMPv4 is that in ICMPv6, id and seq
-	// are part of the payload, hence we start from 4.
-	binary.BigEndian.PutUint64(payload[4:], magic)
+	icmpEcho := core.PacketUtlBuild(
+		&layers.ICMPv6Echo{Identifier: id, SeqNumber: seq})
+	icmpHeader = append(icmpHeader, icmpEcho...)
+	payload := make([]byte, int(o.pingData.PayloadSize))
+	// Put a magic in our packets to verify that they contain valid timestamps.
+	binary.BigEndian.PutUint64(payload, magic)
 	icmpHeader = append(icmpHeader, payload...)
 	pkt = append(pkt, icmpHeader...)
 	ipv6Header := layers.IPv6Header(pkt[ipHeaderOffset : ipHeaderOffset+40])
@@ -355,21 +364,41 @@ func (o *PluginIpv6Ns) HandleEchoReply(ps *core.ParserPacketState) int {
 	var dstMac core.MACKey
 	copy(dstMac[:], eth.GetDestAddress()[:6])
 
-	var icmpv6 layers.ICMPv6
-	err := icmpv6.DecodeFromBytes(p[ps.L4:], o)
-	if err != nil {
+	/*
+					An incoming Echo Reply should look like this:
+					0 1 2 3 4 5 6 7
+					+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+		ICMPv6->	|     Type      |     Code      |          Checksum             |
+					+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+		ICMPv6Echo->|           Identifier          |        Sequence Number        |
+					+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+					|                             Magic                             |
+					+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+					|                             Magic                             |
+					+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+					|                           Timestamp                           |
+					+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+					|                           Timestamp                           |
+					+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+					|   Data ...
+					+-+-+-+-+
+
+			As such the minimal size of L4 should be 24 bytes.
+
+	*/
+	if len(p[ps.L4:]) < 24 {
 		o.stats.pktRxErrTooShort++
 		return core.PARSER_ERR
 	}
-	id := binary.BigEndian.Uint16(icmpv6.Payload[0:2])
-	seq := binary.BigEndian.Uint16(icmpv6.Payload[2:4])
-	payload := icmpv6.Payload[4:]
+
+	var icmpv6Echo layers.ICMPv6Echo
+	icmpv6Echo.DecodeFromBytes(p[ps.L4+4:], o) // No need to check for error as it is done previously.
 
 	if c, err := o.GetIcmpClientByMac(dstMac); err != nil {
 		o.stats.pktRxNoClientUnhandled++
 		return core.PARSER_OK
 	} else {
-		if c.handleEchoReply(seq, id, payload) {
+		if c.handleEchoReply(icmpv6Echo.SeqNumber, icmpv6Echo.Identifier, icmpv6Echo.Payload) {
 			o.stats.pktRxIcmpResponse++
 		}
 		return core.PARSER_OK
@@ -384,21 +413,48 @@ func (o *PluginIpv6Ns) HandleDestinationUnreachable(ps *core.ParserPacketState) 
 	var dstMac core.MACKey
 	copy(dstMac[:], eth.GetDestAddress()[:6])
 
-	// We will do a hack here for destination unreachable like packets, they have an ICMP Header nested in an ICMP Header,
-	// here we parse the nested one.
-	var icmpv6 layers.ICMPv6
-	err := icmpv6.DecodeFromBytes(p[ps.L4+48:], o) // This doesn't support Destination Unreachable like packets,
-	if err != nil {
+	/*
+						An incoming Destination Unreachable message should look like this:
+						0 1 2 3 4 5 6 7
+						+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+		DstUnreachable	|     Type      |     Code      |          Checksum             |
+						+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+						|                             Unused                            |
+						+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+		IPv6			|                             IPv6 x5                           |
+						+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+		ICMPv6			|     Type      |     Code      |          Checksum             |
+						+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+		ICMPv6Echo->	|           Identifier          |        Sequence Number        |
+						+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+						|                             Magic                             |
+						+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+						|                             Magic                             |
+						+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+						|                           Timestamp                           |
+						+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+						|                           Timestamp                           |
+						+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+						|   Data ...
+						+-+-+-+-+
+
+		Hence , after 52 bytes of Dst Unreachable we will see an ICMP Header nested,
+		which should be an Echo Request with minimal length 24 as explained in
+		HandleEchoReply
+	*/
+	if len(p[ps.L4:]) < 72 {
 		o.stats.pktRxErrTooShort++
 		return core.PARSER_ERR
 	}
-	id := binary.BigEndian.Uint16(icmpv6.Payload[0:2])
+
+	var icmpv6Echo layers.ICMPv6Echo
+	icmpv6Echo.DecodeFromBytes(p[ps.L4+52:], o)
 
 	if icmpClient, err := o.GetIcmpClientByMac(dstMac); err != nil {
 		o.stats.pktRxNoClientUnhandled++
 		return core.PARSER_OK
 	} else {
-		if icmpClient.handleDestinationUnreachable(id) {
+		if icmpClient.handleDestinationUnreachable(icmpv6Echo.Identifier) {
 			o.stats.pktRxIcmpDstUnreachable++
 		}
 		return core.PARSER_OK
@@ -854,9 +910,9 @@ func (h ApiIpv6StartPingHandler) ServeJSONRPC(ctx interface{}, params *fastjson.
 		return nil, err
 	}
 
-	dg, resolved := c.Client.ResolveDGIPv6()
+	dgIpv6, dgOk := c.Client.ResolveDGIPv6()
 
-	p := ApiIpv6StartPingHandler{Amount: ping.DefaultPingAmount, Pace: ping.DefaultPingPace, Dst: dg,
+	p := ApiIpv6StartPingHandler{Amount: ping.DefaultPingAmount, Pace: ping.DefaultPingPace, Dst: dgIpv6,
 		Src: c.Client.ResolveSourceIPv6(), Timeout: ping.DefaultPingTimeout, PayloadSize: ping.DefaultPingPayloadSize}
 
 	err1 := tctx.UnmarshalValidate(*params, &p)
@@ -866,10 +922,10 @@ func (h ApiIpv6StartPingHandler) ServeJSONRPC(ctx interface{}, params *fastjson.
 			Message: err1.Error(),
 		}
 	}
-	if !resolved && dg == p.Dst {
-		return resolved, &jsonrpc.Error{
+	if !dgOk && dgIpv6 == p.Dst {
+		return dgOk, &jsonrpc.Error{
 			Code:    jsonrpc.ErrorCodeInvalidRequest,
-			Message: "Destination address not provided and default gateway not resolved.",
+			Message: "Destination address not provided and default gateway not resolved/set.",
 		}
 	}
 	ok := c.Client.OwnsIPv6(p.Src)

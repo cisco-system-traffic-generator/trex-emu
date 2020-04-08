@@ -1037,6 +1037,111 @@ func TestPluginNd_rpc1(t *testing.T) {
 	a.Run(t, true) // the timestamp making a new json due to the timestamp. skip the it
 }
 
+type ipv6PingCtxRpc struct {
+	tctx  *core.CThreadCtx
+	timer core.CHTimerObj
+	cnt   uint16
+	match uint8
+}
+
+func (o *ipv6PingCtxRpc) OnEvent(a, b interface{}) {
+	if o.cnt == 0 {
+		// First Iteration sending ping.
+		o.tctx.Veth.AppendSimuationRPC([]byte(`{"jsonrpc": "2.0",
+			"method":"ipv6_start_ping",
+			"params": {"tun": {"vport":1,"tci":[1,2]}, "mac": [0, 0, 1, 0, 0, 0], "dst": [32, 1, 13, 184, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1] ,"amount": 5, "pace": 1},
+			"id": 3}`))
+	} else {
+		if o.cnt%5 == 0 {
+			// Once in 5 iterations collect the results.
+			o.tctx.Veth.AppendSimuationRPC([]byte(`{"jsonrpc": "2.0",
+			"method":"ipv6_get_ping_stats",
+			"params": {"tun": {"vport":1,"tci":[1,2]}, "mac": [0, 0, 1, 0, 0, 0]},
+			"id": 3}`))
+		}
+		payload := make([]byte, 16)                             // payload length is 16
+		binary.BigEndian.PutUint64(payload, 0xc15c0c15c0be5be5) // magic
+		binary.BigEndian.PutUint64(payload[8:], 128)            // fixed timestamp for simulation
+		buf := gopacket.NewSerializeBuffer()
+		opts := gopacket.SerializeOptions{FixLengths: false, ComputeChecksums: false}
+		gopacket.SerializeLayers(buf, opts,
+			&layers.Ethernet{
+				SrcMAC:       net.HardwareAddr{0, 0, 0, 2, 0, 0},
+				DstMAC:       net.HardwareAddr{0, 0, 1, 0, 0, 0},
+				EthernetType: layers.EthernetTypeDot1Q,
+			},
+			&layers.Dot1Q{
+				Priority:       uint8(0),
+				VLANIdentifier: uint16(1),
+				Type:           layers.EthernetTypeDot1Q,
+			},
+			&layers.Dot1Q{
+				Priority:       uint8(0),
+				VLANIdentifier: uint16(2),
+				Type:           layers.EthernetTypeIPv6,
+			},
+
+			&layers.IPv6{
+				Version:      6,
+				TrafficClass: 0,
+				FlowLabel:    0,
+				Length:       8,
+				NextHeader:   layers.IPProtocolICMPv6,
+				HopLimit:     64,
+				SrcIP:        net.IP{0x20, 0x01, 0x0d, 0xb8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01},
+				DstIP: net.IP{0x20, 0x01, 0x0d, 0xb8, 0x00, 0x00, 0x00, 0x00,
+					0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02},
+			},
+
+			&layers.ICMPv6{TypeCode: layers.CreateICMPv6TypeCode(layers.ICMPv6TypeEchoReply, 0)},
+
+			&layers.ICMPv6Echo{Identifier: 0x1234, SeqNumber: 0xabcd + o.cnt - 1},
+
+			gopacket.Payload(payload),
+		)
+		pkt := buf.Bytes()
+		off := 14 + 8
+		ipv6 := layers.IPv6Header(pkt[off : off+40])
+		ipv6.SetPyloadLength(uint16(len(pkt) - off - 40))
+		ipv6.FixIcmpL4Checksum(pkt[off+40:], 0)
+		m := o.tctx.MPool.Alloc(uint16(256))
+		m.SetVPort(1)
+		m.Append(buf.Bytes())
+		o.tctx.Veth.OnRx(m)
+	}
+	if uint32(o.cnt) < 5 {
+		timerw := o.tctx.GetTimerCtx()
+		ticks := timerw.DurationToTicks(time.Duration(time.Second))
+		timerw.StartTicks(&o.timer, ticks)
+	}
+	o.cnt++
+}
+
+func rpc3Queue(tctx *core.CThreadCtx, test *IcmpTestBase) int {
+	timerw := tctx.GetTimerCtx()
+	ticks := timerw.DurationToTicks(2 * time.Second)
+	var tstctx ipv6PingCtxRpc
+	tstctx.timer.SetCB(&tstctx, test.cbArg1, test.cbArg2)
+	tstctx.tctx = tctx
+	timerw.StartTicks(&tstctx.timer, ticks)
+	return 0
+}
+
+func TestPluginPing(t *testing.T) {
+	a := &IcmpTestBase{
+		testname:     "ipv6ping_rpc",
+		monitor:      false,
+		match:        1,
+		capture:      true,
+		duration:     1 * time.Minute,
+		clientsToSim: 1,
+		mcToSim:      1,
+		flush:        1,
+		cb:           rpc3Queue,
+	}
+	a.Run(t, true) // the timestamp making a new json due to the timestamp. skip the it
+}
+
 func init() {
 	flag.IntVar(&monitor, "monitor", 0, "monitor")
 }
