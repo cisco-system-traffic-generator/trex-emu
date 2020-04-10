@@ -266,6 +266,8 @@ type CClientInfo struct {
 In this example we enable `arp`,`icmp` and `dhcp` plugin for this client and we can provide a init configuration.
 
 * One important limitation is that the client does not have a routing table in the first version, only a default gateway. It was done for simplicity, because the main objective is to verify a router/switch under test.
+* However, clients in the same subnet can still communicate using the default gateway, as long as the default gateway has routing abilities. In the ping tutorial we show how to
+ping a client in the same namespace/subnet.
 
 
 == Getting Started Tutorials
@@ -708,6 +710,391 @@ trex>emu_load_profile -f emu/simple_ipv4.py -t --ns 1 --clients 10000
 =====================================================================
 You will need to change the interface mask from 255.255.255.0 to 255.255.0.0, from /24 to /16.
 =====================================================================
+
+
+=== Tutorial: Ping
+
+Needless to say, ping is the most basic utility in terms of verifying network connections. However, it can be used for benchmarking and for gathering data, such as latency.
+The TRex Emu server offers the ping functionality both for ICMPv4 and ICMPv6. In this tutorial we will explore this functionality and learn the basics of how to use.
+
+==== ICMPv4
+
+We have the following ICMP command available in the console. (And a few more in the API)
+
+.Console ICMPv4 Command
+[source, bash]
+----
+emu_icmp_ping -                ICMP ping utility (per client).
+----
+
+In order to be able to use the ping, first let us understand the setup by looking at the following figure:
+
+The ASR1K is connected on port Te0/0/0 to all the clients we will emulate. On this interface we defined 1.1.1.1/24. The next hop of the router is 1.1.1.2.
+All the clients we will emulate, will start from 1.1.1.3 and their default gateway will be the router, meaning 1.1.1.1
+
+image::images/icmpv4_setup.png[title="ICMPv4 Setup",align="left",width={p_width}, link="images/icmpv4_setup.png"]
+
+
+Let us load the profile which will emulate the clients as mentioned.
+
+[source, bash]
+----
+trex>emu_load_profile -f emu/simple_icmp.py -t --ns 1 --clients 3
+----
+
+We can verify the setup by:
+
+[source,bash]
+----
+trex>emu_show_all
+
+Namespace #1 Information
+
+Port | Vlan tags | Tpids |  Plugins  | #Clients
+-----+-----------+-------+-----------+---------
+ 0   |     -     |   -   | arp, icmp |    3
+
+Clients Information
+
+       MAC        |  IPv4   | DG-IPv4 | MTU  |  Plugins
+------------------+---------+---------+------+----------
+00:00:00:70:00:03 | 1.1.1.3 | 1.1.1.1 | 1500 | arp, icmp
+00:00:00:70:00:04 | 1.1.1.4 | 1.1.1.1 | 1500 | arp, icmp
+00:00:00:70:00:05 | 1.1.1.5 | 1.1.1.1 | 1500 | arp, icmp
+----
+
+Let's dive into it:
+
+[source,bash]
+----
+trex>emu_icmp_ping -p 0 --mac 00:00:00:70:00:03
+
+Starting to ping :                                           [SUCCESS]
+
+Progress: 100.00%, Sent: 5/5, Rcv: 5/5, Err: 0/5, RTT min/avg/max = 0.96/3.58/11.52 ms
+
+Completed
+
+----
+
+Pay attention that we didn't write any parameters into the ping, so it used the default parameters, which go as follows:
+
+** `amount` - how many echo requests to send, default value is 5
+** `pace` - how many packets per second (pps) to send, default value is 1
+** `dst` - destination IPv4, default value is Default Gateway
+** `size` - size of the ICMP payload in bytes, default and minimal is 16 bytes.
+
+[NOTE]
+=====================================================================
+You can stop pinging by sending a Keyboard Interrupt with Ctrl+C.
+=====================================================================
+
+Let us see the statistics of the ICMP plugin:
+
+[source,bash]
+----
+trex>emu_icmp_show_counters -p 0
+Icmp Counters
+
+      name        | value
+------------------+------
+pktTxIcmpQuery    | 5
+pktRxIcmpResponse | 5
+----
+
+If we run the Emulator with the `-m` flag we can actually capture the pcap and see the packets:
+
+image::images/icmpv4_pcap.png[title="ICMPv4 Ping Pcap Default Gateway",align="left",width={p_width}, link="images/icmpv4_pcap.png"]
+
+Pay attention to the timing being 1 second between each Echo Request.
+
+Let us try to ping another client:
+
+[source,bash]
+----
+trex>emu_icmp_ping -p 0 --mac 00:00:00:70:00:03 --dst 1.1.1.4 --amount 3 --size 100
+
+Starting to ping :                                           [SUCCESS]
+
+Progress: 100.00%, Sent: 3/3, Rcv: 3/3, Err: 0/3, RTT min/avg/max = 3.70/10.20/22.66 ms
+
+Completed
+
+----
+
+Pinging works and we get replies from the other client, however this doesn't work as you would normally think it would work.
+
+We already mentioned, that the clients have simply a default gateway, and they can't resolve clients in the same subnet.
+
+Hence, when pinging, the next hop will always be the default gateway (in our case the router), also when the clients are in the same subnet.
+
+From the router the Echo Request packet will be forwarded to the destination, and then from the destination back to the router.
+
+Let us look at a capture for complete information.
+
+image::images/icmpv4_pcap_2.png[title="ICMPv4 Ping Pcap Inside Subnet",align="left",width={p_width}, link="images/icmpv4_pcap_2.png"]
+
+Looking at the TTL we can see that the router decreases it twice, once in every direction.
+
+Lastly, let us look at the case in which we have errors. Let us try and ping a unreachable client.
+
+[source,bash]
+----
+trex>emu_icmp_ping -p 0 --mac 00:00:00:70:00:03 --dst 1.1.3.1 --amount 3
+
+Starting to ping :                                           [SUCCESS]
+
+Progress: 100.00%, Sent: 3/3, Rcv: 0/3, Err: 3/3, RTT min/avg/max = 0.00/0.00/0.00 ms
+
+Completed
+
+----
+
+The error counter sums the following errors:
+
+** replies out of order
+** replies with malformed packet
+** replies with invalid latency
+** replies with bad ICMPv4 identifier
+** destination unreachable
+
+For precise counters and more options you can use the API.
+
+However, we can see the destination unreachable packets in the global ICMP counters:
+
+[source,bash]
+----
+trex>emu_icmp_show_counters -p 0
+Icmp Counters
+
+      name              | value
+------------------------+------
+pktTxIcmpQuery          | 3
+pktRxIcmpDstUnreachable | 3
+----
+
+[NOTE]
+=====================================================================
+When pinging at high rates you might note that error counter is low. This happens because we finish when the client sends it's last Echo Request,
+however for destination unreachable like errors the replies arrive late.
+=====================================================================
+
+==== ICMPv6
+
+We tried to make the pinging utilities for ICMPv4 and ICMPv6 as alike as possible.
+
+In order to ping using ICMPv6 one must use the following command:
+
+.Console ICMPv6 Command
+[source, bash]
+----
+emu_ipv6_ping -                ICMPv6 ping utility (per client).
+----
+
+Let us load an IPv6 profile which will simulate some IPv6 clients:
+
+[source, bash]
+----
+trex>emu_load_profile -f emu/simple_ipv6.py -t --ns 1 --clients 3
+----
+
+We will focus on the first client:
+
+.Client number 1
+[source, bash]
+----
+trex>emu_show_client_info -p 0 --mac 00:00:00:70:00:01 --json
+{
+    "ipv4_dg": "0.0.0.0",
+    "ipv6_dgw": null,
+    "dhcp_ipv6": "::",
+    "ipv6_slaac": "2001:db8:0:2222:200:ff:fe70:1",
+    "ipv4_force_mac": "00:00:00:00:00:00",
+    "ipv6_force_mac": "00:00:00:00:00:00",
+    "ipv6_router": {
+        "dgmac": "00:00:00:01:00:02",
+        "prefix": "2001:db8:0:2222::",
+        "ipv6": "fe80::200:ff:fe01:2",
+        "prefix_len": 64,
+        "mtu": 9050
+    },
+    "plug_names": "ipv6",
+    "ipv4_force_dg": false,
+    "ipv4_mtu": 1500,
+    "mac": "00:00:00:70:00:01",
+    "ipv4": "0.0.0.0",
+    "dg_ipv6": "::",
+    "ipv6": "2001:db8:1::2",
+    "ipv6_force_dg": false,
+    "ipv6_local": "fe80::200:ff:fe70:1",
+    "dgw": null
+}
+----
+
+Also we can see the addresses that the Router has:
+
+.ASR1K Setup
+[source, bash]
+----
+asr1001-01> show ipv6 interface br | e down
+Te0/0/0                [up/up]
+    FE80::200:FF:FE01:2
+    2001:DB8:0:2222::1
+Te0/0/1                [up/up]
+    FE80::200:FF:FE02:2
+    2001:DB8:1:2222::1
+----
+
+Our clients are directly connected to Te0/0/0.
+
+Let us start with a simple ping:
+
+[source, bash]
+----
+trex>emu_ipv6_ping -p 0 --mac 00:00:00:70:00:01
+
+Starting to ping :                                           [SUCCESS]
+
+Progress: 100.00%, Sent: 5/5, Rcv: 0/5, Err: 0/5, RTT min/avg/max = 0.00/0.00/0.00 ms
+
+Completed
+----
+
+We tried to ping our default gateway and got no response. In the following analysis we will understand why:
+
+Firstly, what is our default gateway? The default gateway IPv6 is resolved in the following order:
+
+** `dg_ipv6`
+** `ipv6_router.ipv6`
+
+Meaning, an explicitly set default gateway will take priority over a Router Advertisement (RA).
+
+Since the `dg_ipv6` is unset we actually tried to ping the address received from the RA, `fe80::200:ff:fe01:2`.
+
+Next let us try to understand what is the source IPv6 we used. The source IPv6 is resolved in the following order:
+
+** `dhcp_ipv6`
+** `ipv6`
+** `ipv6_slaac`
+
+Meaning, top priority is given to an DHCPv6 assigned address, then to an explicitly set IPv6 and lastly to the SLAAC resolved IPv6.
+In our case the `dhcp_ipv6` is unset, and as such we will try to ping using `2001:db8:1::2` as a source address.
+
+Let us see if the router knows our address:
+
+.ASR1K IPv6 Routing Table
+[source, bash]
+----
+asr1001-01>show ipv6 route
+IPv6 Routing Table - default - 5 entries
+Codes: C - Connected, L - Local, S - Static, U - Per-user Static route
+       B - BGP, R - RIP, H - NHRP, I1 - ISIS L1
+       I2 - ISIS L2, IA - ISIS interarea, IS - ISIS summary, D - EIGRP
+       EX - EIGRP external, ND - ND Default, NDp - ND Prefix, DCE - Destination
+       NDr - Redirect, O - OSPF Intra, OI - OSPF Inter, OE1 - OSPF ext 1
+       OE2 - OSPF ext 2, ON1 - OSPF NSSA ext 1, ON2 - OSPF NSSA ext 2
+       la - LISP alt, lr - LISP site-registrations, ld - LISP dyn-eid
+       a - Application
+C   2001:DB8:0:2222::/64 [0/0]
+     via TenGigabitEthernet0/0/0, directly connected
+L   2001:DB8:0:2222::1/128 [0/0]
+     via TenGigabitEthernet0/0/0, receive
+C   2001:DB8:1:2222::/64 [0/0]
+     via TenGigabitEthernet0/0/1, directly connected
+L   2001:DB8:1:2222::1/128 [0/0]
+     via TenGigabitEthernet0/0/1, receive
+L   FF00::/8 [0/0]
+     via Null0, receive
+----
+
+We see that indeed the router doesn't know this address, hence it won't reply.
+
+From here we have to options:
+
+`Option 1`:
+
+We can use a source address that the router knows, for example the local link IPv6 of the client, or the SLAAC IPv6,
+
+[source, bash]
+----
+trex>emu_ipv6_ping -p 0 --mac 00:00:00:70:00:01 --src fe80::200:ff:fe70:1
+
+Starting to ping :                                           [SUCCESS]
+
+Progress: 100.00%, Sent: 5/5, Rcv: 5/5, Err: 0/5, RTT min/avg/max = 0.98/10.25/44.83 ms
+
+Completed
+----
+
+[NOTE]
+=====================================================================
+You can use only addresses you own as source IPv6.
+=====================================================================
+
+`Option 2`:
+
+We will add a static route in the router to the `ipv6` of the clients we generated, in the following way:
+
+[source, bash]
+----
+asr1001-01(config)>ipv6 route 2001:db8:1::0/112 Te0/0/0
+----
+
+We can verify we have the route:
+
+[source, bash]
+----
+asr1001-01>show ipv6 route 2001:db8:1::2
+Routing entry for 2001:DB8:1::/112
+  Known via "static", distance 1, metric 0
+  Route count is 1/1, share count 0
+  Routing paths:
+    directly connected via TenGigabitEthernet0/0/0
+      Last updated 00:01:07 ago
+----
+
+Now we can retry:
+
+[source, bash]
+----
+trex>emu_ipv6_ping -p 0 --mac 00:00:00:70:00:01
+
+Starting to ping :                                           [SUCCESS]
+
+Progress: 100.00%, Sent: 5/5, Rcv: 5/5, Err: 0/5, RTT min/avg/max = 1.28/10.84/45.49 ms
+
+Completed
+----
+
+We are successful, let us validate with the capture:
+
+image::images/icmpv6_pcap.png[title="ICMPv6 Ping Pcap",align="left",width={p_width}, link="images/icmpv6_pcap.png"]
+
+Lastly, we can ping the global address of the router with some address we own, for example the SLAAC address:
+
+[source, bash]
+----
+trex>emu_ipv6_ping -p 0 --mac 00:00:00:70:00:01 --src 2001:db8:0:2222:200:ff:fe70:1 --dst 2001:DB8:0:2222::1 --pace 2000 --amount 10000
+
+Starting to ping :                                           [SUCCESS]
+
+Progress: 100.00%, Sent: 10000/10000, Rcv: 10000/10000, Err: 0/10000, RTT min/avg/max = 1.23/3.10/6.30 ms
+
+Completed
+----
+
+We can see the ping counters using the global IPv6 counters:
+
+[source, bash]
+----
+trex>emu_ipv6_show_counters -p 0 --tables ping
+Pingv6 Counters
+
+      name        | value
+------------------+------
+pktTxIcmpQuery    | 10000
+pktRxIcmpResponse | 10000
+----
 
 
 === Tutorial: IGMPv2/v3 
@@ -1433,7 +1820,7 @@ policy-map type control subscriber DOT1X-1
 ----
 
 .Profile
-[source,bash]
+[source, python]
 ----
 class Prof1():
     def __init__(self):
@@ -1519,6 +1906,7 @@ class Prof1():
         13        10  webauth
         10        15  mab
 ----
+
 
 === Tutorial: Load TRex server in multi-core
 
