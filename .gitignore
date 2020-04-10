@@ -32,4 +32,8 @@ Thumbs.db
 pkg/
 bin/
 unit-test/generated/*.json
-src/a.pcap 
+src/a.pcap
+
+# Ignore doc auto generated files
+doc/build
+doc/.waf*
