@@ -32,6 +32,7 @@ const (
 	ZMQ_PACKET_HEADER_MAGIC = 0xBEEF
 	ZMQ_TX_PKT_BUTST_SIZE   = 64
 	ZMQ_TX_MAX_BUFFER_SIZE  = 32 * 1024
+	ZMQ_EMU_IPC_PATH        = "/tmp/emu" // path should be /tmp/emu-port.ipc
 )
 
 type VethIFZmq struct {
@@ -52,7 +53,7 @@ type VethIFZmq struct {
 	buf        []byte
 }
 
-func (o *VethIFZmq) CreateSocket(server string, port uint16) (*zmq.Context, *zmq.Socket) {
+func (o *VethIFZmq) CreateSocket(socketStr string) (*zmq.Context, *zmq.Socket) {
 	context, err := zmq.NewContext()
 	if err != nil || context == nil {
 		panic(err)
@@ -63,8 +64,7 @@ func (o *VethIFZmq) CreateSocket(server string, port uint16) (*zmq.Context, *zmq
 		panic(err)
 	}
 
-	str := fmt.Sprintf("tcp://%s:%d", server, port)
-	err = socket.Connect(str)
+	err = socket.Connect(socketStr)
 	if err != nil {
 		panic(err)
 	}
@@ -72,10 +72,19 @@ func (o *VethIFZmq) CreateSocket(server string, port uint16) (*zmq.Context, *zmq
 
 }
 
-func (o *VethIFZmq) Create(ctx *CThreadCtx, port uint16, server string) {
+func (o *VethIFZmq) Create(ctx *CThreadCtx, port uint16, server string, tcp bool) {
 
-	o.rxCtx, o.rxSocket = o.CreateSocket(server, port)
-	o.txCtx, o.txSocket = o.CreateSocket(server, port+1)
+	var socketStrRx, socketStrTx string
+	if tcp {
+		socketStrRx = fmt.Sprintf("tcp://%s:%d", server, port)
+		socketStrTx = fmt.Sprintf("tcp://%s:%d", server, port+1)
+	} else {
+		socketStrRx = fmt.Sprintf("ipc://%s-%d.ipc", ZMQ_EMU_IPC_PATH, port)
+		socketStrTx = fmt.Sprintf("ipc://%s-%d.ipc", ZMQ_EMU_IPC_PATH, port+1)
+
+	}
+	o.rxCtx, o.rxSocket = o.CreateSocket(socketStrRx)
+	o.txCtx, o.txSocket = o.CreateSocket(socketStrTx)
 
 	o.rxPort = port
 	o.txPort = port + 1

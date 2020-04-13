@@ -37,18 +37,19 @@ func RegisterPlugins(tctx *core.CThreadCtx) {
 }
 
 type MainArgs struct {
-	port      *int
-	verbose   *bool
-	sim       *bool
-	capture   *bool
-	monitor   *bool
-	time      *int
-	file      *string
-	dummyVeth *bool
-	vethPort  *int
-	zmqServer *string
-	version   *bool
-	duration  time.Duration
+	port       *int
+	verbose    *bool
+	sim        *bool
+	capture    *bool
+	monitor    *bool
+	time       *int
+	file       *string
+	dummyVeth  *bool
+	vethPort   *int
+	zmqServer  *string
+	version    *bool
+	duration   time.Duration
+	emuTCPoZMQ *bool // use TCP over ZMQ instead of the classic IPC
 }
 
 func parseMainArgs() *MainArgs {
@@ -66,6 +67,7 @@ func parseMainArgs() *MainArgs {
 	args.file = parser.String("f", "file", &argparse.Options{Default: "emu_file", Help: "Path to save the pcap file"})
 	args.dummyVeth = parser.Flag("d", "dummy-veth", &argparse.Options{Default: false, Help: "Run server with a dummy veth, all packets to rx will be dropped"})
 	args.version = parser.Flag("V", "version", &argparse.Options{Default: false, Help: "show trex-emu version"})
+	args.emuTCPoZMQ = parser.Flag("", "emu-zmq-tcp", &argparse.Options{Default: false, Help: "Run TCP over ZMQ. Default is IPC"})
 
 	err := parser.Parse(os.Args)
 	if err != nil {
@@ -86,7 +88,12 @@ func RunCoreZmq(args *MainArgs) {
 	}
 
 	port := uint16(*args.port)
-	fmt.Printf("run zmq server on [%d:rx:%d:tx:%d] \n", port, *args.vethPort, *args.vethPort+1)
+	if *args.emuTCPoZMQ {
+		fmt.Printf("Run ZMQ server on [RPC:%d, RX: TCP:%d, TX: TCP:%d]\n", port, *args.vethPort, *args.vethPort+1)
+	} else {
+		fmt.Printf("Run ZMQ server on [RPC:%d, RX: IPC, TX:IPC]\n", port)
+	}
+
 	rand.Seed(time.Now().UnixNano())
 
 	var simrx core.VethIFSim
@@ -98,7 +105,7 @@ func RunCoreZmq(args *MainArgs) {
 	tctx := core.NewThreadCtx(0, port, *args.sim, &simrx)
 
 	if !*args.sim {
-		zmqVeth.Create(tctx, uint16(*args.vethPort), *args.zmqServer)
+		zmqVeth.Create(tctx, uint16(*args.vethPort), *args.zmqServer, *args.emuTCPoZMQ)
 		zmqVeth.StartRxThread()
 		tctx.SetZmqVeth(&zmqVeth)
 	}
