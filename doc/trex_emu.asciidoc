@@ -127,7 +127,7 @@ This object handles the following entities:
 === EMU Namespace
 
 .Go
-[source,python]
+[source, go]
 ----
 
 type CNSCtx struct {
@@ -164,7 +164,7 @@ Properties:
 === EMU Client
 
 .Go
-[source,python]
+[source, go]
 ----
 
 // CClientDg default GW
@@ -299,7 +299,7 @@ link:{github_emu_path}/simple_emu.py[emu/simple_emu.py]
 This profile is a way to create a database (tree) of namespaces and clients in Python, and forward the tree to the EMU server via RPC commands. Let's look into the sections of the profile.
 
 .Python Profile
-[source,python]
+[source, python]
 ----
 class Prof1():
     def __init__(self):
@@ -1104,7 +1104,7 @@ pktRxIcmpResponse | 10000
 TRex supports IGMPv2/v3 (RFC3376) and can maintain (add/remove) scale of multicast IPs. 
 
 .Python Profile
-[source,python]
+[source, python]
 ----
 class Prof1():
     def __init__(self):
@@ -1229,7 +1229,7 @@ Group Address    Interface                Uptime    Expires   Last Reporter
 *Goal*:: Add clients that interact with DHCP server to get the IPv4/Default gateway
 
 .Python Profile
-[source,python]
+[source, python]
 ----
 class Prof1():
     def __init__(self):
@@ -1426,7 +1426,7 @@ IPv6 client side is based on the following RFCs:
 It was written from scratch so it might have some issues.
 
 .Python Profile
-[source,python]
+[source, python]
 ----
 class Prof1():
     def __init__(self):
@@ -1927,7 +1927,7 @@ Let us see an example of how to the Python API. More can be found on the SDK doc
 First we need to move the mode to service mode filter to get the packets to EMU (this should be done with TRex server client STL or ASTF)
 
 .TRex server move to filter mode 
-[source,python]
+[source, python]
 ----
     c_trex = STLClient()
     c_trex.connect()
@@ -1942,7 +1942,7 @@ First we need to move the mode to service mode filter to get the packets to EMU 
 Then we can connect to the EMU server 
 
 .EMU API example 
-[source,python]
+[source, python]
 ----
 
     c = EMUClient(server=EMU_SERVER,
@@ -1990,6 +1990,56 @@ Basic debugging can be performed using the following steps:
  $ trex-emu -m -S {trex-server-ip} | tee /tmp/a.pcap
  $ trex-console -s {trex-server-ip} --emu --emu-server {emu-server-ip}
 ----
+
+=== Tutorial: ZMQ transport layer
+
+As previously mentioned in this document, the Emulation server and the Rx Core use a ZeroMQ (ZMQ) channel in order to communicate. 
+
+ZMQ offers different flavors of transport, with the classic one being TCP.
+
+However, the most common use case is that the Emulation server and the TRex Core Server run on the same machine, as different proccesses. If this indeed is the case, we can use https://en.wikipedia.org/wiki/Inter-process_communication[IPC] as a means of transport. 
+
+In our findings, IPC tends to perform better than TCP, because of TCP mechanisms such as congestion control, windowing, etc..
+
+As such, we prefer IPC over TCP. When normally running TRex with the Emulation server, the transport flavor of ZMQ will be IPC.
+[source, bash]
+----
+ scripts$ sudo ./t-rex-64 -i -c 1 --iom 0 --software --emu
+----
+
+We can use TCP if we provide the following flag:
+
+[source, bash]
+----
+ scripts$ sudo ./t-rex-64 -i -c 1 --iom 0 --software --emu --emu-zmq-tcp
+----
+
+==== Tutorial: ZMQ transport layer in debug mode
+
+We remind that the first step to run TRex in debug mode is:
+[source, bash]
+----
+ scripts$ sudo ./t-rex-64 -i -c 1 --iom 0 --software --emu-zmq
+----
+The TRex server in this case expects the Emulation server to connect using ZMQ with IPC.
+However, simply running the following command will not work.
+[source, bash]
+----
+ scripts/trex_emu$ trex-emu
+----
+This is because IPC uses files and for files we need permissions. Hence, in this case we must run
+[source, bash]
+----
+ scripts$ sudo taskset -c 0 ./trex-emu
+----
+
+Note that when using TCP in debug mode we don't need these permissions and we simply can use:
+[source, bash]
+----
+ scripts$ sudo ./t-rex-64 -i -c 1 --iom 0 --software --emu-zmq --emu-zmq-tcp
+ scripts/trex_emu$ trex-emu --emu-zmq-tcp
+----
+
 
 == FAQ 
 
