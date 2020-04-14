@@ -64,9 +64,15 @@ In this example, if all the clients had the same default gateway 16.0.0.1, we wi
 
 .Build
 -----
+$cd scripts
 $source ./b
-$cd src/
+$cd ../src/
 $go install -v cmd/trex-emu.go
+
+or use our script:
+
+$cd scripts
+$./utility_script build -v
 -----
 
 .Run Tests
@@ -80,6 +86,11 @@ $go test emu/plugins/igmp
 $go test emu/plugins/ipv6
 $go test emu/plugins/dhcpv6
 $go test emu/plugins/dhcp
+
+or use our script:
+
+$cd scripts
+$./utility_script test -v
 -----
 
 .Run

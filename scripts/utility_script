@@ -1,0 +1,41 @@
+#! /bin/bash
+
+# This script is used for building, testing and cleaning go repo.
+# $1 - operation to do: build, test or clean
+# $2 - additional arguments to operation
+
+# add PATH variable for remote ssh commands 
+export PATH=$PATH:/usr/local/go/bin
+
+source ./b
+
+if [[ $1 == "build" ]]; then
+    cd $GOPATH/src
+    go install $2 cmd/trex-emu.go
+elif [[ $1 == "test" ]]; then
+    cd $GOPATH/src
+    go test $2 emu/core
+
+    for p in emu/plugins/*; do
+        if [[ $(find ./$p -type f -name *"_test.go") ]]; then
+            go test $p
+            RESULT=$?
+            if [[ $RESULT != 0 ]]; then
+                echo Test of "$p" failed!
+                exit $RESULT
+            fi
+        fi
+    done
+    echo "Go tests passed :-)"
+elif [[ $1 == "clean" ]]; then
+    
+    # clean only if repo built before
+    if [[ -d "$GOPATH/pkg" ]]; then
+        cd $GOPATH
+        echo "cleaning go cahce files"
+        go clean -modcache $2
+    fi
+else
+    echo "Unknown commad: $1, please provide one of: build, test or clean"
+    exit 1
+fi
