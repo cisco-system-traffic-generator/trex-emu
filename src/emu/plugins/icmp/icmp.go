@@ -357,7 +357,7 @@ func (o *PluginIcmpNs) HandleEchoReply(ps *core.ParserPacketState) int {
 	}
 }
 
-//HandleDestinationUnreachable handles an ICMP Destination Unreacheable that is received in the ICMP namespace.
+//HandleDestinationUnreachable handles an ICMP Destination Unreachable that is received in the ICMP namespace.
 func (o *PluginIcmpNs) HandleDestinationUnreachable(ps *core.ParserPacketState) int {
 	p := ps.M.GetData()
 	eth := layers.EthernetHeader(p[0:12])
@@ -565,7 +565,7 @@ func getClient(ctx interface{}, params *fastjson.RawMessage) (*PluginIcmpClient,
 }
 
 /* ServeJSONRPC for ApiIcmpClientStartPingHandler starts a Ping instance.
-Returns True if it sucessfully started the ping, else False. */
+Returns True if it successfully started the ping, else False. */
 func (h ApiIcmpClientStartPingHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
 
 	tctx := ctx.(*core.CThreadCtx)
@@ -596,7 +596,7 @@ func (h ApiIcmpClientStartPingHandler) ServeJSONRPC(ctx interface{}, params *fas
 }
 
 /* ServeJSONRPC for ApiIcmpClientStopPingHandler stops an ongoing ping.
-Returns True if it sucessfully stopped the ping, else False. */
+Returns True if it successfully stopped the ping, else False. */
 func (h ApiIcmpClientStopPingHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
 
 	icmpClient, err := getClient(ctx, params)

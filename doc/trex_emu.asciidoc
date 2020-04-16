@@ -131,25 +131,25 @@ This object handles the following entities:
 ----
 
 type CNSCtx struct {
-	ThreadCtx      *CThreadCtx
-	PluginCtx      *PluginCtx
-	DefClientPlugs *MapJsonPlugs 
+    ThreadCtx      *CThreadCtx
+    PluginCtx      *PluginCtx
+    DefClientPlugs *MapJsonPlugs 
 }
 
 type CNsInfo struct {
-	Port          uint16    `json:"vport" validate:"required"`
-	Tci           [2]uint16 `json:"tci"`
-	Tpid          [2]uint16 `json:"tpid"`
-	ActiveClients uint64    `json:"active_clients"`
-	PlugNames     []string  `json:"plug_names"`
+    Port          uint16    `json:"vport" validate:"required"`
+    Tci           [2]uint16 `json:"tci"`
+    Tpid          [2]uint16 `json:"tpid"`
+    ActiveClients uint64    `json:"active_clients"`
+    PlugNames     []string  `json:"plug_names"`
 }
 
 
 type CTunnelDataJson struct {
-	Vport  uint16         `json:"vport"`
-	Tpid   [2]uint16      `json:"tpid"`
-	Tci    [2]uint16      `json:"tci"`
-	Plugins *MapJsonPlugs `json:"plugs"`
+    Vport  uint16         `json:"vport"`
+    Tpid   [2]uint16      `json:"tpid"`
+    Tci    [2]uint16      `json:"tci"`
+    Plugins *MapJsonPlugs `json:"plugs"`
 }
 
 ----
@@ -169,89 +169,89 @@ Properties:
 
 // CClientDg default GW
 type CClientDg struct {
-	IpdgResolved bool   `json:"resolve"` // bool in case it is resolved
-	IpdgMac      MACKey `json:"rmac"`    // default
+    IpdgResolved bool   `json:"resolve"` // bool in case it is resolved
+    IpdgMac      MACKey `json:"rmac"`    // default
 }
 
 //CClientIpv6Nd information learned from router
 type CClientIpv6Nd struct {
-	MTU        uint16  `json:"mtu"`   // MTU in L3 1500 by default
-	DgMac      MACKey  `json:"dgmac"` // router dg
-	PrefixIpv6 Ipv6Key `json:"prefix"`
-	PrefixLen  uint8   `json:"prefix_len"`
-	IPv6       Ipv6Key `json:"ipv6"`
+    MTU        uint16  `json:"mtu"`   // MTU in L3 1500 by default
+    DgMac      MACKey  `json:"dgmac"` // router dg
+    PrefixIpv6 Ipv6Key `json:"prefix"`
+    PrefixLen  uint8   `json:"prefix_len"`
+    IPv6       Ipv6Key `json:"ipv6"`
 }
 
 type CClient struct {
-	dlist  DList   // for adding into list
-	Ns     *CNSCtx // pointer to a namespace
-	Ipv4   Ipv4Key // source ipv4
-	Maskv4 Ipv4Key // mask default 0xffffffff
-	DgIpv4 Ipv4Key // default gateway for ipv4
-	Mac    MACKey  // immutable over lifetime of client
-	MTU    uint16  // MTU in L3 1500 by default
+    dlist  DList   // for adding into list
+    Ns     *CNSCtx // pointer to a namespace
+    Ipv4   Ipv4Key // source ipv4
+    Maskv4 Ipv4Key // mask default 0xffffffff
+    DgIpv4 Ipv4Key // default gateway for ipv4
+    Mac    MACKey  // immutable over lifetime of client
+    MTU    uint16  // MTU in L3 1500 by default
 
-	DGW *CClientDg /* resolve by ARP */
+    DGW *CClientDg /* resolve by ARP */
 
-	Ipv6Router *CClientIpv6Nd
-	Ipv6DGW    *CClientDg /* resolve by ipv6 */
-	Ipv6       Ipv6Key    // set the self ipv6 by user
-	DgIpv6     Ipv6Key    // default gateway if provided would be in highest priority
-	Dhcpv6     Ipv6Key    // the dhcpv6 ipv6, another ipv6 would be the one that was learned from the router
+    Ipv6Router *CClientIpv6Nd
+    Ipv6DGW    *CClientDg /* resolve by ipv6 */
+    Ipv6       Ipv6Key    // set the self ipv6 by user
+    DgIpv6     Ipv6Key    // default gateway if provided would be in highest priority
+    Dhcpv6     Ipv6Key    // the dhcpv6 ipv6, another ipv6 would be the one that was learned from the router
 
-	Ipv6ForceDGW   bool /* true in case we want to enforce default gateway MAC */
-	Ipv6ForcedgMac MACKey
+    Ipv6ForceDGW   bool /* true in case we want to enforce default gateway MAC */
+    Ipv6ForcedgMac MACKey
 
-	ForceDGW       bool /* true in case we want to enforce default gateway MAC */
-	Ipv4ForcedgMac MACKey
+    ForceDGW       bool /* true in case we want to enforce default gateway MAC */
+    Ipv4ForcedgMac MACKey
 
-	PluginCtx *PluginCtx
+    PluginCtx *PluginCtx
 }
 
 type CClientCmd struct {
-	Mac    MACKey  `json:"mac" validate:"required"`  // the key mac addrees
-	Ipv4   Ipv4Key `json:"ipv4"` // source ipv4 
-	DgIpv4 Ipv4Key `json:"ipv4_dg"`  // default gateway 
-	MTU    uint16  `json:"ipv4_mtu"` // ipv4 mtu 
+    Mac    MACKey  `json:"mac" validate:"required"`  // the key mac address
+    Ipv4   Ipv4Key `json:"ipv4"` // source ipv4 
+    DgIpv4 Ipv4Key `json:"ipv4_dg"`  // default gateway 
+    MTU    uint16  `json:"ipv4_mtu"` // ipv4 mtu 
 
-	Ipv6   Ipv6Key `json:"ipv6"`  // source global ipv6 
-	DgIpv6 Ipv6Key `json:"dg_ipv6"` // ipv6 default gateway 
+    Ipv6   Ipv6Key `json:"ipv6"`  // source global ipv6 
+    DgIpv6 Ipv6Key `json:"dg_ipv6"` // ipv6 default gateway 
 
-	Ipv6ForceDGW   bool   `json:"ipv6_force_dg"` // force static default gateway 
-	Ipv6ForcedgMac MACKey `json:"ipv6_force_mac"` // the mac of the forced default gateway 
-	ForceDGW       bool   `json:"ipv4_force_dg"` // forced ipv4 default gateway 
-	Ipv4ForcedgMac MACKey `json:"ipv4_force_mac"` // the MAC of the ipv4 forced default gateway 
+    Ipv6ForceDGW   bool   `json:"ipv6_force_dg"` // force static default gateway 
+    Ipv6ForcedgMac MACKey `json:"ipv6_force_mac"` // the mac of the forced default gateway 
+    ForceDGW       bool   `json:"ipv4_force_dg"` // forced ipv4 default gateway 
+    Ipv4ForcedgMac MACKey `json:"ipv4_force_mac"` // the MAC of the ipv4 forced default gateway 
 
-	Plugins *MapJsonPlugs `json:"plugs"` // list of plugins
+    Plugins *MapJsonPlugs `json:"plugs"` // list of plugins
 }
 
 type CClientCmds struct {
-	Clients []CClientCmd `json:"clients" validate:"required"`
+    Clients []CClientCmd `json:"clients" validate:"required"`
 }
 
 type CClientInfo struct {
-	Mac    MACKey  `json:"mac"`
-	Ipv4   Ipv4Key `json:"ipv4"`
-	DgIpv4 Ipv4Key `json:"ipv4_dg"`
-	MTU    uint16  `json:"ipv4_mtu"`
+    Mac    MACKey  `json:"mac"`
+    Ipv4   Ipv4Key `json:"ipv4"`
+    DgIpv4 Ipv4Key `json:"ipv4_dg"`
+    MTU    uint16  `json:"ipv4_mtu"`
 
-	Ipv6Local Ipv6Key `json:"ipv6_local"`
-	Ipv6Slaac Ipv6Key `json:"ipv6_slaac"`
-	Ipv6      Ipv6Key `json:"ipv6"`
-	DgIpv6    Ipv6Key `json:"dg_ipv6"`
-	DhcpIpv6  Ipv6Key `json:"dhcp_ipv6"`
+    Ipv6Local Ipv6Key `json:"ipv6_local"`
+    Ipv6Slaac Ipv6Key `json:"ipv6_slaac"`
+    Ipv6      Ipv6Key `json:"ipv6"`
+    DgIpv6    Ipv6Key `json:"dg_ipv6"`
+    DhcpIpv6  Ipv6Key `json:"dhcp_ipv6"`
 
-	Ipv6ForceDGW   bool   `json:"ipv6_force_dg"`
-	Ipv6ForcedgMac MACKey `json:"ipv6_force_mac"`
-	ForceDGW       bool   `json:"ipv4_force_dg"`
-	Ipv4ForcedgMac MACKey `json:"ipv4_force_mac"`
+    Ipv6ForceDGW   bool   `json:"ipv6_force_dg"`
+    Ipv6ForcedgMac MACKey `json:"ipv6_force_mac"`
+    ForceDGW       bool   `json:"ipv4_force_dg"`
+    Ipv4ForcedgMac MACKey `json:"ipv4_force_mac"`
 
-	DGW *CClientDg `json:"dgw"`
+    DGW *CClientDg `json:"dgw"`
 
-	Ipv6Router *CClientIpv6Nd `json:"ipv6_router"`
-	Ipv6DGW    *CClientDg     `json:"ipv6_dgw"`
+    Ipv6Router *CClientIpv6Nd `json:"ipv6_router"`
+    Ipv6DGW    *CClientDg     `json:"ipv6_dgw"`
 
-	PlugNames []string `json:"plug_names"`
+    PlugNames []string `json:"plug_names"`
 }
 ----
 
@@ -1721,23 +1721,23 @@ Success rate is 100 percent (5/5), round-trip min/avg/max = 101/108/117 ms
 
 
 * Every client advertises all its global IPv6 addresses using NS packets and its own local-IPv6.
-* MLDv2 is used (MLDv1 is supported too but less efficient) to publish the solicited multicast addrees for each IPv6 global addrees.
-* DHCPv6 does not offer a default gateway, SLAAC can be used or an explicit addrees.
+* MLDv2 is used (MLDv1 is supported too but less efficient) to publish the solicited multicast address for each IPv6 global address.
+* DHCPv6 does not offer a default gateway, SLAAC can be used or an explicit address.
 
 === Tutorial: Dot1x
 
 *Goal*:: To authenticate up to 2000 clients on one ports of C9300 switch (up to 50K per switch)
 
 
-EMU can supports EAP-MD5 and EAP-MSCHAPv2 (PEAP,TTLS and EAP-TLS is not supported yet)
-Multi-AUTH and Single host is supported (multicast and unicast)
+EMU can supports EAP-MD5 and EAP-MSCHAPv2 (PEAP, TTLS and EAP-TLS is not supported yet).
+Multi-AUTH and Single host is supported (multicast 
+and unicast)
 
 
 *The Setup is*::
 
-                                            (G2/0/21)   ----  TRex port 0 (1.1.1.3)
-freeRadius 1.1.1.2 ---  Cisco C9300/24 ports   
-                                            (G2/0/20)   ----  TRex port 1 (1.1.1.4)  
+image:images/dot1x_setup.png[title="Dot1x Setup",align="left",width={p_width}, link="images/dot1x_setup.png"]
+
 
 
 .freeRadius add /etc/freeradius/3.0/clients.conf
@@ -1750,10 +1750,10 @@ client switch1 {
 }
 ----
 
-switch1 will be the salt of the Switch client 
+`switch1` will be the salt of the Switch client 
 
 
-Add a few users to the Radius 
+Let's add a few users to the Radius:
 
 .freeRadius add /etc/freeradius/3.0/users
 [source,bash]
@@ -1769,7 +1769,7 @@ test8 Cleartext-Password := "test8"
 test9 Cleartext-Password := "test9"
 ----
 
-.freeRadius test it
+.freeRadius test
 [source,bash]
 ----
 radtest  -t eap-md5 test1 test1 1.1.1.2  0 switch1
@@ -1850,7 +1850,7 @@ class Prof1():
                                       ipv4_dg = dg.V(),
                                       plugs   = {'arp': {},
                                                  'icmp': {},
-                                                 'dot1x': {'user':u,'password':u,'flags':1},
+                                                 'dot1x': {'user':u, 'password':u, 'flags':1},
                                                 },
                                       )
                 ns.add_clients(client)
@@ -1862,14 +1862,13 @@ class Prof1():
 ----
 
 
-* To Force MSCHAPv2 add 'flags':1, this will disable EAP-MD5 ('dot1x': {'user':u,'password':u,'flags':1},)
+* To Force MSCHAPv2 add 'flags':1, this will disable EAP-MD5 ('dot1x': {'user':u, 'password':u, 'flags':1},)
 
 .Cat9K debug
 [source,bash]
 ----
 
-    -stack-197.72#show dot1x st
-    9300-stack-197.72#show dot1x statistics 
+    9300-stack-197.72> show dot1x statistics 
     Dot1x Global Statistics for
     --------------------------------------------
     RxStart = 8     RxLogoff = 0    RxResp = 10      RxRespID = 13
@@ -1882,7 +1881,7 @@ class Prof1():
     TxTotal = 33
 
 
-    9300-stack-197.72#show authentication sessions interface GigabitEthernet 2/0/21
+    9300-stack-197.72> show authentication sessions interface GigabitEthernet 2/0/21
     Interface                MAC Address    Method  Domain  Status Fg  
     -------------------------------------------------------------------
     Gi2/0/21                 0000.0070.0001 dot1x   DATA    Auth        
@@ -1997,7 +1996,7 @@ As previously mentioned in this document, the Emulation server and the Rx Core u
 
 ZMQ offers different flavors of transport, with the classic one being TCP.
 
-However, the most common use case is that the Emulation server and the TRex Core Server run on the same machine, as different proccesses. If this indeed is the case, we can use https://en.wikipedia.org/wiki/Inter-process_communication[IPC] as a means of transport. 
+However, the most common use case is that the Emulation server and the TRex Core Server run on the same machine, as different processes. If this indeed is the case, we can use https://en.wikipedia.org/wiki/Inter-process_communication[IPC] as a means of transport. 
 
 In our findings, IPC tends to perform better than TCP, because of TCP mechanisms such as congestion control, windowing, etc..
 
@@ -2105,4 +2104,417 @@ You can, but we should support it in the framework first.
 
 Not supported yet. The API would be an event driver API.
 
+
+== For Developers
+
+As you already know the Emulation Server was written in Go. The reasons and the penalties of this choice are mentioned in the FAQ, but one of the most important reasons in which we want
+to focus here is the modularity.
+
+One of the basic laws of software design is the `Law of Simplicity`: The ease of maintenance of any piece of software is proportional to the simplicity of its individual pieces.
+We wanted a simple model, taking into consideration that each protocol is self contained and independent of other protocols. This is where Go packages come into play.
+
+Every protocol is written as a separate package and each of these packages are provided fundamentals such as:
+
+** JSON-RPC connectivity directly to the Client
+** Timers
+** Counter functionality
+** Testing Simulation
+** Monitoring/Capture
+
+In the rare case where these protocols, also known as plugins, need to communicate with each other they can use a provided Event Bus to pass messages.
+
+All of this was mentioned on the Emulation Support section. This section is meant to be a more hands-on tutorial on how to write a package/plugin/protocol.
+
+
+=== Tutorial: How to write a plugin/package
+
+The best way to learn is through examples. I recently wrote a package for `ping` and will take you through the details and the decisions. We will mostly focus on the fundamentals aforementioned
+as they are common to all.
+
+*Goal*::
+
+Offer ping functionality both for IPv4 and IPv6.
+
+As every good piece of software written, it all starts with the design. We want to offer the ping functionality for both IPv4/6 and as such let us understand the differences between the two.
+As it happens to be the only difference is the Type Code field, and we understand that a lot of code can be shared here.
+
+Hence, we decide to write the ping functionality in a separate package with ICMPv4/ICMPv6 making use of this package as a black box.
+
+==== JSON-RPC functionality
+
+The JSON-RPC commands might be a bit different. For example, ICMPv4 uses a IPv4 destination address and ICMPv6 uses a IPv6 destination address. Each of these commands will then be in
+the respective package. We will show you for example the ping command RPC for both cases.
+
+.Ping JSON-RPC Command in icmp.go
+[source, go]
+----
+ApiIcmpClientStartPingHandler struct {
+    // Amount of echo requests to send
+    Amount      uint32       `json:"amount"  validate:"ne=0"`
+    // Pace of sending the Echo-Requests in packets per second.
+    Pace        float32      `json:"pace"    validate:"ne=0"`
+    // The destination IPv4
+    Dst         core.Ipv4Key `json:"dst"`
+    // Timeout from last ping until the stats are deleted.
+    Timeout     uint8        `json:"timeout" validate:"ne=0"`
+    // Payload size in bytes
+    PayloadSize uint16       `json:"payloadSize" validate:"gte=16"`
+}
+
+/* ServeJSONRPC for ApiIcmpClientStartPingHandler starts a Ping instance.
+Returns True if it successfully started the ping, else False. */
+func (h ApiIcmpClientStartPingHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
+
+    tctx := ctx.(*core.CThreadCtx)
+
+    p := ApiIcmpClientStartPingHandler{Amount: ping.DefaultPingAmount,
+        Pace: ping.DefaultPingPace, Dst: icmpClient.Client.DgIpv4,
+        Timeout: ping.DefaultPingTimeout, PayloadSize: ping.DefaultPingPayloadSize}
+
+    err1 := tctx.UnmarshalValidate(*params, &p)
+    if err1 != nil {
+        return nil, &jsonrpc.Error{
+            Code:    jsonrpc.ErrorCodeInvalidRequest,
+            Message: err1.Error(),
+        }
+    }
+    // The ping logic.
+}
+
+// Register the command with its handler.
+core.RegisterCB("icmp_c_start_ping", ApiIcmpClientStartPingHandler{}, true)
+----
+
+Let's cap what we need for an RPC command. We need to register the command name with a handler. This handler is a struct (a concrete type), whose fields are the JSON parameters.
+This struct must have a method named `ServeJSONRPC` (to satisfy a Go interface) which `Unmarshalls` and `Validates` the JSON parameters into the struct we defined.
+The IPv6 is almost the same but we will show it for the sake of being complete.
+
+.Ping JSON-RPC Command in ipv6.go
+[source, go]
+----
+ApiIpv6StartPingHandler struct {
+    // Amount of echo requests to send
+    Amount      uint32       `json:"amount"  validate:"ne=0"`
+    // Pace of sending the Echo-Requests in packets per second.
+    Pace        float32      `json:"pace"    validate:"ne=0"`
+    // The destination IPv6
+    Dst         core.Ipv6Key `json:"dst"`
+    // The source IPv6
+    Src         core.Ipv6Key `json:"src"`
+    // Timeout from last ping until the stats are deleted.
+    Timeout     uint8        `json:"timeout" validate:"ne=0"`
+    // Payload size bytes
+    PayloadSize uint16       `json:"payloadSize" validate:"gte=16"`
+}
+
+/* ServeJSONRPC for ApiIpv6StartPingHandler starts a Ping instance.
+Returns True if it successfully started the ping, else False. */
+func (h ApiIpv6StartPingHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
+
+    tctx := ctx.(*core.CThreadCtx)
+
+    c, err := getClient(ctx, params)
+    if err != nil {
+        return nil, err
+    }
+
+    dgIpv6, dgOk := c.Client.ResolveDGIPv6()
+
+    p := ApiIpv6StartPingHandler{Amount: ping.DefaultPingAmount,
+    Pace: ping.DefaultPingPace, Dst: dgIpv6,
+    Src: c.Client.ResolveSourceIPv6(), Timeout: ping.DefaultPingTimeout,
+    PayloadSize: ping.DefaultPingPayloadSize}
+
+    err1 := tctx.UnmarshalValidate(*params, &p)
+    if err1 != nil {
+        return nil, &jsonrpc.Error{
+            Code:    jsonrpc.ErrorCodeInvalidRequest,
+            Message: err1.Error(),
+        }
+    }
+    // ping logic
+}
+
+// Register the command with its handler.
+core.RegisterCB("ipv6_start_ping", ApiIpv6StartPingHandler{}, true)        // start ping
+----
+
+==== Declaring a new package
+
+Now let us get into the ping package. Each package is defined in a new directory and every Go file in this directory contains the following package declaration:
+
+.Ping Package declaration
+[source, go]
+----
+// Package ping offer Echo Request-Response functionality for both ICMPv4/ICMPv6.
+// Also it partially supports other type of possible responses such as Destination Unreachable.
+package ping
+----
+
+Both of the ICMPv4/v6 import this package.
+
+==== Timers
+
+We mentioned that each plugin can use build in provided timers. We will get more into the details of that later but for now let us see the time objects.
+There are 2 main objects:
+
+.Ping struct
+[source, go]
+----
+type Ping struct {
+    timer              core.CHTimerObj     // timer object
+    timerw             *core.TimerCtx      // timer wheel
+    // Other fields are omitted for brevity
+}
+----
+A timer wheel is an object of type `TimerCtx`, a timer context which is shared between many plugins.
+
+A timer object is an object which is used to hold the concrete type as a callback and call its `OnEvent` function when needed.
+
+For example, the following lines are taken from ping:
+
+.Timers in ping
+[source, go]
+----
+// NewPing creates a new Ping instance and returns a pointer to it.
+func NewPing(params PingParams, ns *core.CNSCtx, pingClient PingClientIF) *Ping {
+    o := new(Ping)
+    // Omitted lines for brevity
+    o.timer.SetCB(o, 0, 0) // set the callback to this object
+    o.timerw = o.tctx.GetTimerCtx() // get the timer wheel
+    //dTime is the delta time between two calls.
+    dTime := time.Duration(float32(time.Second) / params.Pace)
+    o.ticksPerInterval, o.pktsPerInterval = o.timerw.DurationToTicksBurst(dTime)
+    o.timerw.StartTicks(&o.timer, o.ticksPerInterval)
+}
+----
+We saw that the client provided a field named `Pace` in the ping command that specifies how many packets per second (pps) to send.
+Suppose `Pace=2`, we want to send 2 packets each second. So the code that sends packets must be called every `dTime=0.5s`.
+However the timer works with ticks and not with `duration.Time`, and as such we convert the time to ticks using the `DurationToTicksBurst` function.
+Lastly we instruct the timer to start ticking. After 0.5 seconds have passed the timer will call the `OnEvent` function of the callback concrete type we set using `SetCB`, 
+which looks like this:
+
+.Timers in ping cont.
+[source, go]
+----
+/* OnEvent - Event Driven call. Possible Events:
+- Time to send another Echo Request
+- Stop waiting for an Echo Response, after sending all Echo Requests. */
+func (o *Ping) OnEvent(a, b interface{}) {
+    if o.sentRequests < o.params.Amount {
+        o.sendPing()
+        if o.sentRequests == o.params.Amount {
+            timeout := time.Duration(o.params.Timeout) * time.Second
+            ticks := o.timerw.DurationToTicks(timeout)
+            o.timerw.StartTicks(&o.timer, ticks)
+        } else {
+            o.timerw.StartTicks(&o.timer, o.ticksPerInterval)
+        }
+    } else {
+        // Should have collected the records by now, timeout expired.
+        o.OnRemove()
+    }
+}
+----
+The `OnEvent` is called every 0.5 seconds except for when we finished sending all the pings. In this case we start a timer for `Timeout` seconds to allow the user to collect the ping statistics.
+
+Pay attention to the following two functions we used to calculate ticks:
+
+** `DurationToTicksBurst`
+** `DurationToTicks`
+
+These two functions both calculate ticks given a `time.Duration` object but they are different. The timer works with a minimal resolution which can be calculated using the following function:
+
+.Minimal Timer Resolution
+[source, go]
+----
+//MinTickMsec() return how long take a one tick in msec by default it is 10
+func (o *TimerCtx) MinTickMsec() uint32 {
+    return uint32(o.TickDuration / time.Millisecond)
+}
+----
+
+If your `time.Duration` is smaller than this minimal resolution please use the former to send bursts of packets and work at minimal resolution. Else, use the later.
+
+[NOTE]
+=====================================================================
+We see here a pure Event Driven architecture. This is fundamental in a scale project
+such as TRex. Only this way we can achieve the extreme TX rates. If we only attempt a
+blocking approach we wouldn't even get close to these rates.
+=====================================================================
+
+==== Counters
+
+A lot of protocols have counters and statistics and our ping package is no different. We offer build in functionality for counters as well, hence no need to reinvent the wheel.
+
+The first step is to define these counters in a new struct.
+
+.Ping Statistics
+[source, go]
+----
+// PingStats contains the data that will be returned to the client.
+// This should be unique per each Ping Identifier.
+type PingStats struct {
+    requestsSent         uint32        // how many Echo Requests were sent
+    requestsLeft         uint32        // how many Echo Requests are left to send
+    repliesBadIdentifier uint32        // how many Echo Replies with bad identifier received
+    repliesMalformedPkt  uint32        // how many malformed Echo replies were received
+    repliesBadLatency    uint32        // how many Echo Replies with bad latency were received
+    dstUnreachable       uint32        // how many Destination Unreachable were received
+    repliesInOrder       uint32        // how many Echo Replies received in order
+    repliesOutOfOrder    uint32        // how many Echo Replies received out of order
+    avgLatency           time.Duration // the average latency
+    avgLatencyUsec       int64         // the average latency in usec
+    minLatency           time.Duration // the minimal latency
+    minLatencyUsec       int64         // the minimal latency in usec
+    maxLatency           time.Duration // the maximal latency
+    maxLatencyUsec       int64         // the maximal latency in usec
+}
+----
+Note that not all of these counters need to be returned to the client, some might be for internal use.
+Those counters we want to return to the user we add in a database, by creating a `CCounterDb` in the following way:
+
+.Creating a database for the stats
+[source, go]
+----
+//Creates a database of ping stats
+func NewPingStatsDb(o *PingStats) *core.CCounterDb {
+    db := core.NewCCounterDb("icmp_ping_stats")
+    db.Add(&core.CCounterRec{
+        Counter:  &o.requestsSent,
+        Name:     "requestsSent",
+        Help:     "tx echo requests sent",
+        Unit:     "pkts",
+        DumpZero: false,
+        Info:     core.ScINFO})
+    // Lines omitted for brevity
+    return db
+}
+----
+
+The ping struct we saw before has two more fields for the counters which are initialized hte following way
+
+.How to use counters
+[source, go]
+----
+type Ping struct {
+    cdb                *core.CCounterDb    // Counter Database for Stats
+    cdbv               *core.CCounterDbVec // Database Vector
+    // Other fields are omitted for brevity
+}
+
+// NewPing creates a new Ping instance and returns a pointer to it.
+func NewPing(params PingParams, ns *core.CNSCtx, pingClient PingClientIF) *Ping {
+    o := new(Ping)
+    o.stats = new(PingStats)
+    o.cdb = NewPingStatsDb(o.stats)
+    o.cdbv = core.NewCCounterDbVec("icmp_ping_stats")
+    o.cdbv.Add(o.cdb)
+    // NOTE: Lines omitted for brevity
+}
+----
+
+The counter database would have sufficed in our case. However, a big part of the functionality is offered by the database vector, hence
+we hold a database vector of only one entry. We can at anytime return a JSON version of the stats:
+
+.Convert counters to JSON
+[source, go]
+----
+// GetPingCounters returns the Ping counters.
+// The params decides things like the verbosity, filtering or whether to dump zero errors.
+// The counters are updated before returning them.
+func (o *Ping) GetPingCounters(params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
+    var p core.ApiCntParams
+    o.updateStats()
+    return o.cdbv.GeneralCounters(nil, o.tctx, params, &p)
+}
+----
+Using the params field we can decide the granularity of the information we return, such as units, filtering, verbosity etc.
+
+==== Testing simulation
+
+Another basic law of software design is the `Law of Testing` which says: The degree to which you know how your software behaves is the degree to 
+which you have accurately tested it.
+
+First and foremost, our package needs to know if it is being tested or not. For example, in order to measure latency, we encode a timestamp of nanosecond resolution
+when sending the packet in the payload. We simply can't test our latency calculation's correctness unless we know we are in a test simulation environment and use a fixed value in this case.
+Hence, our package can do something like this:
+
+.Knowing your environment
+[source, go]
+----
+    if !o.tctx.Simulation {
+        o.identifier = uint16(rand.Intn(0xffff))
+        o.sequenceNumber = uint16(rand.Intn(0xffff))
+    } else {
+        o.identifier = 0x1234
+        o.sequenceNumber = 0xabcd
+        timestamp = 128
+    }
+----
+
+Writing tests in Golang is really easy. We won't get in all of the details but we will mention the basics.
+
+First, we can use timers in tests just like we used them in the real package, with callbacks and flags to capture and compare.
+
+.Example of test parameters
+[source, go]
+----
+func TestPluginIcmp3(t *testing.T) {
+    a := &IcmpTestBase{
+        testname:     "icmp3",
+        monitor:      true,
+        match:        2,
+        capture:      true,
+        duration:     3 * time.Minute,
+        clientsToSim: 1,
+        amount:       5,
+        cb:           rpcQueue,
+    }
+    a.Run(t, true)
+}
+----
+
+Secondly, we can simulate JSON-RPC requests in the following way:
+
+.Simulating JSON-RPCs in Go
+[source, go]
+----
+    o.tctx.Veth.AppendSimuationRPC([]byte(`{"jsonrpc": "2.0",
+        "method":"icmp_c_start_ping",
+        "params": {"tun": {"vport":1,"tci":[1,2]}, "mac": [0, 0, 1, 0, 0, 0], "amount": 5,
+        "pace": 1, "dst": [16, 0, 0, 1], "payloadSize": 20},
+        "id": 3}`))
+----
+
+[NOTE]
+=====================================================================
+For this to work, we clearly need to simulate the clients and namespaces with the 
+appropriate parameters as well.
+=====================================================================
+
+The idea behind this test is to create a golden file, with a packet dump (k12 format) and counters. Afterwards, each time we run the test we compare the generated output
+to the golden file.
+
+[source, bash]
+----
+bdollma@sceasr-b20:src$ go test -v emu/plugins/icmp -run 3
+=== RUN   TestPluginIcmp3
+ counters icmp db
+pktTxIcmpQuery                 :          5
+pktRxIcmpResponse              :          5
+ ===
+--- PASS: TestPluginIcmp3 (0.01s)
+PASS
+ok      emu/plugins/icmp        0.024s
+----
+
+The generated file can be found `unit-test/generated` and the expected file is found in `unit-test/expected`.
+
+Lastly, we can monitor and see the capture: 
+
+[source, bash]
+----
+bdollma@sceasr-b20:src$ go test -v emu/plugins/icmp -run 3 --monitor 1 > $bdollma/a.pcap
+----
 

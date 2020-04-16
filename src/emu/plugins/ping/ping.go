@@ -3,6 +3,8 @@
 // that can be found in the LICENSE file in the root of the source
 // tree.
 
+// Package ping offer Echo Request-Response functionality for both ICMPv4/ICMPv6.
+// Also it partially supports other type of possible responses such as Destination Unreachable.
 package ping
 
 import (
@@ -49,7 +51,7 @@ type PingParams struct {
 }
 
 // PingStats contains the data that will be returned to the client.
-// This should be unique per each ICMPv4 Identifier.
+// This should be unique per each Identifier.
 type PingStats struct {
 	requestsSent         uint32        // how many Echo Requests were sent
 	requestsLeft         uint32        // how many Echo Requests are left to send
