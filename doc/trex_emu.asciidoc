@@ -2128,8 +2128,8 @@ All of this was mentioned on the Emulation Support section. This section is mean
 
 === Tutorial: How to write a plugin/package
 
-The best way to learn is through examples. I recently wrote a package for `ping` and will take you through the details and the decisions. We will mostly focus on the fundamentals aforementioned
-as they are common to all.
+The best way to learn is through examples. We recently implemented a few of these plugins/packages and the `ping` package is the most basic one. We will use it as an example to take you through the details and the decisions. We will mostly focus on the fundamentals aforementioned
+as they are common to all packages.
 
 *Goal*::
 
