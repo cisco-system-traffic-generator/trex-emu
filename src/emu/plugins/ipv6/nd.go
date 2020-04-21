@@ -1241,6 +1241,7 @@ func (o *NdClientCtx) Respond(mac *core.MACKey, ps *core.ParserPacketState) {
 		copy(ipv6.DstIP()[:], net.IPv6linklocalallnodes)
 		copy(p[0:6], []byte{0x33, 0x33, 0, 0, 0, 1})
 	} else {
+		copy(ipv6.SrcIP()[:], psrc[ps.L4+8:ps.L4+8+16]) //target
 		copy(ipv6.DstIP()[:], sipv6.SrcIP()[:])
 		o.nsPlug.stats.pktTxNeighborAdvUnicast++
 		p[l4+4] = 0x60
