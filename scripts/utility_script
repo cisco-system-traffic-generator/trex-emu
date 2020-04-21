@@ -10,9 +10,12 @@ export PATH=$PATH:/usr/local/go/bin
 source ./b
 
 if [[ $1 == "build" ]]; then
+
     cd $GOPATH/src
     go install $2 cmd/trex-emu.go
+
 elif [[ $1 == "test" ]]; then
+
     cd $GOPATH/src
     go test $2 emu/core
 
@@ -27,13 +30,14 @@ elif [[ $1 == "test" ]]; then
         fi
     done
     echo "Go tests passed :-)"
+
 elif [[ $1 == "clean" ]]; then
     
     # clean only if repo built before
     if [[ -d "$GOPATH/pkg" ]]; then
         cd $GOPATH
-        echo "cleaning go cahce files"
-        go clean -modcache $2
+        echo "Cleaning go cahce files"
+        go clean -modcache -cache $2
     fi
 else
     echo "Unknown commad: $1, please provide one of: build, test or clean"
