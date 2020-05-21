@@ -82,6 +82,12 @@ func (o IPv6Header) TOS() uint8 {
 	return uint8((((binary.BigEndian.Uint16(o[0:2])) >> 4) & 0x00ff))
 }
 
+func (o IPv6Header) SetTOS(val uint8) {
+	old := binary.BigEndian.Uint16(o[0:2])
+	old = (old & 0xf00f) | ((uint16(val & 0xff)) << 4)
+	binary.BigEndian.PutUint16(o[0:2], old)
+}
+
 func (o IPv6Header) PayloadLength() uint16 {
 	return (binary.BigEndian.Uint16(o[4:6]))
 }
@@ -92,6 +98,10 @@ func (o IPv6Header) SetPyloadLength(len uint16) {
 
 func (o IPv6Header) HopLimit() uint8 {
 	return o[7]
+}
+
+func (o IPv6Header) SetHopLimit(val uint8) {
+	o[7] = val
 }
 
 func (o IPv6Header) SrcIP() []byte {

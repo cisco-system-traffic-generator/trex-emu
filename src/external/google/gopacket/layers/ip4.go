@@ -84,6 +84,10 @@ func (o IPv4Header) SetTOS(tos uint8) {
 	o[1] = tos
 }
 
+func (o IPv4Header) SetTTL(ttl uint8) {
+	o[8] = ttl
+}
+
 func (o IPv4Header) IsFragment() bool {
 	frag := (binary.BigEndian.Uint16(o[6:8]))
 

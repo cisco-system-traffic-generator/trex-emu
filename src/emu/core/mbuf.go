@@ -41,6 +41,7 @@ const lIND_ATTACHED_MBUF = 0x2
 
 //MAX_PACKET_SIZE the maximum packet size
 const MAX_PACKET_SIZE uint16 = 9 * 1024
+const MBUF_RX_POOL_SIZE = 2048 // pool used by rx size
 
 // MbufPoll cache of mbufs per packet size
 type MbufPoll struct {
@@ -50,7 +51,7 @@ type MbufPoll struct {
 	Cdb   *CCounterDb
 }
 
-var poolSizes = [...]uint16{128, 256, 512, 1024, 2048, 4096, MAX_PACKET_SIZE}
+var poolSizes = [...]uint16{128, 256, 512, 1024, MBUF_RX_POOL_SIZE, 4096, MAX_PACKET_SIZE}
 
 //GetMaxPacketSize return the maximum
 func (o *MbufPoll) GetMaxPacketSize() uint16 {
@@ -87,6 +88,16 @@ func (o *MbufPoll) ClearCache() {
 		}
 		o.pools[i].ClearCache()
 	}
+}
+
+func (o *MbufPoll) GetPoolBySize(size uint16) *MbufPollSize {
+	for i, ps := range poolSizes {
+		if size <= ps {
+			return &o.pools[i]
+		}
+	}
+	s := fmt.Sprintf(" MbufPoll.Alloc size is too big %d ", size)
+	panic(s)
 }
 
 // Alloc new mbuf from the right pool
@@ -396,6 +407,20 @@ func (o *Mbuf) Append(d []byte) {
 	}
 
 	copy(last.data[off:], d)
+	o.pktLen += uint32(size)
+	last.dataLen += size
+}
+
+func (o *Mbuf) AppendBytes(bytes uint16) {
+	last := o.LastSeg()
+	off := last.dataOff + last.dataLen
+	n := last.bufLen - off
+	var size uint16
+	size = bytes
+	if size > n {
+		s := fmt.Sprintf(" append %d to mbuf remain size %d", size, n)
+		panic(s)
+	}
 	o.pktLen += uint32(size)
 	last.dataLen += size
 }

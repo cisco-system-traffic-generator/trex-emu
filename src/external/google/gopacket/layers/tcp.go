@@ -16,21 +16,47 @@ import (
 	"external/google/gopacket"
 )
 
+type TcpHeader []byte
+
+func (o TcpHeader) SetSeqNumber(val uint32) {
+	binary.BigEndian.PutUint32(o[4:8], val)
+}
+
+func (o TcpHeader) SetAckNumber(val uint32) {
+	binary.BigEndian.PutUint32(o[8:12], val)
+}
+
+func (o TcpHeader) SetHeaderLength(val uint8) {
+	o[12] = (o[12] & 0x0f) | ((val >> 2) << 4)
+}
+
+func (o TcpHeader) SetFlags(val uint8) {
+	o[13] = val
+}
+
+func (o TcpHeader) SetWindowSize(val uint16) {
+	binary.BigEndian.PutUint16(o[14:16], val)
+}
+
+func (o TcpHeader) SetCs(val uint16) {
+	binary.BigEndian.PutUint16(o[16:18], val)
+}
+
 // TCP is the layer for TCP headers.
 type TCP struct {
 	BaseLayer
-	SrcPort, DstPort                           TCPPort
-	Seq                                        uint32
-	Ack                                        uint32
-	DataOffset                                 uint8
-	FIN, SYN, RST, PSH, ACK, URG, ECE, CWR, NS bool
-	Window                                     uint16
-	Checksum                                   uint16
-	Urgent                                     uint16
-	sPort, dPort                               []byte
-	Options                                    []TCPOption
-	Padding                                    []byte
-	opts                                       [4]TCPOption
+	SrcPort, DstPort TCPPort
+	Seq              uint32
+	Ack              uint32
+	DataOffset       uint8
+	Flags            uint8
+	Window           uint16
+	Checksum         uint16
+	Urgent           uint16
+	sPort, dPort     []byte
+	Options          []TCPOption
+	Padding          []byte
+	opts             [4]TCPOption
 	tcpipchecksum
 }
 
@@ -155,7 +181,8 @@ func (t *TCP) SerializeTo(b gopacket.SerializeBuffer, opts gopacket.SerializeOpt
 	binary.BigEndian.PutUint16(bytes[2:], uint16(t.DstPort))
 	binary.BigEndian.PutUint32(bytes[4:], t.Seq)
 	binary.BigEndian.PutUint32(bytes[8:], t.Ack)
-	binary.BigEndian.PutUint16(bytes[12:], t.flagsAndOffset())
+	bytes[12] = ((t.DataOffset & 0xF) << 4)
+	bytes[13] = 0
 	binary.BigEndian.PutUint16(bytes[14:], t.Window)
 	binary.BigEndian.PutUint16(bytes[18:], t.Urgent)
 	start := 20
@@ -192,38 +219,6 @@ func (t *TCP) ComputeChecksum() (uint16, error) {
 	return t.computeChecksum(append(t.Contents, t.Payload...), IPProtocolTCP)
 }
 
-func (t *TCP) flagsAndOffset() uint16 {
-	f := uint16(t.DataOffset) << 12
-	if t.FIN {
-		f |= 0x0001
-	}
-	if t.SYN {
-		f |= 0x0002
-	}
-	if t.RST {
-		f |= 0x0004
-	}
-	if t.PSH {
-		f |= 0x0008
-	}
-	if t.ACK {
-		f |= 0x0010
-	}
-	if t.URG {
-		f |= 0x0020
-	}
-	if t.ECE {
-		f |= 0x0040
-	}
-	if t.CWR {
-		f |= 0x0080
-	}
-	if t.NS {
-		f |= 0x0100
-	}
-	return f
-}
-
 func (tcp *TCP) DecodeFromBytes(data []byte, df gopacket.DecodeFeedback) error {
 	if len(data) < 20 {
 		df.SetTruncated()
@@ -236,15 +231,7 @@ func (tcp *TCP) DecodeFromBytes(data []byte, df gopacket.DecodeFeedback) error {
 	tcp.Seq = binary.BigEndian.Uint32(data[4:8])
 	tcp.Ack = binary.BigEndian.Uint32(data[8:12])
 	tcp.DataOffset = data[12] >> 4
-	tcp.FIN = data[13]&0x01 != 0
-	tcp.SYN = data[13]&0x02 != 0
-	tcp.RST = data[13]&0x04 != 0
-	tcp.PSH = data[13]&0x08 != 0
-	tcp.ACK = data[13]&0x10 != 0
-	tcp.URG = data[13]&0x20 != 0
-	tcp.ECE = data[13]&0x40 != 0
-	tcp.CWR = data[13]&0x80 != 0
-	tcp.NS = data[12]&0x01 != 0
+	tcp.Flags = data[13]
 	tcp.Window = binary.BigEndian.Uint16(data[14:16])
 	tcp.Checksum = binary.BigEndian.Uint16(data[16:18])
 	tcp.Urgent = binary.BigEndian.Uint16(data[18:20])
