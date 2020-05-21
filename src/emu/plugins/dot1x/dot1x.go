@@ -49,7 +49,7 @@ const (
 	EAP_TYPE_MD5      = 4
 	EAP_TYPE_MSCHAPV2 = 26
 
-	MAX_EAPOL_VER      = 2
+	MAX_EAPOL_VER      = 3
 	EAPSIZE_PKT_HEADER = 5
 
 	EAP_MD5_MASK      = 1
