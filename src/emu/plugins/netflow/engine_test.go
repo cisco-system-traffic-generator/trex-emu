@@ -2,12 +2,15 @@ package netflow
 
 import (
 	"bytes"
+	"emu/core"
 	"encoding/binary"
 	"fmt"
 	"math"
 	"math/rand"
 	"testing"
 	"unicode/utf8"
+
+	"github.com/intel-go/fastjson"
 )
 
 // validateGenereatedUint8
@@ -59,138 +62,179 @@ func validateGeneratedUint64(b []byte, expected []uint64, eng *UIntEngine, t *te
 	}
 }
 
+// createEngineManager
+func createEngineManager(t *testing.T) *FieldEngineManager {
+	var simrx core.VethIFSim
+	tctx := core.NewThreadCtx(0, 4510, true, &simrx)
+	defer tctx.Delete()
+	param := fastjson.RawMessage([]byte(`[]`))
+	feMgr := NewEngineManager(tctx, &param)
+	if feMgr.counters.invalidJson != 0 || feMgr.counters.failedBuildingEngine != 0 {
+		t.Errorf("Error while generating engine manager.\n")
+		t.FailNow()
+	}
+	return feMgr
+}
+
 // TestUIntEngineBasic
 func TestUIntEngineBasic(t *testing.T) {
+
+	feMgr := createEngineManager(t)
+
 	b := make([]byte, 10)
 	params := UIntEngineParams{
-		offset:   2,
-		size:     8,
-		op:       "inc",
-		step:     2,
-		minValue: 50,
-		maxValue: 60,
+		Offset:   2,
+		Size:     8,
+		Op:       "inc",
+		Step:     2,
+		MinValue: 50,
+		MaxValue: 60,
 	}
-	eng, err := NewUIntEngine(&params)
+	eng, err := NewUIntEngine(&params, feMgr)
 	if err != nil {
 		t.Errorf("Error while generating new engine.\n %v\n", err.Error())
 	}
 	offset := eng.GetOffset()
-	if offset != params.offset {
-		t.Errorf("GetOffset was incorrect, have %v, want %v.\n", offset, params.offset)
+	if offset != params.Offset {
+		t.Errorf("GetOffset was incorrect, have %v, want %v.\n", offset, params.Offset)
 	}
 	size := eng.GetSize()
-	if size != params.size {
-		t.Errorf("GetSize was incorrect, have %v, want %v.\n", size, params.size)
+	if size != params.Size {
+		t.Errorf("GetSize was incorrect, have %v, want %v.\n", size, params.Size)
 	}
 	eng.Update(b[offset:])
 	value := binary.BigEndian.Uint64(b[offset:])
-	if value != params.minValue {
-		t.Errorf("First Update was incorrect, have %v, want %v.\n", value, params.minValue)
+	if value != params.MinValue {
+		t.Errorf("First Update was incorrect, have %v, want %v.\n", value, params.MinValue)
 	}
 	eng.Update(b[offset:])
 	value = binary.BigEndian.Uint64(b[offset:])
-	if value != params.minValue+params.step {
-		t.Errorf("Second Update was incorrect, have %v, want %v.\n", value, params.minValue+params.step)
+	if value != params.MinValue+params.Step {
+		t.Errorf("Second Update was incorrect, have %v, want %v.\n", value, params.MinValue+params.Step)
 	}
 }
 
 // TestUIntEngineNegative
 func TestUIntEngineNegative(t *testing.T) {
+
+	feMgr := createEngineManager(t)
+
 	params := UIntEngineParams{
-		offset:   2,
-		size:     1,
-		op:       "inc",
-		step:     2,
-		minValue: 50,
-		maxValue: 260,
+		Offset:   2,
+		Size:     1,
+		Op:       "inc",
+		Step:     2,
+		MinValue: 50,
+		MaxValue: 260,
 	}
 	exp := "Max value 260 cannot be represented with size 1.\n"
-	_, err := NewUIntEngine(&params)
+	_, err := NewUIntEngine(&params, feMgr)
 	if err.Error() != exp {
 		t.Errorf("Didnt't raise correct error, have %v, want %v.\n", err.Error(), exp)
 	}
+	if feMgr.counters.sizeTooSmall != 1 {
+		t.Errorf("sizeTooSmall counter incorrect, have %v, want %v.\n", feMgr.counters.sizeTooSmall, 1)
+	}
 	params = UIntEngineParams{
-		offset:   2,
-		size:     4,
-		op:       "inc",
-		step:     2,
-		minValue: 50,
-		maxValue: 40,
+		Offset:   2,
+		Size:     4,
+		Op:       "inc",
+		Step:     2,
+		MinValue: 50,
+		MaxValue: 40,
 	}
 	exp = "Min value 50 is bigger than max value 40.\n"
-	_, err = NewUIntEngine(&params)
+	_, err = NewUIntEngine(&params, feMgr)
 	if err.Error() != exp {
 		t.Errorf("Didnt't raise correct error, have %v, want %v.\n", err.Error(), exp)
 	}
+	if feMgr.counters.maxSmallerThanMin != 1 {
+		t.Errorf("maxSmallerThanMin counter incorrect, have %v, want %v.\n", feMgr.counters.maxSmallerThanMin, 1)
+	}
 	params = UIntEngineParams{
-		offset:   2,
-		size:     4,
-		op:       "aa",
-		step:     2,
-		minValue: 50,
-		maxValue: 55,
+		Offset:   2,
+		Size:     4,
+		Op:       "aa",
+		Step:     2,
+		MinValue: 50,
+		MaxValue: 55,
 	}
 	exp = "Unsupported operation aa.\n"
-	_, err = NewUIntEngine(&params)
+	_, err = NewUIntEngine(&params, feMgr)
 	if err.Error() != exp {
 		t.Errorf("Didnt't raise correct error, have %v, want %v.\n", err.Error(), exp)
 	}
+	if feMgr.counters.badOperation != 1 {
+		t.Errorf("badOperation counter incorrect, have %v, want %v.\n", feMgr.counters.badOperation, 1)
+	}
 	params = UIntEngineParams{
-		offset:   2,
-		size:     3,
-		op:       "dec",
-		step:     2,
-		minValue: 50,
-		maxValue: 55,
+		Offset:   2,
+		Size:     3,
+		Op:       "dec",
+		Step:     2,
+		MinValue: 50,
+		MaxValue: 55,
 	}
 	exp = "Invalid size 3. Size should be {1, 2, 4, 8}.\n"
-	_, err = NewUIntEngine(&params)
+	_, err = NewUIntEngine(&params, feMgr)
 	if err.Error() != exp {
 		t.Errorf("Didnt't raise correct error, have %v, want %v.\n", err.Error(), exp)
 	}
+	if feMgr.counters.invalidSize != 1 {
+		t.Errorf("invalidSize counter incorrect, have %v, want %v.\n", feMgr.counters.invalidSize, 1)
+	}
 	params = UIntEngineParams{
-		offset:    2,
-		size:      4,
-		op:        "dec",
-		step:      2,
-		minValue:  3,
-		maxValue:  55,
-		initValue: 1,
+		Offset:    2,
+		Size:      4,
+		Op:        "dec",
+		Step:      2,
+		MinValue:  3,
+		MaxValue:  55,
+		InitValue: 1,
 	}
 	exp = "Init value 1 must be between [3 - 55].\n"
-	_, err = NewUIntEngine(&params)
+	_, err = NewUIntEngine(&params, feMgr)
 	if err.Error() != exp {
 		t.Errorf("Didnt't raise correct error, have %v, want %v.\n", err.Error(), exp)
+	}
+	if feMgr.counters.badInitValue != 1 {
+		t.Errorf("badInitValue counter incorrect, have %v, want %v.\n", feMgr.counters.badInitValue, 1)
 	}
 	params = UIntEngineParams{
-		offset:    2,
-		size:      2,
-		op:        "dec",
-		step:      2,
-		minValue:  65666,
-		maxValue:  65667,
-		initValue: 1,
+		Offset:    2,
+		Size:      2,
+		Op:        "dec",
+		Step:      2,
+		MinValue:  65666,
+		MaxValue:  65667,
+		InitValue: 1,
 	}
 	exp = "Max value 65667 cannot be represented with size 2.\n"
-	_, err = NewUIntEngine(&params)
+	_, err = NewUIntEngine(&params, feMgr)
 	if err.Error() != exp {
 		t.Errorf("Didnt't raise correct error, have %v, want %v.\n", err.Error(), exp)
+	}
+	if feMgr.counters.sizeTooSmall != 2 {
+		t.Errorf("sizeTooSmall counter incorrect, have %v, want %v.\n", feMgr.counters.sizeTooSmall, 2)
 	}
 }
 
 // TestUInt16EngineInc
 func TestUInt16EngineInc(t *testing.T) {
-	// simple increase with step 5, restart takes 1 on wrap around
+
+	feMgr := createEngineManager(t)
+
+	// simple increase with Step 5, restart takes 1 on wrap around
 	params := UIntEngineParams{
-		offset:    0,
-		size:      2,
-		op:        "inc",
-		step:      5,
-		minValue:  50,
-		maxValue:  100,
-		initValue: 75,
+		Offset:    0,
+		Size:      2,
+		Op:        "inc",
+		Step:      5,
+		MinValue:  50,
+		MaxValue:  100,
+		InitValue: 75,
 	}
-	eng, err := NewUIntEngine(&params)
+	eng, err := NewUIntEngine(&params, feMgr)
 	if err != nil {
 		t.Errorf("Error while generating new engine.\n %v\n", err.Error())
 		t.FailNow()
@@ -200,16 +244,16 @@ func TestUInt16EngineInc(t *testing.T) {
 	b := make([]byte, 8)
 	validateGeneratedUint16(b, expected, eng, t)
 
-	// simple increment with step 1
+	// simple increment with Step 1
 	params = UIntEngineParams{
-		offset:   2,
-		size:     2,
-		op:       "inc",
-		step:     1,
-		minValue: 5,
-		maxValue: 9,
+		Offset:   2,
+		Size:     2,
+		Op:       "inc",
+		Step:     1,
+		MinValue: 5,
+		MaxValue: 9,
 	}
-	eng, err = NewUIntEngine(&params)
+	eng, err = NewUIntEngine(&params, feMgr)
 	if err != nil {
 		t.Errorf("Error while generating new engine.\n %v\n", err.Error())
 		t.FailNow()
@@ -219,14 +263,14 @@ func TestUInt16EngineInc(t *testing.T) {
 
 	// generate small domain with wrap around, validate restart takes 1
 	params = UIntEngineParams{
-		offset:   4,
-		size:     2,
-		op:       "inc",
-		step:     2,
-		minValue: 3,
-		maxValue: 7,
+		Offset:   4,
+		Size:     2,
+		Op:       "inc",
+		Step:     2,
+		MinValue: 3,
+		MaxValue: 7,
 	}
-	eng, err = NewUIntEngine(&params)
+	eng, err = NewUIntEngine(&params, feMgr)
 	if err != nil {
 		t.Errorf("Error while generating new engine.\n %v\n", err.Error())
 		t.FailNow()
@@ -234,17 +278,17 @@ func TestUInt16EngineInc(t *testing.T) {
 	expected = []uint16{3, 5, 7, 4, 6, 3}
 	validateGeneratedUint16(b, expected, eng, t)
 
-	// generate with large step no wrap around
+	// generate with large Step no wrap around
 	params = UIntEngineParams{
-		offset:    6,
-		size:      2,
-		op:        "inc",
-		step:      5000,
-		minValue:  0x0100,
-		maxValue:  0xffff,
-		initValue: 10000,
+		Offset:    6,
+		Size:      2,
+		Op:        "inc",
+		Step:      5000,
+		MinValue:  0x0100,
+		MaxValue:  0xffff,
+		InitValue: 10000,
 	}
-	eng, err = NewUIntEngine(&params)
+	eng, err = NewUIntEngine(&params, feMgr)
 	if err != nil {
 		t.Errorf("Error while generating new engine.\n %v\n", err.Error())
 		t.FailNow()
@@ -261,19 +305,22 @@ func TestUInt16EngineInc(t *testing.T) {
 
 // TestUInt16EngineDec
 func TestUInt16EngineDec(t *testing.T) {
+
+	feMgr := createEngineManager(t)
+
 	// simple decrease with init value
 	params := UIntEngineParams{
-		offset:    0,
-		size:      2,
-		op:        "dec",
-		step:      1,
-		minValue:  0,
-		maxValue:  5,
-		initValue: 3,
+		Offset:    0,
+		Size:      2,
+		Op:        "dec",
+		Step:      1,
+		MinValue:  0,
+		MaxValue:  5,
+		InitValue: 3,
 	}
 	b := make([]byte, 8)
 	var value uint16
-	eng, err := NewUIntEngine(&params)
+	eng, err := NewUIntEngine(&params, feMgr)
 	if err != nil {
 		t.Errorf("Error while generating new engine.")
 		t.FailNow()
@@ -283,37 +330,37 @@ func TestUInt16EngineDec(t *testing.T) {
 
 	// decrease of all the domain
 	params = UIntEngineParams{
-		offset:    2,
-		size:      2,
-		op:        "dec",
-		step:      1,
-		minValue:  0,
-		maxValue:  0xffff,
-		initValue: 0xffff,
+		Offset:    2,
+		Size:      2,
+		Op:        "dec",
+		Step:      1,
+		MinValue:  0,
+		MaxValue:  0xffff,
+		InitValue: 0xffff,
 	}
-	eng, err = NewUIntEngine(&params)
+	eng, err = NewUIntEngine(&params, feMgr)
 	if err != nil {
 		t.Errorf("Error while generating new engine.\n %v\n", err.Error())
 		t.FailNow()
 	}
 	for i := 0; i < 0xffff; i++ {
-		eng.Update(b[params.offset:])
+		eng.Update(b[params.Offset:])
 	}
-	value = binary.BigEndian.Uint16(b[params.offset:])
+	value = binary.BigEndian.Uint16(b[params.Offset:])
 	if value != 1 {
 		t.Errorf("Incorrect update,  want %v, have %v.\n", 1, value)
 	}
 
 	// decrease with wrap around
 	params = UIntEngineParams{
-		offset:   4,
-		size:     2,
-		op:       "dec",
-		step:     2,
-		minValue: 0,
-		maxValue: 0xffff,
+		Offset:   4,
+		Size:     2,
+		Op:       "dec",
+		Step:     2,
+		MinValue: 0,
+		MaxValue: 0xffff,
 	}
-	eng, err = NewUIntEngine(&params)
+	eng, err = NewUIntEngine(&params, feMgr)
 	if err != nil {
 		t.Errorf("Error while generating new engine.\n %v\n", err.Error())
 		t.FailNow()
@@ -323,14 +370,14 @@ func TestUInt16EngineDec(t *testing.T) {
 
 	// decrease on minimal domain [3]
 	params = UIntEngineParams{
-		offset:   6,
-		size:     2,
-		op:       "dec",
-		step:     2,
-		minValue: 3,
-		maxValue: 3,
+		Offset:   6,
+		Size:     2,
+		Op:       "dec",
+		Step:     2,
+		MinValue: 3,
+		MaxValue: 3,
 	}
-	eng, err = NewUIntEngine(&params)
+	eng, err = NewUIntEngine(&params, feMgr)
 	if err != nil {
 		t.Errorf("Error while generating new engine.\n %v\n", err.Error())
 		t.FailNow()
@@ -347,78 +394,78 @@ func TestUInt16EngineDec(t *testing.T) {
 
 // TestUInt16EngineRand
 func TestUInt16EngineRand(t *testing.T) {
+
+	feMgr := createEngineManager(t)
+
 	// random generation on a small domain, simple validation using Go's wonderful feature.
 	params := UIntEngineParams{
-		offset:    0,
-		size:      2,
-		op:        "rand",
-		minValue:  0,
-		maxValue:  5,
-		initValue: 3,
+		Offset:    0,
+		Size:      2,
+		Op:        "rand",
+		MinValue:  0,
+		MaxValue:  5,
+		InitValue: 3,
 	}
 	b := make([]byte, 8)
 	var value uint16
-	eng, err := NewUIntEngine(&params)
-	if err != nil {
-		t.Errorf("Error while generating new engine.\n %v\n", err.Error())
-		t.FailNow()
-	}
-	// Since this is a Go Test, go will provide the same random generation all the time.
-	// Hence we can put the expected after we saw it once.
-	expected := []uint16{3, 2, 1, 5, 1, 5, 2, 2, 4, 2}
-	for i := 0; i < len(expected); i++ {
-		eng.Update(b[params.offset:])
-		value = binary.BigEndian.Uint16(b[params.offset:])
-		if value != expected[i] {
-			t.Errorf("Incorrect update no %v, want %v, have %v.\n", i, expected[i], value)
-		}
-	}
-
-	// Generate 1000 times and expect only 7.
-	params = UIntEngineParams{
-		offset:   2,
-		size:     2,
-		op:       "rand",
-		minValue: 7,
-		maxValue: 7,
-	}
-	eng, err = NewUIntEngine(&params)
+	eng, err := NewUIntEngine(&params, feMgr)
 	if err != nil {
 		t.Errorf("Error while generating new engine.\n %v\n", err.Error())
 		t.FailNow()
 	}
 	for i := 0; i < 1000; i++ {
-		eng.Update(b[params.offset:])
-		value = binary.BigEndian.Uint16(b[params.offset:])
+		eng.Update(b[params.Offset:])
+		value = binary.BigEndian.Uint16(b[params.Offset:])
+		if value < 0 || value > 5 {
+			t.Errorf("Incorrect update, want in [%v-%v], have %v.\n", 0, 5, value)
+		}
+	}
+
+	// Generate 1000 times and expect only 7.
+	params = UIntEngineParams{
+		Offset:   2,
+		Size:     2,
+		Op:       "rand",
+		MinValue: 7,
+		MaxValue: 7,
+	}
+	eng, err = NewUIntEngine(&params, feMgr)
+	if err != nil {
+		t.Errorf("Error while generating new engine.\n %v\n", err.Error())
+		t.FailNow()
+	}
+	for i := 0; i < 1000; i++ {
+		eng.Update(b[params.Offset:])
+		value = binary.BigEndian.Uint16(b[params.Offset:])
 		if value != 7 {
-			t.Errorf("Incorrect update no %v, want %v, have %v.\n", i, expected[i], value)
+			t.Errorf("Incorrect update no %v, want %v, have %v.\n", i, 7, value)
 		}
 	}
 
 	iterNumber := 1 << 16
 	// Generate in the domain of [1-2] iterNumber times and expect half half.
 	params = UIntEngineParams{
-		offset:   4,
-		size:     2,
-		op:       "rand",
-		minValue: 1,
-		maxValue: 2,
+		Offset:   4,
+		Size:     2,
+		Op:       "rand",
+		MinValue: 1,
+		MaxValue: 2,
 	}
-	eng, err = NewUIntEngine(&params)
+	eng, err = NewUIntEngine(&params, feMgr)
 	if err != nil {
 		t.Errorf("Error while generating new engine.\n %v\n", err.Error())
 		t.FailNow()
 	}
 	ones, twos := 0, 0
 	for i := 0; i < iterNumber; i++ {
-		eng.Update(b[params.offset:])
-		value = binary.BigEndian.Uint16(b[params.offset:])
+		eng.Update(b[params.Offset:])
+		value = binary.BigEndian.Uint16(b[params.Offset:])
 		if value == 1 {
 			ones++
 		} else if value == 2 {
 			twos++
 		} else {
-			t.Errorf("Generated value %v not in domain, [%v - %v].\n", value, params.minValue, params.maxValue)
+			t.Errorf("Generated value %v not in domain, [%v - %v].\n", value, params.MinValue, params.MaxValue)
 		}
 	}
 	if ones+twos != iterNumber {
@@ -434,27 +481,27 @@ func TestUInt16EngineRand(t *testing.T) {
 
 	// Same idea as before, bigger domain
 	params = UIntEngineParams{
-		offset:   6,
-		size:     2,
-		op:       "rand",
-		minValue: 0,
-		maxValue: 7,
+		Offset:   6,
+		Size:     2,
+		Op:       "rand",
+		MinValue: 0,
+		MaxValue: 7,
 	}
 	var generatedHistogram [8]int
-	eng, err = NewUIntEngine(&params)
+	eng, err = NewUIntEngine(&params, feMgr)
 	if err != nil {
 		t.Errorf("Error while generating new engine.\n %v\n", err.Error())
 		t.FailNow()
 	}
 	for i := 0; i < iterNumber; i++ {
-		eng.Update(b[params.offset:])
-		value = binary.BigEndian.Uint16(b[params.offset:])
+		eng.Update(b[params.Offset:])
+		value = binary.BigEndian.Uint16(b[params.Offset:])
 		generatedHistogram[value]++
 	}
 	expectedGen = iterNumber >> 3
 	// increase the allowed error since we are generating less of the same.
-	expectedLowerBound = float64(expectedGen) * 0.95
-	expectedHigherBound = float64(expectedGen) * 1.05
+	expectedLowerBound = float64(expectedGen) * 0.90
+	expectedHigherBound = float64(expectedGen) * 1.1
 	for i := 0; i < len(generatedHistogram); i++ {
 		if float64(generatedHistogram[i]) < expectedLowerBound || float64(generatedHistogram[i]) > expectedHigherBound {
 			t.Errorf("Generated number of %vs incorrect, have %v, expected [%v - %v].\n", i, generatedHistogram[i], expectedLowerBound, expectedHigherBound)
@@ -464,17 +511,20 @@ func TestUInt16EngineRand(t *testing.T) {
 
 // TestUInt32EngineInc
 func TestUInt32Engine(t *testing.T) {
+
+	feMgr := createEngineManager(t)
+
 	// simple increase for uint32
 	params := UIntEngineParams{
-		offset:   0,
-		size:     4,
-		op:       "inc",
-		minValue: 0xffff,
-		maxValue: 0xffff + 10,
-		step:     2,
+		Offset:   0,
+		Size:     4,
+		Op:       "inc",
+		MinValue: 0xffff,
+		MaxValue: 0xffff + 10,
+		Step:     2,
 	}
 	b := make([]byte, 16)
-	eng, err := NewUIntEngine(&params)
+	eng, err := NewUIntEngine(&params, feMgr)
 	if err != nil {
 		t.Errorf("Error while generating new engine.\n %v.\n", err.Error())
 		t.FailNow()
@@ -484,15 +534,15 @@ func TestUInt32Engine(t *testing.T) {
 
 	// decrease with wrap around
 	params = UIntEngineParams{
-		offset:    4,
-		size:      4,
-		op:        "dec",
-		minValue:  100,
-		maxValue:  0xffffffff,
-		step:      1,
-		initValue: 101,
+		Offset:    4,
+		Size:      4,
+		Op:        "dec",
+		MinValue:  100,
+		MaxValue:  0xffffffff,
+		Step:      1,
+		InitValue: 101,
 	}
-	eng, err = NewUIntEngine(&params)
+	eng, err = NewUIntEngine(&params, feMgr)
 	if err != nil {
 		t.Errorf("Error while generating new engine.\n %v.\n", err.Error())
 		t.FailNow()
@@ -502,19 +552,19 @@ func TestUInt32Engine(t *testing.T) {
 
 	// random on a domain of uint32
 	params = UIntEngineParams{
-		offset:   8,
-		size:     4,
-		op:       "rand",
-		minValue: 1 << 16,
-		maxValue: 1<<16 + 31,
+		Offset:   8,
+		Size:     4,
+		Op:       "rand",
+		MinValue: 1 << 16,
+		MaxValue: 1<<16 + 31,
 	}
-	eng, err = NewUIntEngine(&params)
+	eng, err = NewUIntEngine(&params, feMgr)
 	if err != nil {
 		t.Errorf("Error while generating new engine.\n %v.\n", err.Error())
 		t.FailNow()
 	}
 	var value uint32
-	zeroOffset := uint32(params.minValue)
+	zeroOffset := uint32(params.MinValue)
 	iterNumber := 1 << 20
 	var generatedHistogram [32]int
 	for i := 0; i < iterNumber; i++ {
@@ -533,14 +583,14 @@ func TestUInt32Engine(t *testing.T) {
 
 	// complicated test, non uniform updates.
 	params = UIntEngineParams{
-		offset:   12,
-		size:     4,
-		op:       "inc",
-		minValue: 0xffff,
-		maxValue: 0xffffffff,
-		step:     1 << 16,
+		Offset:   12,
+		Size:     4,
+		Op:       "inc",
+		MinValue: 0xffff,
+		MaxValue: 0xffffffff,
+		Step:     1 << 16,
 	}
-	eng, err = NewUIntEngine(&params)
+	eng, err = NewUIntEngine(&params, feMgr)
 	if err != nil {
 		t.Errorf("Error while generating new engine.\n %v.\n", err.Error())
 		t.FailNow()
@@ -565,16 +615,19 @@ func TestUInt32Engine(t *testing.T) {
 
 // TestUInt64Engine
 func TestUInt64Engine(t *testing.T) {
+
+	feMgr := createEngineManager(t)
+
 	// simple rand test for uint64
 	params := UIntEngineParams{
-		offset:   0,
-		size:     8,
-		op:       "rand",
-		minValue: 0,
-		maxValue: 15,
+		Offset:   0,
+		Size:     8,
+		Op:       "rand",
+		MinValue: 0,
+		MaxValue: 15,
 	}
 	b := make([]byte, 24)
-	eng, err := NewUIntEngine(&params)
+	eng, err := NewUIntEngine(&params, feMgr)
 	if err != nil {
 		t.Errorf("Error while generating new engine.\n %v.\n", err.Error())
 		t.FailNow()
@@ -588,25 +641,25 @@ func TestUInt64Engine(t *testing.T) {
 		generatedHistogram[value]++
 	}
 	expectedGen := iterNumber >> 4
-	expectedLowerBound := float64(expectedGen) * 0.97
-	expectedHigherBound := float64(expectedGen) * 1.03
+	expectedLowerBound := float64(expectedGen) * 0.90
+	expectedHigherBound := float64(expectedGen) * 1.1
 	for i := 0; i < len(generatedHistogram); i++ {
 		if float64(generatedHistogram[i]) < expectedLowerBound || float64(generatedHistogram[i]) > expectedHigherBound {
 			t.Errorf("Generated number of %vs incorrect, have %v, expected [%v - %v].\n", i, generatedHistogram[i], expectedLowerBound, expectedHigherBound)
 		}
 	}
 
-	// increase to cause overflow with step
+	// increase to cause overflow with Step
 	params = UIntEngineParams{
-		offset:    8,
-		size:      8,
-		op:        "inc",
-		minValue:  0,
-		maxValue:  math.MaxUint64,
-		initValue: math.MaxUint64 - 2,
-		step:      2,
+		Offset:    8,
+		Size:      8,
+		Op:        "inc",
+		MinValue:  0,
+		MaxValue:  math.MaxUint64,
+		InitValue: math.MaxUint64 - 2,
+		Step:      2,
 	}
-	eng, err = NewUIntEngine(&params)
+	eng, err = NewUIntEngine(&params, feMgr)
 	if err != nil {
 		t.Errorf("Error while generating new engine.\n %v.\n", err.Error())
 		t.FailNow()
@@ -616,15 +669,15 @@ func TestUInt64Engine(t *testing.T) {
 
 	// decrease to cause overflow
 	params = UIntEngineParams{
-		offset:    16,
-		size:      8,
-		op:        "dec",
-		minValue:  0,
-		maxValue:  math.MaxUint64,
-		initValue: 1,
-		step:      1,
+		Offset:    16,
+		Size:      8,
+		Op:        "dec",
+		MinValue:  0,
+		MaxValue:  math.MaxUint64,
+		InitValue: 1,
+		Step:      1,
 	}
-	eng, err = NewUIntEngine(&params)
+	eng, err = NewUIntEngine(&params, feMgr)
 	if err != nil {
 		t.Errorf("Error while generating new engine.\n %v.\n", err.Error())
 		t.FailNow()
@@ -636,17 +689,19 @@ func TestUInt64Engine(t *testing.T) {
 // TestUInt8Engine
 func TestUInt8Engine(t *testing.T) {
 
+	feMgr := createEngineManager(t)
+
 	// complete domain increment with wrap around
 	params := UIntEngineParams{
-		offset:   0,
-		size:     1,
-		op:       "inc",
-		minValue: 0,
-		maxValue: 0xff,
-		step:     1,
+		Offset:   0,
+		Size:     1,
+		Op:       "inc",
+		MinValue: 0,
+		MaxValue: 0xff,
+		Step:     1,
 	}
 	b := make([]byte, 8)
-	eng, err := NewUIntEngine(&params)
+	eng, err := NewUIntEngine(&params, feMgr)
 	if err != nil {
 		t.Errorf("Error while generating new engine.\n %v.\n", err.Error())
 		t.FailNow()
@@ -660,32 +715,32 @@ func TestUInt8Engine(t *testing.T) {
 
 	// decrement with wrap around
 	params = UIntEngineParams{
-		offset:    1,
-		size:      1,
-		op:        "dec",
-		minValue:  0,
-		maxValue:  0xff,
-		step:      1,
-		initValue: 5,
+		Offset:    1,
+		Size:      1,
+		Op:        "dec",
+		MinValue:  0,
+		MaxValue:  0xff,
+		Step:      1,
+		InitValue: 5,
 	}
 	expected = []uint8{5, 4, 3, 2, 1, 0, 255, 254, 253, 252, 251, 250}
-	eng, err = NewUIntEngine(&params)
+	eng, err = NewUIntEngine(&params, feMgr)
 	if err != nil {
 		t.Errorf("Error while generating new engine.\n %v.\n", err.Error())
 		t.FailNow()
 	}
 	validateGeneratedUint8(b, expected, eng, t)
 
-	// increment with step
+	// increment with Step
 	params = UIntEngineParams{
-		offset:   2,
-		size:     1,
-		op:       "inc",
-		minValue: 0,
-		maxValue: 0xff,
-		step:     5,
+		Offset:   2,
+		Size:     1,
+		Op:       "inc",
+		MinValue: 0,
+		MaxValue: 0xff,
+		Step:     5,
 	}
-	eng, err = NewUIntEngine(&params)
+	eng, err = NewUIntEngine(&params, feMgr)
 	if err != nil {
 		t.Errorf("Error while generating new engine.\n %v.\n", err.Error())
 		t.FailNow()
@@ -697,17 +752,17 @@ func TestUInt8Engine(t *testing.T) {
 	// expected = [0, 5, 10, ..., 255, 4, 9 ..., 244 ]
 	validateGeneratedUint8(b, expected, eng, t)
 
-	// decrement with step and wrap around
+	// decrement with Step and wrap around
 	params = UIntEngineParams{
-		offset:    3,
-		size:      1,
-		op:        "dec",
-		minValue:  0,
-		maxValue:  0xff,
-		step:      5,
-		initValue: 0xff,
+		Offset:    3,
+		Size:      1,
+		Op:        "dec",
+		MinValue:  0,
+		MaxValue:  0xff,
+		Step:      5,
+		InitValue: 0xff,
 	}
-	eng, err = NewUIntEngine(&params)
+	eng, err = NewUIntEngine(&params, feMgr)
 	if err != nil {
 		t.Errorf("Error while generating new engine.\n %v.\n", err.Error())
 		t.FailNow()
@@ -728,13 +783,13 @@ func TestUInt8Engine(t *testing.T) {
 
 	// rand 0xff
 	params = UIntEngineParams{
-		offset:   4,
-		size:     1,
-		op:       "rand",
-		minValue: 0xff,
-		maxValue: 0xff,
+		Offset:   4,
+		Size:     1,
+		Op:       "rand",
+		MinValue: 0xff,
+		MaxValue: 0xff,
 	}
-	eng, err = NewUIntEngine(&params)
+	eng, err = NewUIntEngine(&params, feMgr)
 	if err != nil {
 		t.Errorf("Error while generating new engine.\n %v.\n", err.Error())
 		t.FailNow()
@@ -750,13 +805,13 @@ func TestUInt8Engine(t *testing.T) {
 
 	// random on all the domain
 	params = UIntEngineParams{
-		offset:   5,
-		size:     1,
-		op:       "rand",
-		minValue: 0x0,
-		maxValue: 0xff,
+		Offset:   5,
+		Size:     1,
+		Op:       "rand",
+		MinValue: 0x0,
+		MaxValue: 0xff,
 	}
-	eng, err = NewUIntEngine(&params)
+	eng, err = NewUIntEngine(&params, feMgr)
 	if err != nil {
 		t.Errorf("Error while generating new engine.\n %v.\n", err.Error())
 		t.FailNow()
@@ -764,14 +819,14 @@ func TestUInt8Engine(t *testing.T) {
 	iterNumber := 1 << 20
 	var generatedHistogram [256]int
 	for i := 0; i < iterNumber; i++ {
-		eng.Update(b[params.offset:])
+		eng.Update(b[params.Offset:])
 		value = uint8(b[eng.GetOffset()])
 		generatedHistogram[value]++
 	}
 	expectedGen := iterNumber >> 8
 	// increase the allowed error since we are generating less of the same.
-	expectedLowerBound := float64(expectedGen) * 0.95
-	expectedHigherBound := float64(expectedGen) * 1.05
+	expectedLowerBound := float64(expectedGen) * 0.90
+	expectedHigherBound := float64(expectedGen) * 1.1
 	for i := 0; i < len(generatedHistogram); i++ {
 		if float64(generatedHistogram[i]) < expectedLowerBound || float64(generatedHistogram[i]) > expectedHigherBound {
 			t.Errorf("Generated number of %vs incorrect, have %v, expected [%v - %v].\n", i, generatedHistogram[i], expectedLowerBound, expectedHigherBound)
@@ -782,18 +837,22 @@ func TestUInt8Engine(t *testing.T) {
 // TestHistogramUInt32Engine
 func TestHistogramUInt32Engine(t *testing.T) {
 
+	feMgr := createEngineManager(t)
+
 	// simple binary non uniform
-	entries := []HistogramEntry{&HistogramUInt32Entry{v: 1, prob: 1}, &HistogramUInt32Entry{v: 10, prob: 3}}
+	entries := []HistogramEntry{&HistogramUInt32Entry{V: 1, Prob: 1}, &HistogramUInt32Entry{V: 10, Prob: 3}}
 	params := HistogramEngineParams{
-		offset:  0,
-		size:    4,
-		entries: entries,
+		HistogramEngineCommonParams{
+			Offset: 0,
+			Size:   4,
+		},
+		entries,
 	}
 	b := make([]byte, 16)
 	var v uint32
 	generated := make([]int, len(entries))
 	iterNumber := 1 << 15
-	eng, err := NewHistogramEngine(&params)
+	eng, err := NewHistogramEngine(&params, feMgr)
 	if err != nil {
 		t.Errorf("Error while generating new engine.\n %v.\n", err.Error())
 		t.FailNow()
@@ -809,21 +868,23 @@ func TestHistogramUInt32Engine(t *testing.T) {
 			t.Errorf("Generated number not in range of any entry %v.\n", v)
 		}
 	}
-	verifyBinGenerator(1<<13, generated[0], 1, t)
+	verifyBinGenerator(1<<13, generated[0], 2, t)
 
 	// complete randomization, check that it wont crash
 	numEntries := 1000
 	entries = entries[:0]
 	for i := 0; i < numEntries; i++ {
-		entry := HistogramUInt32Entry{v: rand.Uint32(), prob: uint32(rand.Intn(1 << 10))}
+		entry := HistogramUInt32Entry{V: rand.Uint32(), Prob: uint32(rand.Intn(1 << 10))}
 		entries = append(entries, &entry)
 	}
 	params = HistogramEngineParams{
-		offset:  4,
-		size:    4,
-		entries: entries,
+		HistogramEngineCommonParams{
+			Offset: 4,
+			Size:   4,
+		},
+		entries,
 	}
-	eng, err = NewHistogramEngine(&params)
+	eng, err = NewHistogramEngine(&params, feMgr)
 	if err != nil {
 		t.Errorf("Error while generating new engine.\n %v.\n", err.Error())
 		t.FailNow()
@@ -833,14 +894,16 @@ func TestHistogramUInt32Engine(t *testing.T) {
 	}
 
 	// 4 uniform entries
-	entries = []HistogramEntry{&HistogramUInt32Entry{v: 0, prob: 2}, &HistogramUInt32Entry{v: 1, prob: 2}, &HistogramUInt32Entry{v: 2, prob: 2}, &HistogramUInt32Entry{v: 3, prob: 2}}
+	entries = []HistogramEntry{&HistogramUInt32Entry{V: 0, Prob: 2}, &HistogramUInt32Entry{V: 1, Prob: 2}, &HistogramUInt32Entry{V: 2, Prob: 2}, &HistogramUInt32Entry{V: 3, Prob: 2}}
 	params = HistogramEngineParams{
-		offset:  8,
-		size:    4,
-		entries: entries,
+		HistogramEngineCommonParams{
+			Offset: 8,
+			Size:   4,
+		},
+		entries,
 	}
 	generated = make([]int, len(entries))
-	eng, err = NewHistogramEngine(&params)
+	eng, err = NewHistogramEngine(&params, feMgr)
 	if err != nil {
 		t.Errorf("Error while generating new engine.\n %v.\n", err.Error())
 		t.FailNow()
@@ -855,13 +918,15 @@ func TestHistogramUInt32Engine(t *testing.T) {
 	verifyBinGenerator(iterNumber>>2, generated[2], 2, t)
 
 	// 1 entry
-	entries = []HistogramEntry{&HistogramUInt32Entry{v: 0, prob: 1000}}
+	entries = []HistogramEntry{&HistogramUInt32Entry{V: 0, Prob: 1000}}
 	params = HistogramEngineParams{
-		offset:  12,
-		size:    4,
-		entries: entries,
+		HistogramEngineCommonParams{
+			Offset: 12,
+			Size:   4,
+		},
+		entries,
 	}
-	eng, err = NewHistogramEngine(&params)
+	eng, err = NewHistogramEngine(&params, feMgr)
 	if err != nil {
 		t.Errorf("Error while generating new engine.\n %v.\n", err.Error())
 		t.FailNow()
@@ -878,18 +943,22 @@ func TestHistogramUInt32Engine(t *testing.T) {
 // TestHistogramUInt32RangeEngine
 func TestHistogramUInt32RangeEngine(t *testing.T) {
 
+	feMgr := createEngineManager(t)
+
 	// generate number between 0-100 with 0.5 prob and 101-200 with 0.5 prob
-	entries := []HistogramEntry{&HistogramUInt32RangeEntry{min: 0, max: 100, prob: 1}, &HistogramUInt32RangeEntry{min: 101, max: 200, prob: 1}}
+	entries := []HistogramEntry{&HistogramUInt32RangeEntry{Min: 0, Max: 100, Prob: 1}, &HistogramUInt32RangeEntry{Min: 101, Max: 200, Prob: 1}}
 	params := HistogramEngineParams{
-		offset:  0,
-		size:    4,
-		entries: entries,
+		HistogramEngineCommonParams{
+			Offset: 0,
+			Size:   4,
+		},
+		entries,
 	}
 	b := make([]byte, 16)
 	var v uint32
 	generated := make([]int, len(entries))
 	iterNumber := 1 << 20
-	eng, err := NewHistogramEngine(&params)
+	eng, err := NewHistogramEngine(&params, feMgr)
 	if err != nil {
 		t.Errorf("Error while generating new engine.\n %v.\n", err.Error())
 		t.FailNow()
@@ -909,13 +978,15 @@ func TestHistogramUInt32RangeEngine(t *testing.T) {
 
 	// generate number between 0-1000 with prob 0.5 and between 500-1500 with prob 0.5
 	// this means that numbers 0-50 with prob 0.25, 50-100 with prob 0.5 and 100-150 with prob 0.25
-	entries = []HistogramEntry{&HistogramUInt32RangeEntry{min: 0, max: 1000, prob: 1}, &HistogramUInt32RangeEntry{min: 500, max: 1500, prob: 1}}
+	entries = []HistogramEntry{&HistogramUInt32RangeEntry{Min: 0, Max: 1000, Prob: 1}, &HistogramUInt32RangeEntry{Min: 500, Max: 1500, Prob: 1}}
 	params = HistogramEngineParams{
-		offset:  4,
-		size:    4,
-		entries: entries,
+		HistogramEngineCommonParams{
+			Offset: 4,
+			Size:   4,
+		},
+		entries,
 	}
-	eng, err = NewHistogramEngine(&params)
+	eng, err = NewHistogramEngine(&params, feMgr)
 	if err != nil {
 		t.Errorf("Error while generating new engine.\n %v.\n", err.Error())
 		t.FailNow()
@@ -938,14 +1009,16 @@ func TestHistogramUInt32RangeEngine(t *testing.T) {
 	verifyBinGenerator(1<<19, generated[1], 1, t)
 
 	// generate with 3 ranges
-	entries = []HistogramEntry{&HistogramUInt32RangeEntry{min: 0, max: 1000, prob: 1}, &HistogramUInt32RangeEntry{min: 2000, max: 3000, prob: 1},
-		&HistogramUInt32RangeEntry{min: 4000, max: 5000, prob: 1}}
+	entries = []HistogramEntry{&HistogramUInt32RangeEntry{Min: 0, Max: 1000, Prob: 1}, &HistogramUInt32RangeEntry{Min: 2000, Max: 3000, Prob: 1},
+		&HistogramUInt32RangeEntry{Min: 4000, Max: 5000, Prob: 1}}
 	params = HistogramEngineParams{
-		offset:  8,
-		size:    4,
-		entries: entries,
+		HistogramEngineCommonParams{
+			Offset: 8,
+			Size:   4,
+		},
+		entries,
 	}
-	eng, err = NewHistogramEngine(&params)
+	eng, err = NewHistogramEngine(&params, feMgr)
 	if err != nil {
 		t.Errorf("Error while generating new engine.\n %v.\n", err.Error())
 		t.FailNow()
@@ -968,13 +1041,15 @@ func TestHistogramUInt32RangeEngine(t *testing.T) {
 	verifyBinGenerator(iterNumber/3, generated[1], 1, t)
 
 	// generate with different probabilites
-	entries = []HistogramEntry{&HistogramUInt32RangeEntry{min: 0, max: 1000, prob: 1}, &HistogramUInt32RangeEntry{min: 2000, max: 3000, prob: 7}}
+	entries = []HistogramEntry{&HistogramUInt32RangeEntry{Min: 0, Max: 1000, Prob: 1}, &HistogramUInt32RangeEntry{Min: 2000, Max: 3000, Prob: 7}}
 	params = HistogramEngineParams{
-		offset:  12,
-		size:    4,
-		entries: entries,
+		HistogramEngineCommonParams{
+			Offset: 12,
+			Size:   4,
+		},
+		entries,
 	}
-	eng, err = NewHistogramEngine(&params)
+	eng, err = NewHistogramEngine(&params, feMgr)
 	if err != nil {
 		t.Errorf("Error while generating new engine.\n %v.\n", err.Error())
 		t.FailNow()
@@ -996,17 +1071,21 @@ func TestHistogramUInt32RangeEngine(t *testing.T) {
 
 func TestHistogramUInt32ListEngine(t *testing.T) {
 
+	feMgr := createEngineManager(t)
+
 	// even digit vs odd digit uniform
-	entries := []HistogramEntry{&HistogramUInt32ListEntry{list: []uint32{1, 3, 5, 7, 9}, prob: 1}, &HistogramUInt32ListEntry{list: []uint32{0, 2, 4, 6, 8}, prob: 1}}
+	entries := []HistogramEntry{&HistogramUInt32ListEntry{List: []uint32{1, 3, 5, 7, 9}, Prob: 1}, &HistogramUInt32ListEntry{List: []uint32{0, 2, 4, 6, 8}, Prob: 1}}
 	params := HistogramEngineParams{
-		offset:  0,
-		size:    4,
-		entries: entries,
+		HistogramEngineCommonParams{
+			Offset: 0,
+			Size:   4,
+		},
+		entries,
 	}
 	b := make([]byte, 8)
 	var v uint32
 	iterNumber := 1 << 20
-	eng, err := NewHistogramEngine(&params)
+	eng, err := NewHistogramEngine(&params, feMgr)
 	if err != nil {
 		t.Errorf("Error while generating new engine.\n %v.\n", err.Error())
 		t.FailNow()
@@ -1026,13 +1105,15 @@ func TestHistogramUInt32ListEngine(t *testing.T) {
 	verifyBinGenerator(iterNumber>>1, evens, 1, t)
 
 	// 1/4 evens and 3/4 odds
-	entries = []HistogramEntry{&HistogramUInt32ListEntry{list: []uint32{1, 3, 5, 7, 9}, prob: 3}, &HistogramUInt32ListEntry{list: []uint32{0, 2, 4, 6, 8}, prob: 1}}
+	entries = []HistogramEntry{&HistogramUInt32ListEntry{List: []uint32{1, 3, 5, 7, 9}, Prob: 3}, &HistogramUInt32ListEntry{List: []uint32{0, 2, 4, 6, 8}, Prob: 1}}
 	params = HistogramEngineParams{
-		offset:  4,
-		size:    4,
-		entries: entries,
+		HistogramEngineCommonParams{
+			Offset: 4,
+			Size:   4,
+		},
+		entries,
 	}
-	eng, err = NewHistogramEngine(&params)
+	eng, err = NewHistogramEngine(&params, feMgr)
 	if err != nil {
 		t.Errorf("Error while generating new engine.\n %v.\n", err.Error())
 		t.FailNow()
@@ -1055,18 +1136,22 @@ func TestHistogramUInt32ListEngine(t *testing.T) {
 // TestHistogramRuneEngine
 func TestHistogramRuneEngine(t *testing.T) {
 
+	feMgr := createEngineManager(t)
+
 	b := make([]byte, 8)
 	iterNumber := 60000
 	var v rune
 	var size int
 	// simple ASCII runes
-	entries := []HistogramEntry{&HistogramRuneEntry{r: 'a', prob: 1}, &HistogramRuneEntry{r: 'b', prob: 2}, &HistogramRuneEntry{r: 'c', prob: 3}}
+	entries := []HistogramEntry{&HistogramRuneEntry{R: 'a', Prob: 1}, &HistogramRuneEntry{R: 'b', Prob: 2}, &HistogramRuneEntry{R: 'c', Prob: 3}}
 	params := HistogramEngineParams{
-		offset:  0,
-		size:    1,
-		entries: entries,
+		HistogramEngineCommonParams{
+			Offset: 0,
+			Size:   1,
+		},
+		entries,
 	}
-	eng, err := NewHistogramEngine(&params)
+	eng, err := NewHistogramEngine(&params, feMgr)
 	if err != nil {
 		t.Errorf("Error while generating new engine.\n %v.\n", err.Error())
 		t.FailNow()
@@ -1080,9 +1165,9 @@ func TestHistogramRuneEngine(t *testing.T) {
 		}
 		generated[v-'a']++
 	}
-	verifyBinGenerator(10000, generated[0], 2, t)
-	verifyBinGenerator(20000, generated[1], 2, t)
-	verifyBinGenerator(30000, generated[2], 2, t)
+	verifyBinGenerator(10000, generated[0], 3, t)
+	verifyBinGenerator(20000, generated[1], 3, t)
+	verifyBinGenerator(30000, generated[2], 3, t)
 
 	// hebrew runes, need 2 bytes
 	iterNumber = 150000
@@ -1090,14 +1175,16 @@ func TestHistogramRuneEngine(t *testing.T) {
 	letters := []rune{'ב', 'ס', 'ד', 'ו', 'ל', 'מ', 'ה'}
 	probSlice := []uint32{1, 2, 3, 4, 2, 1, 2}
 	for i := 0; i < len(probSlice); i++ {
-		entries = append(entries, &HistogramRuneEntry{r: letters[i], prob: probSlice[i]})
+		entries = append(entries, &HistogramRuneEntry{R: letters[i], Prob: probSlice[i]})
 	}
 	params = HistogramEngineParams{
-		offset:  1,
-		size:    2,
-		entries: entries,
+		HistogramEngineCommonParams{
+			Offset: 1,
+			Size:   2,
+		},
+		entries,
 	}
-	eng, err = NewHistogramEngine(&params)
+	eng, err = NewHistogramEngine(&params, feMgr)
 	if err != nil {
 		t.Errorf("Error while generating new engine.\n %v.\n", err.Error())
 		t.FailNow()
@@ -1112,7 +1199,7 @@ func TestHistogramRuneEngine(t *testing.T) {
 		received[v]++
 	}
 	for i, letter := range letters {
-		verifyBinGenerator(10000*int(probSlice[i]), received[letter], 2, t)
+		verifyBinGenerator(10000*int(probSlice[i]), received[letter], 3, t)
 	}
 
 	// utf8 emojis need 4 bytes
@@ -1121,14 +1208,16 @@ func TestHistogramRuneEngine(t *testing.T) {
 	letters = []rune{'🤩', '😁', '🤬', '😱'}
 	probSlice = []uint32{2, 5, 1, 2}
 	for i := 0; i < len(probSlice); i++ {
-		entries = append(entries, &HistogramRuneEntry{r: letters[i], prob: probSlice[i]})
+		entries = append(entries, &HistogramRuneEntry{R: letters[i], Prob: probSlice[i]})
 	}
 	params = HistogramEngineParams{
-		offset:  3,
-		size:    4,
-		entries: entries,
+		HistogramEngineCommonParams{
+			Offset: 3,
+			Size:   4,
+		},
+		entries,
 	}
-	eng, err = NewHistogramEngine(&params)
+	eng, err = NewHistogramEngine(&params, feMgr)
 	if err != nil {
 		t.Errorf("Error while generating new engine.\n %v.\n", err.Error())
 		t.FailNow()
@@ -1143,25 +1232,30 @@ func TestHistogramRuneEngine(t *testing.T) {
 		received[v]++
 	}
 	for i, letter := range letters {
-		verifyBinGenerator(10000*int(probSlice[i]), received[letter], 2, t)
+		verifyBinGenerator(10000*int(probSlice[i]), received[letter], 3, t)
 	}
 }
 
 // TestHistogramRuneRangeEngine
 func TestHistogramRuneRangeEngine(t *testing.T) {
+
+	feMgr := createEngineManager(t)
+
 	b := make([]byte, 8)
 	iterNumber := 40000
 	var v rune
 	var size int
 
 	// simple ASCII rune ranges
-	entries := []HistogramEntry{&HistogramRuneRangeEntry{min: 'a', max: 'e', prob: 1}, &HistogramRuneRangeEntry{min: 'f', max: 'z', prob: 3}}
+	entries := []HistogramEntry{&HistogramRuneRangeEntry{Min: 'a', Max: 'e', Prob: 1}, &HistogramRuneRangeEntry{Min: 'f', Max: 'z', Prob: 3}}
 	params := HistogramEngineParams{
-		offset:  0,
-		size:    1,
-		entries: entries,
+		HistogramEngineCommonParams{
+			Offset: 0,
+			Size:   1,
+		},
+		entries,
 	}
-	eng, err := NewHistogramEngine(&params)
+	eng, err := NewHistogramEngine(&params, feMgr)
 	if err != nil {
 		t.Errorf("Error while generating new engine.\n %v.\n", err.Error())
 		t.FailNow()
@@ -1179,14 +1273,16 @@ func TestHistogramRuneRangeEngine(t *testing.T) {
 	verifyBinGenerator(10000, aToE, 1, t)
 
 	// mixed range - a = 1/6, d=1/6, b = 2/6, c = 2/6
-	iterNumber = 60000
-	entries = []HistogramEntry{&HistogramRuneRangeEntry{min: 'a', max: 'c', prob: 1}, &HistogramRuneRangeEntry{min: 'b', max: 'd', prob: 1}}
+	iterNumber = 600000
+	entries = []HistogramEntry{&HistogramRuneRangeEntry{Min: 'a', Max: 'c', Prob: 1}, &HistogramRuneRangeEntry{Min: 'b', Max: 'd', Prob: 1}}
 	params = HistogramEngineParams{
-		offset:  1,
-		size:    1,
-		entries: entries,
+		HistogramEngineCommonParams{
+			Offset: 1,
+			Size:   1,
+		},
+		entries,
 	}
-	eng, err = NewHistogramEngine(&params)
+	eng, err = NewHistogramEngine(&params, feMgr)
 	if err != nil {
 		t.Errorf("Error while generating new engine.\n %v.\n", err.Error())
 		t.FailNow()
@@ -1200,20 +1296,22 @@ func TestHistogramRuneRangeEngine(t *testing.T) {
 		}
 		generated[v-'a']++
 	}
-	verifyBinGenerator(10000, generated[0], 2, t)
-	verifyBinGenerator(20000, generated[1], 2, t)
-	verifyBinGenerator(20000, generated[2], 2, t)
-	verifyBinGenerator(10000, generated[3], 2, t)
+	verifyBinGenerator(100000, generated[0], 2, t)
+	verifyBinGenerator(200000, generated[1], 2, t)
+	verifyBinGenerator(200000, generated[2], 2, t)
+	verifyBinGenerator(100000, generated[3], 2, t)
 
 	// hebrew range
 	iterNumber = 1 << 16
-	entries = []HistogramEntry{&HistogramRuneRangeEntry{min: 'א', max: 'ג', prob: 1}, &HistogramRuneRangeEntry{min: 'ד', max: 'ו', prob: 1}}
+	entries = []HistogramEntry{&HistogramRuneRangeEntry{Min: 'א', Max: 'ג', Prob: 1}, &HistogramRuneRangeEntry{Min: 'ד', Max: 'ו', Prob: 1}}
 	params = HistogramEngineParams{
-		offset:  2,
-		size:    2,
-		entries: entries,
+		HistogramEngineCommonParams{
+			Offset: 2,
+			Size:   2,
+		},
+		entries,
 	}
-	eng, err = NewHistogramEngine(&params)
+	eng, err = NewHistogramEngine(&params, feMgr)
 	if err != nil {
 		t.Errorf("Error while generating new engine.\n %v.\n", err.Error())
 		t.FailNow()
@@ -1231,13 +1329,15 @@ func TestHistogramRuneRangeEngine(t *testing.T) {
 	verifyBinGenerator(iterNumber>>1, alefToGimel, 1, t)
 
 	// bad range
-	entries = []HistogramEntry{&HistogramRuneRangeEntry{min: 'z', max: 'a', prob: 1}}
+	entries = []HistogramEntry{&HistogramRuneRangeEntry{Min: 'z', Max: 'a', Prob: 1}}
 	params = HistogramEngineParams{
-		offset:  4,
-		size:    1,
-		entries: entries,
+		HistogramEngineCommonParams{
+			Offset: 4,
+			Size:   1,
+		},
+		entries,
 	}
-	eng, err = NewHistogramEngine(&params)
+	eng, err = NewHistogramEngine(&params, feMgr)
 	if err != nil {
 		t.Errorf("Error while generating new engine.\n %v.\n", err.Error())
 		t.FailNow()
@@ -1252,6 +1352,8 @@ func TestHistogramRuneRangeEngine(t *testing.T) {
 //TestHistogramRuneListEngine
 func TestHistogramRuneListEngine(t *testing.T) {
 
+	feMgr := createEngineManager(t)
+
 	b := make([]byte, 8)
 	iterNumber := 50000
 	var v rune
@@ -1259,13 +1361,15 @@ func TestHistogramRuneListEngine(t *testing.T) {
 	// emojis
 	goodEmojis := []rune{'😀', '😁', '😍', '😇'}
 	badEmojis := []rune{'😡', '👹', '🤮'}
-	entries := []HistogramEntry{&HistogramRuneListEntry{list: goodEmojis, prob: 3}, &HistogramRuneListEntry{list: badEmojis, prob: 2}}
+	entries := []HistogramEntry{&HistogramRuneListEntry{List: goodEmojis, Prob: 3}, &HistogramRuneListEntry{List: badEmojis, Prob: 2}}
 	params := HistogramEngineParams{
-		offset:  0,
-		size:    4,
-		entries: entries,
+		HistogramEngineCommonParams{
+			Offset: 0,
+			Size:   4,
+		},
+		entries,
 	}
-	eng, err := NewHistogramEngine(&params)
+	eng, err := NewHistogramEngine(&params, feMgr)
 	if err != nil {
 		t.Errorf("Error while generating new engine.\n %v.\n", err.Error())
 		t.FailNow()
@@ -1298,13 +1402,15 @@ func TestHistogramRuneListEngine(t *testing.T) {
 
 	// empty list - negative test
 	var emptyList []rune
-	entries = []HistogramEntry{&HistogramRuneListEntry{list: emptyList, prob: 3}}
+	entries = []HistogramEntry{&HistogramRuneListEntry{List: emptyList, Prob: 3}}
 	params = HistogramEngineParams{
-		offset:  4,
-		size:    4,
-		entries: entries,
+		HistogramEngineCommonParams{
+			Offset: 4,
+			Size:   4,
+		},
+		entries,
 	}
-	eng, err = NewHistogramEngine(&params)
+	eng, err = NewHistogramEngine(&params, feMgr)
 	if err != nil {
 		t.Errorf("Error while generating new engine.\n %v.\n", err.Error())
 		t.FailNow()

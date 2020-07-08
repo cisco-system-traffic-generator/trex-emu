@@ -120,8 +120,8 @@ func TestBinaryDistribution(t *testing.T) {
 			t.Errorf("Generated invalid value %v, should generate only %v or %v.\n", res, 5, 7)
 		}
 	}
-	verifyBinGenerator(expectedFives, fives, 1, t)
-	verifyBinGenerator(iterNumber-expectedFives, sevens, 1, t)
+	verifyBinGenerator(expectedFives, fives, 2, t)
+	verifyBinGenerator(iterNumber-expectedFives, sevens, 2, t)
 }
 
 // TestNonUniRandGenBin
@@ -214,7 +214,7 @@ func TestNonUniRandGen(t *testing.T) {
 	for i := 0; i < int(iterNumber); i++ {
 		histogram[gen.Generate()]++
 	}
-	verifyDistribution(dist, histogram, iterNumber, 0.5, t)
+	verifyDistribution(dist, histogram, iterNumber, 1, t)
 
 	// simple non uniform
 	dist = []uint32{1, 5, 3}
@@ -227,7 +227,7 @@ func TestNonUniRandGen(t *testing.T) {
 	for i := 0; i < int(iterNumber); i++ {
 		histogram[gen.Generate()]++
 	}
-	verifyDistribution(dist, histogram, iterNumber, 0.5, t)
+	verifyDistribution(dist, histogram, iterNumber, 1, t)
 
 	// big proportions
 	iterNumber = 1 << 15
@@ -241,7 +241,7 @@ func TestNonUniRandGen(t *testing.T) {
 	for i := 0; i < int(iterNumber); i++ {
 		histogram[gen.Generate()]++
 	}
-	verifyDistribution(dist, histogram, iterNumber, 0.5, t)
+	verifyDistribution(dist, histogram, iterNumber, 1, t)
 
 	// a bit longer
 	dist = []uint32{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20}
@@ -254,7 +254,7 @@ func TestNonUniRandGen(t *testing.T) {
 	for i := 0; i < int(iterNumber); i++ {
 		histogram[gen.Generate()]++
 	}
-	verifyDistribution(dist, histogram, iterNumber, 0.5, t)
+	verifyDistribution(dist, histogram, iterNumber, 1, t)
 
 	// with 0
 	dist = []uint32{0, 1, 1}
@@ -267,7 +267,7 @@ func TestNonUniRandGen(t *testing.T) {
 	for i := 0; i < int(iterNumber); i++ {
 		histogram[gen.Generate()]++
 	}
-	verifyDistribution(dist, histogram, iterNumber, 0.5, t)
+	verifyDistribution(dist, histogram, iterNumber, 1, t)
 
 	// very very long with complete randomization
 	dist = []uint32{0}
@@ -284,7 +284,7 @@ func TestNonUniRandGen(t *testing.T) {
 	for i := 0; i < int(iterNumber); i++ {
 		histogram[gen.Generate()]++
 	}
-	verifyDistribution(dist, histogram, iterNumber, 0.5, t)
+	verifyDistribution(dist, histogram, iterNumber, 1, t)
 
 	// only 1
 	dist = []uint32{2}
