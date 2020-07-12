@@ -1,191 +1,115 @@
 package netflow
 
 import (
-	"bytes"
 	"emu/core"
-	"encoding/binary"
+	"encoding/hex"
+	"math/rand"
+	"sort"
 	"testing"
-	"unicode/utf8"
 
 	"github.com/intel-go/fastjson"
 )
 
-// TestUIntEngineManagerBasic
-func TestEngineManagerBasic(t *testing.T) {
-	var simrx core.VethIFSim
-	tctx := core.NewThreadCtx(0, 4510, true, &simrx)
-	defer tctx.Delete()
-	par := fastjson.RawMessage([]byte(`[
-					{
-					"engine_type": "uint",
-					"engine_name": "bes",
-					"params":
-						{
-							"size": 2,
-							"offset": 0,
-							"min": 0,
-							"max": 5,
-							"op": "inc",
-						}
-		 			}
-		 		]`))
-	feMgr := NewEngineManager(tctx, &par)
-	if len(feMgr.engines) != 1 {
-		t.Errorf("Engine map is of wrong size, want %v, have %v.\n", 1, len(feMgr.engines))
-		t.FailNow()
-	}
-	eng, ok := feMgr.engines["bes"]
-	if !ok {
-		t.Errorf("Engine map doesn't contain the required engine name %v.\n", "bes")
-		t.FailNow()
-	}
-	b := make([]byte, 2)
-	expected := []uint16{0, 1, 2, 3, 4, 5, 0, 1, 2}
-	for i := 0; i < len(expected); i++ {
-		eng.Update(b[eng.GetOffset():])
-		value := binary.BigEndian.Uint16(b[eng.GetOffset():])
-		if value != expected[i] {
-			t.Errorf("Error generating value, want %v, have %v.\n", expected[i], value)
-		}
-	}
-	expectedBytes := []byte{0x00, 0x02}
-	if !bytes.Equal(expectedBytes, b) {
-		t.Errorf("Buffer not as expected, want %v, have %v.\n", expectedBytes, b)
-	}
+type EngineManagerTestBase struct {
+	testname     string              // the name of the test which will be used for generated file
+	monitor      bool                // boolean if we are monitoring the data or not
+	bufferSize   int                 // buffer size to create in bytes
+	iterNumber   int                 // number of iterations for the engine
+	engineNumber int                 // number of engines
+	inputJson    fastjson.RawMessage // inputJson for engine
+	counters     FieldEngineCounters // counters to compare to
+	seed         int64               // seed for deterministic generation
 }
 
-// TestUIntEngineManagerMultipleUInt
-func TestEngineManagerMultipleUInt(t *testing.T) {
+func (o *EngineManagerTestBase) Run(t *testing.T, compare bool) {
 	var simrx core.VethIFSim
 	tctx := core.NewThreadCtx(0, 4510, true, &simrx)
 	defer tctx.Delete()
-	par := fastjson.RawMessage([]byte(`[
-					{
-						"engine_type": "uint",
-						"engine_name": "Increase",
-						"params":
-							{
-								"size": 1,
-								"offset": 0,
-								"min": 0,
-								"max": 50,
-								"op": "inc",
-								"step": 20,
-								"init": 5,
-							}
-					},
-					{
-						"engine_type": "uint",
-						"engine_name": "Decrease",
-						"params":
-							{
-								"size": 2,
-								"offset": 2,
-								"min": 200,
-								"max": 2000,
-								"op": "dec",
-								"step": 200,
-							}
-					},
-					{
-						"engine_type": "uint",
-						"engine_name": "Random",
-						"params":
-							{
-								"size": 4,
-								"offset": 4,
-								"min": 1000,
-								"max": 2000,
-								"op": "rand"
-							}
 
-					}
-		 		]`))
-	feMgr := NewEngineManager(tctx, &par)
-	if len(feMgr.engines) != 3 {
-		t.Errorf("Engine map is of wrong size, want %v, have %v.\n", 3, len(feMgr.engines))
-		t.FailNow()
+	if o.seed != 0 {
+		rand.Seed(o.seed)
 	}
-	names := []string{"Increase", "Decrease", "Random"}
-	var engines []FieldEngineIF
-	for _, name := range names {
-		eng, ok := feMgr.engines[name]
-		if !ok {
-			t.Errorf("Engine map doesn't contain the required engine name %v.\n", name)
-			t.FailNow()
+
+	feMgr := NewEngineManager(tctx, &o.inputJson)
+	if len(feMgr.engines) != o.engineNumber {
+		o.monitor = false
+
+	}
+
+	b := make([]byte, o.bufferSize)
+
+	var engineNames []string
+
+	/*
+		The code must be deterministic in order to compare to the generated json.
+		In order to get deterministic pseudo random generation (PRG) we set the seed.
+		But this is not enough, the map of engines must be iterated each time in the
+		same order!!.
+		This is why we collect the keys of the map (engine names), we sort them and then
+		iterate the map in this specific order every time.
+	*/
+	for engine_name := range feMgr.engines {
+		engineNames = append(engineNames, engine_name)
+	}
+	sort.Strings(engineNames)
+
+	for i := 0; i < o.iterNumber; i++ {
+		for _, eng_name := range engineNames {
+			eng := feMgr.engines[eng_name]
+			eng.Update(b[eng.GetOffset() : eng.GetOffset()+eng.GetSize()])
+
 		}
-		engines = append(engines, eng)
+		if o.monitor {
+			tctx.SimRecordAppend(hex.Dump(b))
+		}
 	}
-	b := make([]byte, 8)
-
-	expectedInc := []uint8{5, 25, 45, 14, 34, 3, 23}
-	var receivedInc []uint8
-	expectedDec := []uint16{200, 1801, 1601, 1401, 1201, 1001, 801}
-	var receivedDec []uint16
-	var receivedRand []uint32
-	for i := 0; i < len(expectedInc); i++ {
-		for j := 0; j < len(engines); j++ {
-			eng := engines[j]
-			eng.Update(b[eng.GetOffset():])
-			if j == 0 {
-				receivedInc = append(receivedInc, uint8(b[eng.GetOffset()]))
-			} else if j == 1 {
-				receivedDec = append(receivedDec, binary.BigEndian.Uint16(b[eng.GetOffset():]))
-			} else if j == 2 {
-				receivedRand = append(receivedRand, binary.BigEndian.Uint32(b[eng.GetOffset():]))
+	tctx.SimRecordAppend(feMgr.cdb.MarshalValues(true))
+	if compare {
+		if o.monitor {
+			tctx.SimRecordCompare(o.testname, t)
+		} else {
+			if o.counters != *feMgr.counters {
+				t.Errorf("Bad counters, want %+v, have %+v.\n", o.counters, feMgr.counters)
+				t.FailNow()
 			}
 		}
 	}
-	// validate each one
-	for i := 0; i < len(expectedInc); i++ {
-		if expectedInc[i] != receivedInc[i] {
-			t.Errorf("Increase didn't generate as expected, want %v, have %v.\n", expectedInc[i], receivedInc[i])
-		}
-		if expectedDec[i] != receivedDec[i] {
-			t.Errorf("Decrease didn't generate as expected, want %v, have %v.\n", expectedDec[i], receivedDec[i])
-		}
-		if receivedRand[i] < 1000 || receivedRand[i] > 2000 {
-			t.Errorf("Random didn't generate as expected, want in [%v-%v], have %v.\n", 1000, 2000, receivedRand[i])
-		}
-	}
-	// validate no overlap in first 4 bytes
-	expectedBytes := []byte{0x17, 0x00, 0x03, 0x21} // [23, 0, 801]
-	if !bytes.Equal(expectedBytes, b[0:4]) {
-		t.Errorf("Buffer not as expected, want %v, have %v.\n", expectedBytes, b[0:4])
-	}
 }
 
-//TestEngineManagerNegativeUint
-func TestEngineManagerNegativeUint(t *testing.T) {
-	var simrx core.VethIFSim
-	tctx := core.NewThreadCtx(0, 4510, true, &simrx)
-	defer tctx.Delete()
-
-	// bad operation
-	par := fastjson.RawMessage([]byte(`[
-					{
-					"engine_type": "uint",
-					"engine_name": "Emu",
-					"params":
-						{
-					 		"size": 2,
-					 		"offset": 0,
-							"min": 0,
-							"max": 5,
-							"op": "aa",
-						}
-		 			}
-				 ]`))
-	feMgr := NewEngineManager(tctx, &par)
-	if feMgr.counters.failedBuildingEngine != 1 && feMgr.counters.badOperation != 1 {
-		t.Errorf("Bad counter badOperation, want %v, have %v.\n", 1, feMgr.counters.badOperation)
+func TestEngineManagerNeg1(t *testing.T) {
+	a := &EngineManagerTestBase{
+		testname:     "feNeg1",
+		monitor:      false,
+		bufferSize:   2,
+		iterNumber:   0,
+		engineNumber: 1,
+		inputJson: fastjson.RawMessage([]byte(`[
+			{
+			"engine_type": "uint",
+			"engine_name": "Emu",
+			"params":
+				{
+					"size": 2,
+					"offset": 0,
+					"min": 0,
+					"max": 5,
+					"op": "aa",
+				}
+			 }
+		 ]`)),
+		counters: FieldEngineCounters{badOperation: 1, failedBuildingEngine: 1},
 	}
-	if len(feMgr.engines) != 0 {
-		t.Errorf("Engine map is not empty inspite of errors\n")
-	}
+	a.Run(t, true)
+}
 
-	// invalid json
-	par = fastjson.RawMessage([]byte(`[
+func TestEngineManagerNeg2(t *testing.T) {
+	a := &EngineManagerTestBase{
+		testname:     "feNeg2",
+		monitor:      false,
+		bufferSize:   2,
+		iterNumber:   0,
+		engineNumber: 1,
+		inputJson: fastjson.RawMessage([]byte(`[
 			{
 			"engine_type": "uint,
 			"engine_name": "Emu",
@@ -198,40 +122,20 @@ func TestEngineManagerNegativeUint(t *testing.T) {
 					"op": "aa",
 				}
 			 }
-		 ]`))
-	feMgr = NewEngineManager(tctx, &par)
-	if feMgr.counters.failedBuildingEngine != 1 && feMgr.counters.invalidJson != 1 {
-		t.Errorf("Bad counter invalidJson, want %v, have %v.\n", 1, feMgr.counters.invalidJson)
+		 ]`)),
+		counters: FieldEngineCounters{invalidJson: 1},
 	}
-	if len(feMgr.engines) != 0 {
-		t.Errorf("Engine map is not empty inspite of errors\n")
-	}
+	a.Run(t, true)
+}
 
-	// another invalid json
-	par = fastjson.RawMessage([]byte(`[
-			{
-			"engine_type": "uint",
-			"engine_name": 1,
-			"params":
-				{
-					"size": 2,
-					"offset": 0,
-					"min": 0,
-					"max": 5,
-					"op": "aa",
-				}
-			 }
-		 ]`))
-	feMgr = NewEngineManager(tctx, &par)
-	if feMgr.counters.failedBuildingEngine != 1 && feMgr.counters.invalidJson != 1 {
-		t.Errorf("Bad counter invalidJson, want %v, have %v.\n", 1, feMgr.counters.invalidJson)
-	}
-	if len(feMgr.engines) != 0 {
-		t.Errorf("Engine map is not empty inspite of errors\n")
-	}
-
-	// invalidSize and bad operation
-	par = fastjson.RawMessage([]byte(`[
+func TestEngineManager6Neg3(t *testing.T) {
+	a := &EngineManagerTestBase{
+		testname:     "feNeg3",
+		monitor:      false,
+		bufferSize:   2,
+		iterNumber:   0,
+		engineNumber: 1,
+		inputJson: fastjson.RawMessage([]byte(`[
 			{
 			"engine_type": "uint",
 			"engine_name": "Emu",
@@ -244,40 +148,20 @@ func TestEngineManagerNegativeUint(t *testing.T) {
 					"op": "aa",
 				}
 			 }
-		 ]`))
-	feMgr = NewEngineManager(tctx, &par)
-	if feMgr.counters.failedBuildingEngine != 1 && feMgr.counters.invalidSize != 1 && feMgr.counters.badOperation != 1 {
-		t.Errorf("Bad counters invalidSize, badOperation, want %v, have %v and %v respectively.\n", 1, feMgr.counters.invalidSize, feMgr.counters.badOperation)
+		 ]`)),
+		counters: FieldEngineCounters{badOperation: 1, invalidSize: 1, failedBuildingEngine: 1},
 	}
-	if len(feMgr.engines) != 0 {
-		t.Errorf("Engine map is not empty inspite of errors\n")
-	}
+	a.Run(t, true)
+}
 
-	// min biger than max
-	par = fastjson.RawMessage([]byte(`[
-			{
-			"engine_type": "uint",
-			"engine_name": "Emu",
-			"params":
-				{
-					"size": 4,
-					"offset": 0,
-					"min": 25,
-					"max": 5,
-					"op": "inc",
-				}
-			 }
-		 ]`))
-	feMgr = NewEngineManager(tctx, &par)
-	if feMgr.counters.failedBuildingEngine != 1 && feMgr.counters.maxSmallerThanMin != 1 {
-		t.Errorf("Bad counter maxSmallerThanMin want %v, have %v.\n", 1, feMgr.counters.maxSmallerThanMin)
-	}
-	if len(feMgr.engines) != 0 {
-		t.Errorf("Engine map is not empty inspite of errors\n")
-	}
-
-	// size too small
-	par = fastjson.RawMessage([]byte(`[
+func TestEngineManagerNeg4(t *testing.T) {
+	a := &EngineManagerTestBase{
+		testname:     "feNeg4",
+		monitor:      false,
+		bufferSize:   2,
+		iterNumber:   0,
+		engineNumber: 1,
+		inputJson: fastjson.RawMessage([]byte(`[
 			{
 			"engine_type": "uint",
 			"engine_name": "Emu",
@@ -285,22 +169,25 @@ func TestEngineManagerNegativeUint(t *testing.T) {
 				{
 					"size": 2,
 					"offset": 0,
-					"min": 25,
-					"max": 70000,
+					"min": 70000,
+					"max": 69999,
 					"op": "inc",
 				}
 			 }
-		 ]`))
-	feMgr = NewEngineManager(tctx, &par)
-	if feMgr.counters.failedBuildingEngine != 1 && feMgr.counters.sizeTooSmall != 1 {
-		t.Errorf("Bad counter sizeTooSmall want %v, have %v.\n", 1, feMgr.counters.sizeTooSmall)
+		 ]`)),
+		counters: FieldEngineCounters{sizeTooSmall: 1, maxSmallerThanMin: 1, failedBuildingEngine: 1},
 	}
-	if len(feMgr.engines) != 0 {
-		t.Errorf("Engine map is not empty inspite of errors\n")
-	}
+	a.Run(t, true)
+}
 
-	// bad engine type
-	par = fastjson.RawMessage([]byte(`[
+func TestEngineManagerNeg5(t *testing.T) {
+	a := &EngineManagerTestBase{
+		testname:     "feNeg5",
+		monitor:      false,
+		bufferSize:   2,
+		iterNumber:   0,
+		engineNumber: 1,
+		inputJson: fastjson.RawMessage([]byte(`[
 			{
 			"engine_type": "uint32",
 			"engine_name": "Emu",
@@ -313,407 +200,95 @@ func TestEngineManagerNegativeUint(t *testing.T) {
 					"op": "inc",
 				}
 			 }
-		 ]`))
-	feMgr = NewEngineManager(tctx, &par)
-	if feMgr.counters.failedBuildingEngine != 1 && feMgr.counters.badEngineType != 1 {
-		t.Errorf("Bad counter badEngineType want %v, have %v.\n", 1, feMgr.counters.badEngineType)
+		 ]`)),
+		counters: FieldEngineCounters{badEngineType: 1},
 	}
-	if len(feMgr.engines) != 0 {
-		t.Errorf("Engine map is not empty inspite of errors\n")
-	}
+	a.Run(t, true)
 }
 
-//TestEngineManagerHistogramUIntBasic
-func TestEngineManagerHistogramUIntBasic(t *testing.T) {
-	var simrx core.VethIFSim
-	tctx := core.NewThreadCtx(0, 4510, true, &simrx)
-	defer tctx.Delete()
-	b := make([]byte, 12)
-
-	// uint32 entry
-	par := fastjson.RawMessage([]byte(`[
-					{
-						"engine_type": "histogram_uint32",
-						"engine_name": "Emu",
-						"params":
-						{
-							"size": 4,
-							"offset": 0,
-							"entries":
-							[
-								{
-									"v": 0,
-									"prob": 1
-								},
-								{
-									"v": 1,
-									"prob": 1
-								}
-							]
-						},
-		 			}
-				 ]`))
-	feMgr := NewEngineManager(tctx, &par)
-	if len(feMgr.engines) != 1 {
-		t.Errorf("Engine map is of wrong size, want %v, have %v.\n", 1, len(feMgr.engines))
-		t.FailNow()
-	}
-	eng, ok := feMgr.engines["Emu"]
-	if !ok {
-		t.Errorf("Engine map doesn't contain the required engine name %v.\n", "Emu")
-		t.FailNow()
-	}
-
-	var sum uint32
-	iterNumber := 1 << 20
-	for i := 0; i < iterNumber; i++ {
-		eng.Update(b[eng.GetOffset():])
-		value := binary.BigEndian.Uint32(b[eng.GetOffset():])
-		if !(value == 0 || value == 1) {
-			t.Errorf("Generated bad value, expected 0 or 1, got %v.\n", value)
-		}
-		sum += value
-	}
-	verifyBinGenerator(iterNumber>>1, int(sum), 1, t)
-
-	// uint32 range
-	par = fastjson.RawMessage([]byte(`[
-		{
-			"engine_type": "histogram_uint32_range",
-			"engine_name": "Emu",
-			"params":
+func TestEngineManagerNeg6(t *testing.T) {
+	a := &EngineManagerTestBase{
+		testname:     "feNeg6",
+		monitor:      false,
+		bufferSize:   4,
+		iterNumber:   0,
+		engineNumber: 1,
+		inputJson: fastjson.RawMessage([]byte(`[
 			{
-				"size": 4,
-				"offset": 4,
-				"entries":
-				[
-					{
-						"min": 0,
-						"max": 5,
-						"prob": 1
-					},
-					{
-						"min": 6,
-						"max": 49,
-						"prob": 3
-					}
-				]
-			},
-		 }
-	 ]`))
-
-	feMgr = NewEngineManager(tctx, &par)
-	if len(feMgr.engines) != 1 {
-		t.Errorf("Engine map is of wrong size, want %v, have %v.\n", 1, len(feMgr.engines))
-		t.FailNow()
-	}
-	eng, ok = feMgr.engines["Emu"]
-	if !ok {
-		t.Errorf("Engine map doesn't contain the required engine name %v.\n", "Emu")
-		t.FailNow()
-	}
-	receivedHistogram := make([]int, 50)
-	for i := 0; i < iterNumber; i++ {
-		eng.Update(b[eng.GetOffset():])
-		value := binary.BigEndian.Uint32(b[eng.GetOffset():])
-		receivedHistogram[value]++
-	}
-	expectedFirst := (iterNumber >> 2) / 6
-	expectedSecond := ((iterNumber >> 2) * 3) / 44
-	sumOfFirst := 0
-	for i := 0; i < len(receivedHistogram); i++ {
-		if i < 6 {
-			// small numbers bigs error
-			verifyBinGenerator(expectedFirst, receivedHistogram[i], 5, t)
-			sumOfFirst += receivedHistogram[i]
-		} else {
-			verifyBinGenerator(expectedSecond, receivedHistogram[i], 5, t)
-		}
-	}
-	verifyBinGenerator(iterNumber>>2, sumOfFirst, 2, t)
-
-	// uint32 list
-	par = fastjson.RawMessage([]byte(`[
-			{
-				"engine_type": "histogram_uint32_list",
-				"engine_name": "Emu",
-				"params":
-				{
-					"size": 4,
-					"offset": 8,
-					"entries":
-					[
-						{
-							"list": [1, 3, 5, 7, 9],
-							"prob": 3
-						},
-						{
-							"list": [0, 2, 4, 6, 8],
-							"prob": 1
-						}
-					]
-				},
-			 }
-		 ]`))
-
-	feMgr = NewEngineManager(tctx, &par)
-	if len(feMgr.engines) != 1 {
-		t.Errorf("Engine map is of wrong size, want %v, have %v.\n", 1, len(feMgr.engines))
-		t.FailNow()
-	}
-	eng, ok = feMgr.engines["Emu"]
-	if !ok {
-		t.Errorf("Engine map doesn't contain the required engine name %v.\n", "Emu")
-		t.FailNow()
-	}
-	odd := 0
-	for i := 0; i < iterNumber; i++ {
-		eng.Update(b[eng.GetOffset():])
-		value := binary.BigEndian.Uint32(b[eng.GetOffset():])
-		if value%2 == 0 {
-			odd++
-		}
-	}
-	verifyBinGenerator(iterNumber>>2, odd, 1, t)
-}
-
-// TestEngineManagerHistogramRuneBasic
-func TestEngineManagerHistogramRuneBasic(t *testing.T) {
-	var simrx core.VethIFSim
-	tctx := core.NewThreadCtx(0, 4510, true, &simrx)
-	defer tctx.Delete()
-	b := make([]byte, 12)
-
-	// rune entry, a and b
-	par := fastjson.RawMessage([]byte(`[
-					{
-						"engine_type": "histogram_rune",
-						"engine_name": "TRex",
-						"params":
-						{
-							"size": 1,
-							"offset": 0,
-							"entries":
-							[
-								{
-									"v": 97,
-									"prob": 1
-								},
-								{
-									"v": 98,
-									"prob": 1
-								}
-							]
-						},
-		 			}
-				 ]`))
-	feMgr := NewEngineManager(tctx, &par)
-	if len(feMgr.engines) != 1 {
-		t.Errorf("Engine map is of wrong size, want %v, have %v.\n", 1, len(feMgr.engines))
-		t.FailNow()
-	}
-	eng, ok := feMgr.engines["TRex"]
-	if !ok {
-		t.Errorf("Engine map doesn't contain the required engine name %v.\n", "TRex")
-		t.FailNow()
-	}
-
-	iterNumber := 1 << 15
-	for i := 0; i < iterNumber; i++ {
-		eng.Update(b[eng.GetOffset():])
-		v, size := utf8.DecodeRune(b[eng.GetOffset():])
-		if size != int(eng.GetSize()) {
-			t.Errorf("Error decoding rune, incorrect size. Want %v, have %v.\n", eng.GetSize(), size)
-		}
-		if !(v == 'a' || v == 'b') {
-			t.Errorf("Bad rune generated, wanted a or b, got %#U", v)
-		}
-	}
-
-	// rune range
-	par = fastjson.RawMessage([]byte(`[
-					{
-						"engine_type": "histogram_rune_range",
-						"engine_name": "Bes",
-						"params":
-						{
-							"size": 1,
-							"offset": 1,
-							"entries":
-							[
-								{
-									"min": 97,
-									"max": 99,
-									"prob": 2
-								},
-								{
-									"min": 101,
-									"max": 103,
-									"prob": 1
-								}
-							]
-						},
-		 			}
-				 ]`))
-	feMgr = NewEngineManager(tctx, &par)
-	if len(feMgr.engines) != 1 {
-		t.Errorf("Engine map is of wrong size, want %v, have %v.\n", 1, len(feMgr.engines))
-		t.FailNow()
-	}
-	eng, ok = feMgr.engines["Bes"]
-	if !ok {
-		t.Errorf("Engine map doesn't contain the required engine name %v.\n", "Bes")
-		t.FailNow()
-	}
-	var firstEntry, secondEntry int
-	iterNumber = 300000
-	for i := 0; i < iterNumber; i++ {
-		eng.Update(b[eng.GetOffset():])
-		v, size := utf8.DecodeRune(b[eng.GetOffset():])
-		if size != int(eng.GetSize()) {
-			t.Errorf("Error decoding rune, incorrect size. Want %v, have %v.\n", eng.GetSize(), size)
-		}
-		if v == 'a' || v == 'b' || v == 'c' {
-			firstEntry++
-		} else if v == 'e' || v == 'f' || v == 'g' {
-			secondEntry++
-		} else {
-			t.Errorf("Bad rune generated, wanted [a, b, c, e, f, g], got %#U", v)
-
-		}
-	}
-	verifyBinGenerator(200000, firstEntry, 2, t)
-	verifyBinGenerator(100000, secondEntry, 2, t)
-
-	// rune list
-	par = fastjson.RawMessage([]byte(`[
-			{
-				"engine_type": "histogram_rune_list",
+				"engine_type": "histogram_uint32",
 				"engine_name": "TRex",
 				"params":
 				{
-					"size": 1,
-					"offset": 2,
+					"size": 4,
+					"offset": 0,
 					"entries":
 					[
 						{
-							"list": [97, 98],
-							"prob": 1
+							"v": 0,
+							"prob": 0,
 						},
 						{
-							"list": [99, 100],
-							"prob": 1
+							"v": 1,
+							"prob": 0
 						}
 					]
 				}
 			 }
-		 ]`))
-	feMgr = NewEngineManager(tctx, &par)
-	if len(feMgr.engines) != 1 {
-		t.Errorf("Engine map is of wrong size, want %v, have %v.\n", 1, len(feMgr.engines))
-		t.FailNow()
+		 ]`)),
+		counters: FieldEngineCounters{generatorCreationError: 1, failedBuildingEngine: 1},
 	}
-	eng, ok = feMgr.engines["TRex"]
-	if !ok {
-		t.Errorf("Engine map doesn't contain the required engine name %v.\n", "TRex")
-		t.FailNow()
-	}
-	firstEntry, secondEntry = 0, 0
-	iterNumber = 1 << 15
-	for i := 0; i < iterNumber; i++ {
-		eng.Update(b[eng.GetOffset():])
-		v, size := utf8.DecodeRune(b[eng.GetOffset():])
-		if size != int(eng.GetSize()) {
-			t.Errorf("Error decoding rune, incorrect size. Want %v, have %v.\n", eng.GetSize(), size)
-		}
-		if v == 'a' || v == 'b' {
-			firstEntry++
-		} else if v == 'c' || v == 'd' {
-			secondEntry++
-		} else {
-			t.Errorf("Bad rune generated, wanted [a, b, c, e, f, g], got %#U", v)
-		}
-	}
-	verifyBinGenerator(iterNumber>>1, firstEntry, 2, t)
+	a.Run(t, true)
 }
 
-// TestEngineManagerHistogramNegative
-func TestEngineManagerHistogramNegative(t *testing.T) {
-	var simrx core.VethIFSim
-	tctx := core.NewThreadCtx(0, 4510, true, &simrx)
-	defer tctx.Delete()
-
-	// degenerate array
-	par := fastjson.RawMessage([]byte(`[
-					{
-						"engine_type": "histogram_uint32",
-						"engine_name": "TRex",
-						"params":
+func TestEngineManagerNeg7(t *testing.T) {
+	a := &EngineManagerTestBase{
+		testname:     "feNeg7",
+		monitor:      false,
+		bufferSize:   4,
+		iterNumber:   0,
+		engineNumber: 1,
+		inputJson: fastjson.RawMessage([]byte(`[
+			{
+				"engine_type": "histogram_uint32",
+				"engine_name": "TRex",
+				"params":
+				{
+					"size": 4,
+					"offset": 0,
+					"entries":
+					[
 						{
-							"size": 4,
-							"offset": 0,
-							"entries":
-							[
-								{
-									"v": 0,
-									"prob": 0,
-								},
-								{
-									"v": 1,
-									"prob": 0
-								}
-							]
-						}
-		 			}
-				 ]`))
-	feMgr := NewEngineManager(tctx, &par)
-	if feMgr.counters.failedBuildingEngine != 1 && feMgr.counters.generatorCreationError != 1 {
-		t.Errorf("Bad counter generatorCreationError, want %v, have %v.\n", 1, feMgr.counters.generatorCreationError)
-	}
-	if len(feMgr.engines) != 0 {
-		t.Errorf("Engine map is not empty inspite of errors\n")
-	}
-
-	// probabilities too big that won't scale.
-	par = fastjson.RawMessage([]byte(`[
-					{
-						"engine_type": "histogram_uint32",
-						"engine_name": "TRex",
-						"params":
+							"v": 0,
+							"prob": 2947483645
+						},
 						{
-							"size": 4,
-							"offset": 0,
-							"entries":
-							[
-								{
-									"v": 0,
-									"prob": 2947483645 
-								},
-								{
-									"v": 1,
-									"prob": 2947483645
-								}
-							]
+							"v": 1,
+							"prob": 2947483645
 						}
-		 			}
-				 ]`))
-	feMgr = NewEngineManager(tctx, &par)
-	if feMgr.counters.failedBuildingEngine != 1 && feMgr.counters.generatorCreationError != 1 {
-		t.Errorf("Bad counter generatorCreationError, want %v, have %v.\n", 1, feMgr.counters.generatorCreationError)
+					]
+				}
+			 }
+		 ]`)),
+		counters: FieldEngineCounters{generatorCreationError: 1, failedBuildingEngine: 1},
 	}
-	if len(feMgr.engines) != 0 {
-		t.Errorf("Engine map is not empty inspite of errors\n")
-	}
+	a.Run(t, true)
+}
 
-	// empty list
-	par = fastjson.RawMessage([]byte(`[
+func TestEngineManagerNeg8(t *testing.T) {
+	a := &EngineManagerTestBase{
+		testname:     "feNeg8",
+		monitor:      false,
+		bufferSize:   4,
+		iterNumber:   0,
+		engineNumber: 1,
+		inputJson: fastjson.RawMessage([]byte(`[
 			{
 				"engine_type": "histogram_uint32_list",
 				"engine_name": "TRex",
 				"params":
 				{
 					"size": 4,
-					"offset": 4,
+					"offset": 0,
 					"entries":
 					[
 						{
@@ -727,55 +302,27 @@ func TestEngineManagerHistogramNegative(t *testing.T) {
 					]
 				}
 			 }
-		 ]`))
-	feMgr = NewEngineManager(tctx, &par)
-	if feMgr.counters.failedBuildingEngine != 1 && feMgr.counters.emptyList != 1 {
-		t.Errorf("Bad counter emptyList, want %v, have %v.\n", 1, feMgr.counters.emptyList)
+		 ]`)),
+		counters: FieldEngineCounters{emptyList: 1, failedBuildingEngine: 1},
 	}
-	if len(feMgr.engines) != 0 {
-		t.Errorf("Engine map is not empty inspite of errors\n")
-	}
+	a.Run(t, true)
+}
 
-	// empty rune list
-	par = fastjson.RawMessage([]byte(`[
-			{
-				"engine_type": "histogram_rune_list",
-				"engine_name": "TRex",
-				"params":
-				{
-					"size": 4,
-					"offset": 8,
-					"entries":
-					[
-						{
-							"list": [97, 98],
-							"prob": 1
-						},
-						{
-							"list": [],
-							"prob": 1
-						}
-					]
-				}
-			 }
-		 ]`))
-	feMgr = NewEngineManager(tctx, &par)
-	if feMgr.counters.failedBuildingEngine != 1 && feMgr.counters.emptyList != 1 {
-		t.Errorf("Bad counter emptyList, want %v, have %v.\n", 1, feMgr.counters.emptyList)
-	}
-	if len(feMgr.engines) != 0 {
-		t.Errorf("Engine map is not empty inspite of errors\n")
-	}
-
-	// max > min
-	par = fastjson.RawMessage([]byte(`[
+func TestEngineManagerNeg9(t *testing.T) {
+	a := &EngineManagerTestBase{
+		testname:     "feNeg9",
+		monitor:      false,
+		bufferSize:   4,
+		iterNumber:   0,
+		engineNumber: 1,
+		inputJson: fastjson.RawMessage([]byte(`[
 			{
 				"engine_type": "histogram_uint32_range",
 				"engine_name": "TRex",
 				"params":
 				{
 					"size": 4,
-					"offset": 10,
+					"offset": 0,
 					"entries":
 					[
 						{
@@ -791,58 +338,126 @@ func TestEngineManagerHistogramNegative(t *testing.T) {
 					]
 				}
 			 }
-		 ]`))
-	feMgr = NewEngineManager(tctx, &par)
-	if feMgr.counters.failedBuildingEngine != 1 && feMgr.counters.maxSmallerThanMin != 1 {
-		t.Errorf("Bad counter maxSmallerThanMin, want %v, have %v.\n", 1, feMgr.counters.maxSmallerThanMin)
+		 ]`)),
+		counters: FieldEngineCounters{maxSmallerThanMin: 1, failedBuildingEngine: 1},
 	}
-	if len(feMgr.engines) != 0 {
-		t.Errorf("Engine map is not empty inspite of errors\n")
-	}
+	a.Run(t, true)
+}
 
-	// max > min rune
-	par = fastjson.RawMessage([]byte(`[
+func TestEngineManagerNeg10(t *testing.T) {
+	a := &EngineManagerTestBase{
+		testname:     "feNeg10",
+		monitor:      false,
+		bufferSize:   4,
+		iterNumber:   0,
+		engineNumber: 1,
+		inputJson: fastjson.RawMessage([]byte(`[
 			{
-				"engine_type": "histogram_rune_range",
+				"engine_type": "histogram_uint64_range",
 				"engine_name": "TRex",
 				"params":
 				{
 					"size": 4,
-					"offset": 10,
+					"offset": 0,
 					"entries":
 					[
 						{
-							"min": 97,
-							"max": 99,
+							"min": 2222222222222,
+							"max": 2222222222221,
 							"prob": 1
 						},
 						{
-							"max": 103,
-							"min": 105,
+							"max": 26565232146,
+							"min": 3256565622,
 							"prob": 1
 						}
 					]
 				}
 			 }
-		 ]`))
-	feMgr = NewEngineManager(tctx, &par)
-	if feMgr.counters.failedBuildingEngine != 1 && feMgr.counters.maxSmallerThanMin != 1 {
-		t.Errorf("Bad counter maxSmallerThanMin, want %v, have %v.\n", 1, feMgr.counters.maxSmallerThanMin)
+		 ]`)),
+		counters: FieldEngineCounters{failedBuildingEngine: 1, invalidSize: 1},
 	}
-	if len(feMgr.engines) != 0 {
-		t.Errorf("Engine map is not empty inspite of errors\n")
-	}
+	a.Run(t, true)
 }
 
-// TestEngineManagerMixed
-func TestEngineManagerMixed(t *testing.T) {
-	var simrx core.VethIFSim
-	tctx := core.NewThreadCtx(0, 4510, true, &simrx)
-	defer tctx.Delete()
-	b := make([]byte, 16)
+func TestEngineManagerNeg11(t *testing.T) {
+	a := &EngineManagerTestBase{
+		testname:     "feNeg11",
+		monitor:      false,
+		bufferSize:   2,
+		iterNumber:   0,
+		engineNumber: 1,
+		inputJson: fastjson.RawMessage([]byte(`[
+			{
+				"engine_type": "histogram_uint16_range",
+				"engine_name": "TRex",
+				"params":
+				{
+					"size": 2,
+					"offset": 0,
+					"entries":
+					[
+						{
+							"min": 50000,
+							"max": 70000,
+							"prob": 1
+						},
+						{
+							"max": 15,
+							"min": 65525,
+							"prob": 1
+						}
+					]
+				}
+			 }
+		 ]`)),
+		counters: FieldEngineCounters{invalidSize: 1, failedBuildingEngine: 1},
+	}
+	a.Run(t, true)
+}
 
-	// multiple deterministic types
-	par := fastjson.RawMessage([]byte(`[
+func TestEngineManagerNeg12(t *testing.T) {
+	a := &EngineManagerTestBase{
+		testname:     "feNeg12",
+		monitor:      false,
+		bufferSize:   2,
+		iterNumber:   0,
+		engineNumber: 1,
+		inputJson: fastjson.RawMessage([]byte(`[
+			{
+				"engine_type": "histogram_uint8_list",
+				"engine_name": "TRex",
+				"params":
+				{
+					"size": 1,
+					"offset": 0,
+					"entries":
+					[
+						{
+							"list": [5],
+							"prob": 1
+						},
+						{
+							"list": [256],
+							"prob": 1
+						}
+					]
+				}
+			 }
+		 ]`)),
+		counters: FieldEngineCounters{invalidSize: 1, failedBuildingEngine: 1},
+	}
+	a.Run(t, true)
+}
+
+func TestEngineManager1(t *testing.T) {
+	a := &EngineManagerTestBase{
+		testname:     "fe1",
+		monitor:      true,
+		bufferSize:   1,
+		iterNumber:   100,
+		engineNumber: 1,
+		inputJson: fastjson.RawMessage([]byte(`[
 					{
 						"engine_type": "uint",
 						"engine_name": "uint8",
@@ -856,84 +471,405 @@ func TestEngineManagerMixed(t *testing.T) {
 							"step": 2,
 							"op": "inc"
 						}
-					 },
-					 {
-						 "engine_type": "uint",
-						 "engine_name": "uint16",
-						 "params":
+					 }
+					]`)),
+	}
+	a.Run(t, true)
+}
+
+func TestEngineManager2(t *testing.T) {
+	a := &EngineManagerTestBase{
+		testname:     "fe2",
+		monitor:      true,
+		bufferSize:   15,
+		iterNumber:   100,
+		engineNumber: 5,
+		inputJson: fastjson.RawMessage([]byte(`[
+			{
+				"engine_type": "uint",
+				"engine_name": "uint8",
+				"params":
+				{
+					"size": 1,
+					"offset": 0,
+					"min": 1,
+					"max": 5,
+					"init": 3,
+					"step": 2,
+					"op": "inc"
+				}
+			 },
+			 {
+				 "engine_type": "uint",
+				 "engine_name": "uint16",
+				 "params":
+				 {
+					"size": 2,
+					"offset": 1,
+					"min": 10000,
+					"max": 50000,
+					"step": 5000,
+					"init": 20000,
+					"op": "dec"
+				 }
+			 },
+			 {
+				 "engine_type": "histogram_uint32",
+				 "engine_name": "histogram_uint32",
+				 "params":
+				 {
+					 "size": 4,
+					 "offset": 3,
+					 "entries":
+					 [
+						{
+							"v": 7,
+							"prob": 3
+						}
+					 ]
+				 }
+			 },
+			 {
+				 "engine_type": "histogram_uint32_range",
+				 "engine_name": "histogram_uint32_range",
+				 "params":
+				 {
+					 "size": 4,
+					 "offset": 7,
+					 "entries":
+					 [
+						{
+							"min": 255,
+							"max": 255,
+							"prob": 5
+						}
+					 ]
+				 }
+			 },
+			 {
+				 "engine_type": "histogram_uint32_list",
+				 "engine_name": "histogram_uint32_list",
+				 "params":
+				 {
+					 "size": 4,
+					 "offset": 11,
+					 "entries":
+					 [
 						 {
-							"size": 2,
-							"offset": 1,
-							"min": 10000,
-							"max": 50000,
-							"step": 5000,
-							"init": 20000,
-							"op": "dec"
+							 "list": [65535],
+							 "prob": 1
 						 }
-					 },
-					 {
-						 "engine_type": "histogram_uint32",
-						 "engine_name": "histogram_uint32",
-						 "params":
-						 {
-							 "size": 4,
-							 "offset": 3,
-							 "entries":
-							 [
+					 ]
+				 }
+			 }
+		 ]`)),
+	}
+	a.Run(t, true)
+}
+
+func TestEngineManager3(t *testing.T) {
+	a := &EngineManagerTestBase{
+		testname:     "fe3",
+		monitor:      true,
+		bufferSize:   8,
+		iterNumber:   100,
+		engineNumber: 3,
+		seed:         0xbe5be5,
+		inputJson: fastjson.RawMessage([]byte(`[
+			{
+				"engine_type": "uint",
+				"engine_name": "Increase",
+				"params":
+					{
+						"size": 1,
+						"offset": 0,
+						"min": 0,
+						"max": 50,
+						"op": "inc",
+						"step": 20,
+						"init": 5,
+					}
+			},
+			{
+				"engine_type": "uint",
+				"engine_name": "Decrease",
+				"params":
+					{
+						"size": 2,
+						"offset": 2,
+						"min": 200,
+						"max": 2000,
+						"op": "dec",
+						"step": 200,
+					}
+			},
+			{
+				"engine_type": "uint",
+				"engine_name": "Random",
+				"params":
+					{
+						"size": 4,
+						"offset": 4,
+						"min": 1000,
+						"max": 2000,
+						"op": "rand"
+					}
+
+			}
+		 ]`)),
+	}
+	a.Run(t, true)
+}
+
+func TestEngineManager4(t *testing.T) {
+	a := &EngineManagerTestBase{
+		testname:     "fe4",
+		monitor:      true,
+		bufferSize:   18,
+		iterNumber:   200,
+		engineNumber: 7,
+		seed:         0xc15c0,
+		inputJson: fastjson.RawMessage([]byte(`[
+			{
+				"engine_type": "uint",
+				"engine_name": "IncreaseUint8",
+				"params":
+					{
+						"size": 1,
+						"offset": 0,
+						"min": 0,
+						"max": 255,
+						"op": "inc",
+						"step": 15,
+						"init": 5,
+					}
+			},
+			{
+				"engine_type": "uint",
+				"engine_name": "DecreaseUint16",
+				"params":
+					{
+						"size": 2,
+						"offset": 1,
+						"min": 200,
+						"max": 2000,
+						"op": "dec",
+						"step": 200,
+					}
+			},
+			{
+				"engine_type": "uint",
+				"engine_name": "Random",
+				"params":
+					{
+						"size": 4,
+						"offset": 3,
+						"min": 1000,
+						"max": 2000,
+						"op": "rand"
+					}
+			},
+			{
+				"engine_type": "uint",
+				"engine_name": "IncUint64",
+				"params":
+					{
+						"size": 8,
+						"offset": 7,
+						"min": 10000000000,
+						"max": 20000000000,
+						"op": "inc"
+					}
+			},
+			{
+				"engine_type": "histogram_uint8",
+				"engine_name": "histogram_uint8",
+				"params": 
+					{
+						"size": 1,
+						"offset": 15,
+						"entries":
+							[
 								{
 									"v": 7,
+									"prob": 15
+								},
+								{
+									"v": 77,
+									"prob": 1
+								}
+							]
+					}
+			},
+			{
+				"engine_type": "histogram_uint8_range",
+				"engine_name": "histogram_uint8_range",
+				"params": 
+					{
+						"size": 1,
+						"offset": 16,
+						"entries":
+							[
+								{
+									"min": 128,
+									"max": 191,
+									"prob": 3
+								},
+								{
+									"min": 192,
+									"max": 223,
+									"prob": 2
+								},
+								{
+									"min": 224,
+									"max": 239,
+									"prob": 1
+								}
+							]
+					}
+			},
+			{
+				"engine_type": "histogram_uint8_list",
+				"engine_name": "histogram_uint8_list",
+				"params":
+					{
+						"size": 1,
+						"offset": 17,
+						"entries":
+							[
+								{
+									"list": [1, 2, 3],
+									"prob": 1
+								},
+								{
+									"list": [4, 5, 6],
+									"prob": 1
+								}
+							]
+					}
+			}
+		 ]`)),
+	}
+	a.Run(t, true)
+}
+
+func TestEngineManager5(t *testing.T) {
+	a := &EngineManagerTestBase{
+		testname:     "fe5",
+		monitor:      true,
+		bufferSize:   22,
+		iterNumber:   200,
+		engineNumber: 5,
+		seed:         0xdeadbeef,
+		inputJson: fastjson.RawMessage([]byte(`[
+			{
+				"engine_type": "histogram_uint16",
+				"engine_name": "histogram_uint16",
+				"params": 
+					{
+						"size": 2,
+						"offset": 0,
+						"entries":
+							[
+								{
+									"v": 1,
+									"prob": 2
+								},
+								{
+									"v": 3,
+									"prob": 4
+								}
+							]
+					}
+			},
+			{
+				"engine_type": "histogram_uint16_range",
+				"engine_name": "histogram_uint16_range",
+				"params": 
+					{
+						"size": 2,
+						"offset": 2,
+						"entries":
+							[
+								{
+									"min": 5,
+									"max": 6,
+									"prob": 7
+								},
+								{
+									"min": 8,
+									"max": 9,
+									"prob": 10
+								},
+								{
+									"min": 11,
+									"max": 12,
+									"prob": 13
+								}
+							]
+					}
+			},
+			{
+				"engine_type": "histogram_uint16_list",
+				"engine_name": "histogram_uint16_list",
+				"params":
+					{
+						"size": 2,
+						"offset": 4,
+						"entries":
+							[
+								{
+									"list": [128, 192, 224],
+									"prob": 2
+								},
+								{
+									"list": [224, 240, 248],
 									"prob": 3
 								}
-							 ]
-						 }
-					 },
-					 {
-						 "engine_type": "histogram_uint32_range",
-						 "engine_name": "histogram_uint32_range",
-						 "params":
-						 {
-							 "size": 4,
-							 "offset": 7,
-							 "entries":
-							 [
+							]
+					}
+			},
+			{
+				"engine_type": "histogram_uint64",
+				"engine_name": "histogram_uint64",
+				"params":
+					{
+						"size": 8,
+						"offset": 6,
+						"entries":
+							[
 								{
-									"min": 255,
-									"max": 255,
-									"prob": 5
+									"v": 1,
+									"prob": 2
+								},
+								{
+									"v": 0,
+									"prob": 2
 								}
-							 ]
-						 }
-					 },
-					 {
-						 "engine_type": "histogram_uint32_list",
-						 "engine_name": "histogram_uint32_list",
-						 "params":
-						 {
-							 "size": 4,
-							 "offset": 11,
-							 "entries":
-							 [
-								 {
-									 "list": [65535],
-									 "prob": 1
-								 }
-							 ]
-						 }
-					 }
-				 ]`))
-	feMgr := NewEngineManager(tctx, &par)
-	if len(feMgr.engines) != 5 {
-		t.Errorf("Engine map not build succesfully, want %v engines, have %v engines.\n", 5, len(feMgr.engines))
+							]
+					}
+			},
+			{
+				"engine_type": "histogram_uint64_list",
+				"engine_name": "histogram_uint64_list",
+				"params":
+					{
+						"size": 8,
+						"offset": 14,
+						"entries":
+							[
+								{
+									"list": [128, 192, 224, 240, 248, 254],
+									"prob": 6
+								},
+								{
+									"list": [255],
+									"prob": 1
+								}
+							]
+					}
+			}
+		 ]`)),
 	}
-	for _, eng := range feMgr.engines {
-		eng.Update(b[eng.GetOffset() : eng.GetOffset()+eng.GetSize()])
-	}
-	expectedBytes := []byte{0x03, 0x4E, 0x20, 0x00, 0x00, 0x00, 0x07, 0x00, 0x00, 0x00, 0xFF, 0x00, 0x00, 0xFF, 0xFF, 0x00}
-	if !bytes.Equal(expectedBytes, b) {
-		t.Errorf("Bytes are not equal, want %v, have %v.\n", expectedBytes, b)
-	}
-	for _, eng := range feMgr.engines {
-		eng.Update(b[eng.GetOffset() : eng.GetOffset()+eng.GetSize()])
-	}
-	expectedBytes = []byte{0x05, 0x3A, 0x98, 0x00, 0x00, 0x00, 0x07, 0x00, 0x00, 0x00, 0xFF, 0x00, 0x00, 0xFF, 0xFF, 0x00}
+	a.Run(t, true)
 }

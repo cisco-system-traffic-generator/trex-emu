@@ -9,7 +9,6 @@ import (
 	"emu/core"
 	"external/osamingo/jsonrpc"
 	"fmt"
-	"runtime"
 
 	"github.com/intel-go/fastjson"
 )
@@ -233,6 +232,9 @@ func getFieldEngineCB(fe string) (FieldEngineCB, error) {
 
 // fieldEngineRegister registers a field engine and its callback to the database.
 func fieldEngineRegister(fe string, cb FieldEngineCB) {
+	if fieldEngineDB.M == nil {
+		fieldEngineDB.M = make(map[string]FieldEngineCB)
+	}
 	_, ok := fieldEngineDB.M[fe]
 	if ok {
 		s := fmt.Sprintf("Can't register the same field engine twice, %s ", fe)
@@ -240,13 +242,4 @@ func fieldEngineRegister(fe string, cb FieldEngineCB) {
 		panic(s)
 	}
 	fieldEngineDB.M[fe] = cb
-}
-
-func init() {
-	if runtime.NumGoroutine() != 1 {
-		panic(" NumGoroutine() should be 1 on init time, require lock.")
-	}
-	if fieldEngineDB.M == nil {
-		fieldEngineDB.M = make(map[string]FieldEngineCB)
-	}
 }
