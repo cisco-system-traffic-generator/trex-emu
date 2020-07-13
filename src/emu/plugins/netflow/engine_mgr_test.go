@@ -215,7 +215,7 @@ func TestEngineManagerNeg6(t *testing.T) {
 		engineNumber: 1,
 		inputJson: fastjson.RawMessage([]byte(`[
 			{
-				"engine_type": "histogram_uint32",
+				"engine_type": "histogram_uint",
 				"engine_name": "TRex",
 				"params":
 				{
@@ -249,7 +249,7 @@ func TestEngineManagerNeg7(t *testing.T) {
 		engineNumber: 1,
 		inputJson: fastjson.RawMessage([]byte(`[
 			{
-				"engine_type": "histogram_uint32",
+				"engine_type": "histogram_uint",
 				"engine_name": "TRex",
 				"params":
 				{
@@ -283,7 +283,7 @@ func TestEngineManagerNeg8(t *testing.T) {
 		engineNumber: 1,
 		inputJson: fastjson.RawMessage([]byte(`[
 			{
-				"engine_type": "histogram_uint32_list",
+				"engine_type": "histogram_uint_list",
 				"engine_name": "TRex",
 				"params":
 				{
@@ -317,7 +317,7 @@ func TestEngineManagerNeg9(t *testing.T) {
 		engineNumber: 1,
 		inputJson: fastjson.RawMessage([]byte(`[
 			{
-				"engine_type": "histogram_uint32_range",
+				"engine_type": "histogram_uint_range",
 				"engine_name": "TRex",
 				"params":
 				{
@@ -389,7 +389,7 @@ func TestEngineManagerNeg11(t *testing.T) {
 		engineNumber: 1,
 		inputJson: fastjson.RawMessage([]byte(`[
 			{
-				"engine_type": "histogram_uint16_range",
+				"engine_type": "histogram_uint_range",
 				"engine_name": "TRex",
 				"params":
 				{
@@ -425,7 +425,7 @@ func TestEngineManagerNeg12(t *testing.T) {
 		engineNumber: 1,
 		inputJson: fastjson.RawMessage([]byte(`[
 			{
-				"engine_type": "histogram_uint8_list",
+				"engine_type": "histogram_uint_list",
 				"engine_name": "TRex",
 				"params":
 				{
@@ -514,8 +514,8 @@ func TestEngineManager2(t *testing.T) {
 				 }
 			 },
 			 {
-				 "engine_type": "histogram_uint32",
-				 "engine_name": "histogram_uint32",
+				 "engine_type": "histogram_uint",
+				 "engine_name": "histogram_uint",
 				 "params":
 				 {
 					 "size": 4,
@@ -530,8 +530,8 @@ func TestEngineManager2(t *testing.T) {
 				 }
 			 },
 			 {
-				 "engine_type": "histogram_uint32_range",
-				 "engine_name": "histogram_uint32_range",
+				 "engine_type": "histogram_uint_range",
+				 "engine_name": "histogram_uint_range",
 				 "params":
 				 {
 					 "size": 4,
@@ -547,8 +547,8 @@ func TestEngineManager2(t *testing.T) {
 				 }
 			 },
 			 {
-				 "engine_type": "histogram_uint32_list",
-				 "engine_name": "histogram_uint32_list",
+				 "engine_type": "histogram_uint_list",
+				 "engine_name": "histogram_uint_list",
 				 "params":
 				 {
 					 "size": 4,
@@ -682,8 +682,8 @@ func TestEngineManager4(t *testing.T) {
 					}
 			},
 			{
-				"engine_type": "histogram_uint8",
-				"engine_name": "histogram_uint8",
+				"engine_type": "histogram_uint",
+				"engine_name": "histogram_uint",
 				"params": 
 					{
 						"size": 1,
@@ -702,8 +702,8 @@ func TestEngineManager4(t *testing.T) {
 					}
 			},
 			{
-				"engine_type": "histogram_uint8_range",
-				"engine_name": "histogram_uint8_range",
+				"engine_type": "histogram_uint_range",
+				"engine_name": "histogram_uint_range",
 				"params": 
 					{
 						"size": 1,
@@ -729,8 +729,8 @@ func TestEngineManager4(t *testing.T) {
 					}
 			},
 			{
-				"engine_type": "histogram_uint8_list",
-				"engine_name": "histogram_uint8_list",
+				"engine_type": "histogram_uint_list",
+				"engine_name": "histogram_uint_list",
 				"params":
 					{
 						"size": 1,
@@ -763,8 +763,8 @@ func TestEngineManager5(t *testing.T) {
 		seed:         0xdeadbeef,
 		inputJson: fastjson.RawMessage([]byte(`[
 			{
-				"engine_type": "histogram_uint16",
-				"engine_name": "histogram_uint16",
+				"engine_type": "histogram_uint",
+				"engine_name": "histogram_uint",
 				"params": 
 					{
 						"size": 2,
@@ -783,8 +783,8 @@ func TestEngineManager5(t *testing.T) {
 					}
 			},
 			{
-				"engine_type": "histogram_uint16_range",
-				"engine_name": "histogram_uint16_range",
+				"engine_type": "histogram_uint_range",
+				"engine_name": "histogram_uint_range",
 				"params": 
 					{
 						"size": 2,
@@ -810,8 +810,8 @@ func TestEngineManager5(t *testing.T) {
 					}
 			},
 			{
-				"engine_type": "histogram_uint16_list",
-				"engine_name": "histogram_uint16_list",
+				"engine_type": "histogram_uint_list",
+				"engine_name": "histogram_uint_list",
 				"params":
 					{
 						"size": 2,

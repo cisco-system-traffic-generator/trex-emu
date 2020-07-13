@@ -768,15 +768,12 @@ func CreateHistogramUInt64ListEngine(params *fastjson.RawMessage, mgr *FieldEngi
 func init() {
 	// Register all the field engine types.
 	fieldEngineRegister("uint", CreateUIntEngine)
-	fieldEngineRegister("histogram_uint8", CreateHistogramUInt32Engine)
-	fieldEngineRegister("histogram_uint8_range", CreateHistogramUInt32RangeEngine)
-	fieldEngineRegister("histogram_uint8_list", CreateHistogramUInt32ListEngine)
-	fieldEngineRegister("histogram_uint16", CreateHistogramUInt32Engine)
-	fieldEngineRegister("histogram_uint16_range", CreateHistogramUInt32RangeEngine)
-	fieldEngineRegister("histogram_uint16_list", CreateHistogramUInt32ListEngine)
-	fieldEngineRegister("histogram_uint32", CreateHistogramUInt32Engine)
-	fieldEngineRegister("histogram_uint32_range", CreateHistogramUInt32RangeEngine)
-	fieldEngineRegister("histogram_uint32_list", CreateHistogramUInt32ListEngine)
+	fieldEngineRegister("histogram_uint", CreateHistogramUInt32Engine)
+	fieldEngineRegister("histogram_uint_range", CreateHistogramUInt32RangeEngine)
+	fieldEngineRegister("histogram_uint_list", CreateHistogramUInt32ListEngine)
+	/*
+		uint64 is an exception and needs special handlers
+	*/
 	fieldEngineRegister("histogram_uint64", CreateHistogramUInt64Engine)
 	fieldEngineRegister("histogram_uint64_range", CreateHistogramUInt64RangeEngine)
 	fieldEngineRegister("histogram_uint64_list", CreateHistogramUInt64ListEngine)
