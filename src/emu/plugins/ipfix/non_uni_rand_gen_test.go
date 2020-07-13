@@ -1,4 +1,4 @@
-package netflow
+package ipfix
 
 import (
 	"math"
@@ -79,7 +79,7 @@ func TestBinaryDistribution(t *testing.T) {
 	for i := 0; i < iterNumber; i++ {
 		res += binGen.Generate()
 	}
-	verifyBinGenerator(iterNumber, res, 1, t)
+	verifyBinGenerator(iterNumber, res, 2, t)
 
 	// generate only 0
 	res = 0
@@ -87,7 +87,7 @@ func TestBinaryDistribution(t *testing.T) {
 	for i := 0; i < iterNumber; i++ {
 		res += binGen.Generate()
 	}
-	verifyBinGenerator(0, res, 1, t)
+	verifyBinGenerator(0, res, 2, t)
 
 	// generate 50-50
 	res = 0
@@ -95,7 +95,7 @@ func TestBinaryDistribution(t *testing.T) {
 	for i := 0; i < iterNumber; i++ {
 		res += binGen.Generate()
 	}
-	verifyBinGenerator(iterNumber>>1, res, 1, t)
+	verifyBinGenerator(iterNumber>>1, res, 2, t)
 
 	// generate 25-75
 	res = 0
@@ -103,7 +103,7 @@ func TestBinaryDistribution(t *testing.T) {
 	for i := 0; i < iterNumber*4; i++ {
 		res += binGen.Generate()
 	}
-	verifyBinGenerator(3*iterNumber, res, 1, t)
+	verifyBinGenerator(3*iterNumber, res, 2, t)
 
 	// generate other than 0 - 1, 30/70
 	fives := 0

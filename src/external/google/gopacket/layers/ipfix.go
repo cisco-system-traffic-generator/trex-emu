@@ -17,11 +17,11 @@ const (
 	IpfixTemplateSetIDVer10        = 2
 	IpfixOptionsTemplateSetIDVer10 = 3
 
-	IpfixTemplateSetIDVer9		   = 0 
-	IpfixOptionsTemplateSetIDVer9  = 1
+	IpfixTemplateSetIDVer9        = 0
+	IpfixOptionsTemplateSetIDVer9 = 1
 
-	IpfixHeaderLenVer10            = 16
-	IpfixHeaderLenVer9         	   = 20
+	IpfixHeaderLenVer10 = 16
+	IpfixHeaderLenVer9  = 20
 )
 
 //IPFixHeader  For in place change
@@ -53,7 +53,7 @@ func (o IPFixHeader) SetTimestamp(ts uint32) {
 	if ver == 9 {
 		off = 8
 	}
-	binary.BigEndian.PutUint32(o[off : off + 4], ts)
+	binary.BigEndian.PutUint32(o[off:off+4], ts)
 }
 
 func (o IPFixHeader) SetFlowSeq(fs uint32) {
@@ -62,18 +62,17 @@ func (o IPFixHeader) SetFlowSeq(fs uint32) {
 	if ver == 9 {
 		off = 12
 	}
-	binary.BigEndian.PutUint32(o[off : off + 4], fs)
+	binary.BigEndian.PutUint32(o[off:off+4], fs)
 }
-
 
 /* IPFixField */
 
 type IPFixField struct {
-	Name				string
-	Type			 	uint16
-	Length			 	uint16
-	EnterpriseNumber 	uint32
-	Offset				uint16
+	Name             string
+	Type             uint16
+	Length           uint16
+	EnterpriseNumber uint32
+	Offset           uint16
 }
 
 // Len returns the length of a IPFixField.
@@ -93,7 +92,7 @@ func (f *IPFixField) IsEnterprise() bool {
 func (f *IPFixField) encode(b []byte, opts gopacket.SerializeOptions) error {
 	binary.BigEndian.PutUint16(b[0:2], f.Type)
 	binary.BigEndian.PutUint16(b[2:4], f.Length)
-	if f.IsEnterprise(){
+	if f.IsEnterprise() {
 		binary.BigEndian.PutUint32(b[4:8], f.EnterpriseNumber)
 	}
 
@@ -112,13 +111,13 @@ type IPFixSetEntry interface {
 /* IPFixTemplate */
 
 type IPFixTemplate struct {
-	ID			uint16
-	FieldCount 	uint16
-	Fields		IPFixFields
+	ID         uint16
+	FieldCount uint16
+	Fields     IPFixFields
 }
 
 // NewIPFixTemplate create a new IPFixTemplate object given id and fields
-func NewIPFixTemplate (id uint16, fields IPFixFields) *IPFixTemplate {
+func NewIPFixTemplate(id uint16, fields IPFixFields) *IPFixTemplate {
 	o := new(IPFixTemplate)
 	o.ID = id
 	o.FieldCount = uint16(len(fields))
@@ -138,7 +137,7 @@ func (t *IPFixTemplate) Len() int {
 func (t *IPFixTemplate) encode(b []byte, opts gopacket.SerializeOptions) error {
 	binary.BigEndian.PutUint16(b[0:2], t.ID)
 	binary.BigEndian.PutUint16(b[2:4], t.FieldCount)
-	
+
 	offset := 4
 	for _, f := range t.Fields {
 		if err := f.encode(b[offset:], opts); err != nil {
@@ -172,9 +171,9 @@ type IPFixSetEntries []IPFixSetEntry
 /* IPFixSet */
 
 type IPFixSet struct {
-	ID     		uint16
-	Length 		uint16
-	SetEntries	IPFixSetEntries
+	ID         uint16
+	Length     uint16
+	SetEntries IPFixSetEntries
 }
 
 // Len returns the length of a IPFixSet.
@@ -206,7 +205,7 @@ func (s *IPFixSet) encode(b []byte, opts gopacket.SerializeOptions) error {
 	return nil
 }
 
-// IPFixSets is a slice of IPFixSet 
+// IPFixSets is a slice of IPFixSet
 type IPFixSets []IPFixSet
 
 // IPFix //
@@ -215,14 +214,14 @@ type IPFixSets []IPFixSet
 // IPFix contains data for a single FNF packet.
 type IPFix struct {
 	BaseLayer
-	Ver         uint16
-	Length		uint16
-	SysUpTime	uint32	// Only in ver 9
-	Timestamp   uint32
-	FlowSeq		uint32
-	DomainID	uint32
-	SourceID    uint32	// Only in ver 9
-	Sets        IPFixSets
+	Ver       uint16
+	Length    uint16
+	SysUpTime uint32 // Only in ver 9
+	Timestamp uint32
+	FlowSeq   uint32
+	DomainID  uint32
+	SourceID  uint32 // Only in ver 9
+	Sets      IPFixSets
 }
 
 // Len returns the length of IPFix layer
@@ -230,7 +229,7 @@ func (i *IPFix) Len() int {
 	n := IpfixHeaderLenVer10
 	if i.Ver == 9 {
 		n = IpfixHeaderLenVer9
-	} 
+	}
 
 	for j := range i.Sets {
 		n += i.Sets[j].Len()
@@ -285,8 +284,6 @@ func (i *IPFix) SerializeTo(b gopacket.SerializeBuffer, opts gopacket.SerializeO
 // LayerType returns gopacket.LayerTypeIPFix
 func (i *IPFix) LayerType() gopacket.LayerType { return LayerTypeIPFix }
 
-
 func decodeIPFix(data []byte, p gopacket.PacketBuilder) error {
 	return errors.New("Not Implemented yet")
 }
-

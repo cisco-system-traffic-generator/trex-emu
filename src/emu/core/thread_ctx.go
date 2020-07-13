@@ -614,6 +614,10 @@ func (o *CThreadCtx) UnmarshalValidate(data []byte, v interface{}) error {
 	return nil
 }
 
+func (o *CThreadCtx) GetJSONValidator() *validator.Validate {
+	return o.validate
+}
+
 func (o *CThreadCtx) GetTimerCtx() *TimerCtx {
 	return o.timerctx
 }
