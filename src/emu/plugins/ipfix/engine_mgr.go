@@ -197,6 +197,11 @@ func NewEngineManager(ctx interface{}, data *fastjson.RawMessage) *FieldEngineMa
 	return o
 }
 
+func (o *FieldEngineManager) WasCreatedSuccessfully() bool {
+	res := o.counters.invalidJson | o.counters.badEngineType | o.counters.failedBuildingEngine
+	return res == 0
+}
+
 // GetFEManagerCounters returns the Field Engine Manager counters.
 // The params decides things like the verbosity, filtering or whether to dump zero errors.
 func (o *FieldEngineManager) GetFEManagerCounters(params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {

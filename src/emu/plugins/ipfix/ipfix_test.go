@@ -641,6 +641,234 @@ func TestPluginIPFixNeg5(t *testing.T) {
 	a.Run(t, true)
 }
 
+func TestPluginIPFixNeg6(t *testing.T) {
+	// Duplicate Name
+	initJson := fmt.Sprintf(`
+	{
+		"netflow_version": 10,
+		"dst_ipv4": [48, 0, 0, 0],
+		"dst_mac": [0, 0, 2, 0, 0, 0],
+		"dst_ipv6": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+		"src_port": 30334,
+		"domain_id": 7777,
+		"generators": [
+			{
+				"name": "266",
+				"auto_start": true,
+				"rate_pps": 2.0,
+				"data_records_num": 5,
+				"template_id": 266,
+				"fields":
+				[
+					{
+						"name": "clientIPv4Address",
+						"type": 45004,
+						"length": 4,
+						"enterprise_number": 9,
+						"data": [16, 0, 0, 1]
+					}
+				]
+			},
+			{
+				"name": "266",
+				"auto_start": true,
+				"rate_pps": 1.0,
+				"data_records_num": 1,
+				"template_id": 266,
+				"fields": 
+				[
+					{
+						"name": "clientIPv4Address",
+						"type": 45004,
+						"length": 4,
+						"enterprise_number": 9,
+						"data": [16, 0, 0, 1]
+					}
+				]
+			}
+		]
+	}`)
+
+	a := &IPFixTestBase{
+		testname:     "ipfixNeg6",
+		dropAll:      false,
+		monitor:      false,
+		match:        0,
+		capture:      true,
+		initJSON:     [][]byte{[]byte(initJson)},
+		duration:     10 * time.Second,
+		clientsToSim: 1,
+		counters:     IPFixStats{pktTempSent: 11, pktDataSent: 21, failedCreatingGen: 1, duplicateGenName: 1},
+	}
+	a.Run(t, true)
+}
+
+func TestPluginIPFixNeg7(t *testing.T) {
+	// Invalid engine name. Packets will still keep running but not modified by the engine.
+	initJson := fmt.Sprintf(`
+	{
+		"netflow_version": 10,
+		"dst_ipv4": [48, 0, 0, 0],
+		"dst_mac": [0, 0, 2, 0, 0, 0],
+		"dst_ipv6": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+		"src_port": 30334,
+		"domain_id": 7777,
+		"generators": [
+			{
+				"name": "266",
+				"auto_start": true,
+				"rate_pps": 2.0,
+				"data_records_num": 5,
+				"template_id": 266,
+				"fields":
+				[
+					{
+						"name": "clientIPv4Address",
+						"type": 45004,
+						"length": 4,
+						"enterprise_number": 9,
+						"data": [16, 0, 0, 1]
+					}
+				],
+				"engines": [
+					{
+						"engine_name": "nonExistant",
+						"engine_type": "uint",
+						"params": {
+							"size": 1,
+							"offset": 0,
+							"min": 0,
+							"max": 5,
+							"op": "inc",
+							"step": 1
+						}
+					}
+				]
+			}
+		]
+	}`)
+
+	a := &IPFixTestBase{
+		testname:     "ipfixNeg7",
+		dropAll:      false,
+		monitor:      false,
+		match:        0,
+		capture:      true,
+		initJSON:     [][]byte{[]byte(initJson)},
+		duration:     10 * time.Second,
+		clientsToSim: 1,
+		counters:     IPFixStats{pktTempSent: 11, pktDataSent: 21, invalidEngineName: 1},
+	}
+	a.Run(t, true)
+}
+
+func TestPluginIPFixNeg8(t *testing.T) {
+	// Duplicate Template ID
+	initJson := fmt.Sprintf(`
+				{
+					"netflow_version": 10,
+					"dst_ipv4": [48, 0, 0, 0],
+					"dst_mac": [0, 0, 2, 0, 0, 0],
+					"dst_ipv6": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+					"src_port": 30334,
+					"domain_id": 7777,
+					"generators": [
+						{
+							"name": "a",
+							"auto_start": true,
+							"rate_pps": 2.0,
+							"data_records_num": 5,
+							"template_id": 266,
+							"fields":
+							[
+								{
+									"name": "clientIPv4Address",
+									"type": 45004,
+									"length": 4,
+									"enterprise_number": 9,
+									"data": [16, 0, 0, 1]
+								}
+							]
+						},
+						{
+							"name": "b",
+							"auto_start": true,
+							"rate_pps": 1.0,
+							"data_records_num": 1,
+							"template_id": 266,
+							"fields": 
+							[
+								{
+									"name": "clientIPv4Address",
+									"type": 45004,
+									"length": 4,
+									"enterprise_number": 9,
+									"data": [16, 0, 0, 1]
+								}
+							]
+						}
+					]
+				}`)
+
+	a := &IPFixTestBase{
+		testname:     "ipfixNeg8",
+		dropAll:      false,
+		monitor:      false,
+		match:        0,
+		capture:      true,
+		initJSON:     [][]byte{[]byte(initJson)},
+		duration:     10 * time.Second,
+		clientsToSim: 1,
+		counters:     IPFixStats{pktTempSent: 11, pktDataSent: 21, failedCreatingGen: 1, duplicateTemplateID: 1},
+	}
+	a.Run(t, true)
+}
+
+func TestPluginIPFixNeg9(t *testing.T) {
+	// Field length is different from data provided.
+	initJson := fmt.Sprintf(`
+				{
+					"netflow_version": 10,
+					"dst_ipv4": [48, 0, 0, 0],
+					"dst_mac": [0, 0, 2, 0, 0, 0],
+					"dst_ipv6": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+					"src_port": 30334,
+					"domain_id": 7777,
+					"generators": [
+						{
+							"name": "a",
+							"auto_start": true,
+							"rate_pps": 2.0,
+							"data_records_num": 5,
+							"template_id": 266,
+							"fields":
+							[
+								{
+									"name": "clientIPv4Address",
+									"type": 45004,
+									"length": 3,
+									"enterprise_number": 9,
+									"data": [16, 0, 0, 1]
+								}
+							]
+						}
+					]
+				}`)
+
+	a := &IPFixTestBase{
+		testname:     "ipfixNeg9",
+		dropAll:      false,
+		monitor:      false,
+		match:        0,
+		capture:      true,
+		initJSON:     [][]byte{[]byte(initJson)},
+		duration:     10 * time.Second,
+		clientsToSim: 1,
+		counters:     IPFixStats{failedCreatingGen: 1, dataIncorrectLength: 1},
+	}
+	a.Run(t, true)
+}
+
 func TestPluginIPFix1(t *testing.T) {
 	// DNS Generator - 7 Records in One Data Packet with 2 Data packets per second
 	templateParams := TemplateParams{
