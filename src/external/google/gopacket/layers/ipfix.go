@@ -149,6 +149,142 @@ func (t *IPFixTemplate) encode(b []byte, opts gopacket.SerializeOptions) error {
 	return nil
 }
 
+/* IPFixOptionsTemplatev10 */
+
+type IPFixOptionsTemplatev10 struct {
+	/*
+			      0                   1                   2                   3
+		      0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+		     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+		     |          Set ID = 3           |          Length               |
+		     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+		     |         Template ID = 258     |         Field Count = N + M   |
+		     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+		     |     Scope Field Count = N     |0|  Scope 1 Infor. Element id. |
+		     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+		     |     Scope 1 Field Length      |0|  Scope 2 Infor. Element id. |
+		     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+		     |     Scope 2 Field Length      |             ...               |
+		     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+		     |            ...                |1|  Scope N Infor. Element id. |
+		     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+		     |     Scope N Field Length      |   Scope N Enterprise Number  ...
+		     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+		    ...  Scope N Enterprise Number   |1| Option 1 Infor. Element id. |
+		     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+		     |    Option 1 Field Length      |  Option 1 Enterprise Number  ...
+		     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+		    ... Option 1 Enterprise Number   |              ...              |
+		     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+		     |             ...               |0| Option M Infor. Element id. |
+		     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+		     |     Option M Field Length     |      Padding (optional)       |
+			 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+	*/
+	ID         uint16
+	FieldCount uint16
+	ScopeCount uint16
+	Fields     IPFixFields
+}
+
+// NewIPFixOptionsTemplatev10 creates a new NewIPFixOptionsTemplatev10 object given the id, scope count and fields.
+func NewIPFixOptionsTemplatev10(id, scopeCount uint16, fields IPFixFields) *IPFixOptionsTemplatev10 {
+	o := new(IPFixOptionsTemplatev10)
+	o.ID = id
+	o.ScopeCount = scopeCount
+	o.FieldCount = uint16(len(fields))
+	o.Fields = fields
+	return o
+}
+
+// Len returns the length of a IPFixOptionsTemplatev10.
+func (t *IPFixOptionsTemplatev10) Len() int {
+	n := 6 // 2 for template ID + 2 for field count + 2 for scope count
+	for j := range t.Fields {
+		n += t.Fields[j].Len()
+	}
+	return n
+}
+
+// encode encodes the object into a packet.
+func (t *IPFixOptionsTemplatev10) encode(b []byte, opts gopacket.SerializeOptions) error {
+	binary.BigEndian.PutUint16(b[0:2], t.ID)
+	binary.BigEndian.PutUint16(b[2:4], t.FieldCount)
+	binary.BigEndian.PutUint16(b[4:6], t.ScopeCount)
+
+	offset := 6
+	for _, f := range t.Fields {
+		if err := f.encode(b[offset:], opts); err != nil {
+			return err
+		}
+		offset += int(f.Len())
+	}
+	return nil
+}
+
+/* IPFixOptionsTemplatev9 */
+
+type IPFixOptionsTemplatev9 struct {
+	/*
+	    0                   1                   2                   3
+	    0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+	   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+	   |       FlowSet ID = 1          |          Length               |
+	   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+	   |         Template ID           |      Option Scope Length      |
+	   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+	   |        Option Length          |       Scope 1 Field Type      |
+	   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+	   |     Scope 1 Field Length      |               ...             |
+	   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+	   |     Scope N Field Length      |      Option 1 Field Type      |
+	   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+	   |     Option 1 Field Length     |             ...               |
+	   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+	   |     Option M Field Length     |           Padding             |
+	   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+	*/
+	ID                uint16
+	OptionScopeLength uint16
+	OptionLength      uint16
+	Fields            IPFixFields
+}
+
+// NewIPFixOptionsTemplatev9 creates a new NewIPFixOptionsTemplatev9 object given the id, optionScopeLength, optionLength and fields.
+func NewIPFixOptionsTemplatev9(id, optionScopeLength, optionLength uint16, fields IPFixFields) *IPFixOptionsTemplatev9 {
+	o := new(IPFixOptionsTemplatev9)
+	o.ID = id
+	o.OptionScopeLength = optionScopeLength
+	o.OptionLength = optionLength
+	o.Fields = fields
+	return o
+}
+
+// Len returns the length of a IPFixOptionsTemplatev9.
+func (t *IPFixOptionsTemplatev9) Len() int {
+	n := 6 // 2 for  ID + 2 for OptionScopeLength + 2 for OptionLength
+	for j := range t.Fields {
+		n += t.Fields[j].Len()
+	}
+	return n
+}
+
+// encode encodes the object to a gopacket
+func (t *IPFixOptionsTemplatev9) encode(b []byte, opts gopacket.SerializeOptions) error {
+	binary.BigEndian.PutUint16(b[0:2], t.ID)
+	binary.BigEndian.PutUint16(b[2:4], t.OptionScopeLength)
+	binary.BigEndian.PutUint16(b[4:6], t.OptionLength)
+
+	offset := 6
+	for _, f := range t.Fields {
+		if err := f.encode(b[offset:], opts); err != nil {
+			return err
+		}
+		offset += int(f.Len())
+	}
+	return nil
+}
+
 /* IPFixRecord */
 type IPFixRecord struct {
 	Data []byte

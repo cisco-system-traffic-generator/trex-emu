@@ -197,9 +197,11 @@ func createSimulationEnv1(simRx *core.VethIFSim, t *IPFixTestBase) (*core.CThrea
 }
 
 type TemplateParams struct {
-	autoStart  bool    // should autostart
-	rate       float32 // data rate
-	recordsNum int     // number of records
+	autoStart       bool    // should autostart
+	rate            float32 // data rate
+	recordsNum      int     // number of records
+	optionsTemplate bool    // is Options Template
+	scopeCount      uint16  // scope count for options templates
 }
 
 func getTemplate261Fields() string {
@@ -320,8 +322,10 @@ func getTemplate261(params *TemplateParams) string {
 		"rate_pps": %v,
 		"data_records_num": %d,
 		"template_id": 261,
+		"is_options_template": %v,
+		"scope_count": %v,
 		"fields": [%s]
-	}`, params.autoStart, params.rate, params.recordsNum, getTemplate261Fields())
+	}`, params.autoStart, params.rate, params.recordsNum, params.optionsTemplate, params.scopeCount, getTemplate261Fields())
 }
 
 // Returns Template 266
@@ -333,6 +337,8 @@ func getTemplate266(params *TemplateParams) string {
 		"rate_pps": %v,
 		"data_records_num": %d,
 		"template_id": 266,
+		"is_options_template": %v,
+		"scope_count": %v,
 		"fields": [
 			{
 				"name": "clientIPv4Address",
@@ -484,7 +490,7 @@ func getTemplate266(params *TemplateParams) string {
 				"data": [0, 0, 0, 0, 0, 0, 0, 127]
 			}
 		]
-	}`, params.autoStart, params.rate, params.recordsNum)
+	}`, params.autoStart, params.rate, params.recordsNum, params.optionsTemplate, params.scopeCount)
 }
 
 /* Tests */
@@ -865,6 +871,88 @@ func TestPluginIPFixNeg9(t *testing.T) {
 		duration:     10 * time.Second,
 		clientsToSim: 1,
 		counters:     IPFixStats{failedCreatingGen: 1, dataIncorrectLength: 1},
+	}
+	a.Run(t, true)
+}
+
+func TestPluginIPFixNeg10(t *testing.T) {
+	// Options template without scope count.
+	templateParams := TemplateParams{
+		autoStart:       true,
+		rate:            2,
+		recordsNum:      1,
+		optionsTemplate: true,
+	}
+
+	initJson := fmt.Sprintf(`
+	{
+		"netflow_version": 10,
+		"dst_ipv4": [48, 0, 0, 0],
+		"dst_mac": [0, 0, 2, 0, 0, 0],
+		"dst_ipv6": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+		"src_port": 30334,
+		"domain_id": 7777,
+		"generators": [%s]
+	}
+	`, getTemplate261(&templateParams))
+
+	a := &IPFixTestBase{
+		testname:     "ipfixNeg10",
+		dropAll:      false,
+		monitor:      false,
+		match:        0,
+		capture:      true,
+		initJSON:     [][]byte{[]byte(initJson)},
+		duration:     10 * time.Second,
+		clientsToSim: 1,
+		counters:     IPFixStats{invalidScopeCount: 1, failedCreatingGen: 1},
+	}
+	a.Run(t, true)
+}
+
+func TestPluginIPFixNeg11(t *testing.T) {
+	// Invalid Template ID
+
+	initJson := `
+	{
+		"netflow_version": 10,
+		"dst_ipv4": [48, 0, 0, 0],
+		"dst_mac": [0, 0, 2, 0, 0, 0],
+		"dst_ipv6": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+		"src_port": 30334,
+		"domain_id": 22,
+		"generators": [
+			{
+				"name": "a",
+				"auto_start": true,
+				"rate_pps": 2.0,
+				"data_records_num": 5,
+				"template_id": 255,
+				"fields":
+				[
+					{
+						"name": "clientIPv4Address",
+						"type": 45004,
+						"length": 4,
+						"enterprise_number": 9,
+						"data": [16, 0, 0, 1]
+					}
+				]
+			}
+		]
+	}
+	`
+
+	a := &IPFixTestBase{
+		testname:     "ipfixNeg11",
+		dropAll:      false,
+		monitor:      false,
+		match:        0,
+		capture:      true,
+		initJSON:     [][]byte{[]byte(initJson)},
+		duration:     10 * time.Second,
+		clientsToSim: 1,
+		counters:     IPFixStats{invalidTemplateID: 1, failedCreatingGen: 1},
 	}
 	a.Run(t, true)
 }
@@ -1767,6 +1855,229 @@ func TestPluginIPFix15(t *testing.T) {
 		initJSON:     [][]byte{[]byte(initJson)},
 		duration:     10 * time.Second,
 		clientsToSim: 1,
+	}
+	a.Run(t, true)
+}
+
+func TestPluginIPFix16(t *testing.T) {
+	// Options Template and Data Template v10
+
+	initJson := fmt.Sprintf(`
+		{
+			"netflow_version": 10,
+			"dst_ipv4": [48, 0, 0, 0],
+			"dst_mac": [0, 0, 2, 0, 0, 0],
+			"dst_ipv6": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+			"src_port": 30334,
+			"domain_id": 2358,
+			"generators": [
+				{
+					"name": "261",
+					"auto_start": true,
+					"rate_pps": 1,
+					"data_records_num": 0,
+					"template_id": 261,
+					"is_options_template": true,
+					"scope_count": 7,
+					"fields": [%s],
+					"engines": [
+						{
+							"engine_name": "applicationId",
+							"engine_type": "uint",
+							"params": {
+								"size": 2,
+								"offset": 2,
+								"op": "rand",
+								"min": 20,
+								"max": 50000
+							}
+						}
+					]
+				},
+				{
+					"name": "bes",
+					"auto_start": true,
+					"rate_pps": 0.2,
+					"data_records_num": 7,
+					"template_id": 256,
+					"fields": [
+						{
+							"name": "sumServerRespTime",
+							"type": 42074,
+							"length": 4,
+							"enterprise_number": 9,
+							"data": [0, 0, 0, 10]
+						},
+						{
+							"name": "serverTransportProtocol",
+							"type": 45009,
+							"length": 2,
+							"enterprise_number": 9,
+							"data": [0, 53]
+						}
+					],
+					"engines": [
+						{
+							"engine_name": "serverTransportProtocol",
+							"engine_type": "histogram_uint_list",
+							"params": {
+								"size": 1,
+								"offset": 1,
+								"entries": [
+									{
+										"list": [53],
+										"prob": 5
+									},
+									{
+										"list": [67, 68],
+										"prob": 4
+									},
+									{
+										"list": [20, 21],
+										"prob": 5
+									}
+								]
+							}
+						}
+					]
+				}
+			]
+		}
+		`, getTemplate261Fields())
+
+	a := &IPFixTestBase{
+		testname:     "ipfix16",
+		dropAll:      false,
+		monitor:      true,
+		match:        0,
+		capture:      true,
+		initJSON:     [][]byte{[]byte(initJson)},
+		duration:     10 * time.Second,
+		clientsToSim: 1,
+		seed:         0x23581321,
+	}
+	a.Run(t, true)
+}
+
+func TestPluginIPFix17(t *testing.T) {
+	// Options Template and Data Template v9
+	initJson := `
+		{
+			"netflow_version": 9,
+			"dst_ipv4": [48, 0, 0, 0],
+			"dst_mac": [0, 0, 2, 0, 0, 0],
+			"dst_ipv6": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+			"src_port": 30334,
+			"domain_id": 6,
+			"generators": [
+				{
+					"name": "275",
+					"auto_start": true,
+					"rate_pps": 1,
+					"data_records_num": 5,
+					"template_id": 275,
+					"is_options_template": true,
+					"scope_count": 1,
+					"fields": [
+						{
+							"name": "interface",
+							"type": 2,
+							"length": 2,
+							"data": [0, 2]
+						},
+						{
+							"name": "samplingInterval",
+							"type": 34,
+							"length": 2,
+							"data": [0, 100]
+						},
+						{
+							"name": "samplingAlgorithm",
+							"type": 35,
+							"length": 1,
+							"data": [1]
+						}
+					],
+					"engines": [
+						{
+							"engine_name": "interface",
+							"engine_type": "uint",
+							"params": {
+								"size": 1,
+								"offset": 1,
+								"min": 1,
+								"max": 24,
+								"op": "dec",
+								"step": 2
+							}
+						}
+					]
+				}, 
+				{
+					"name": "270",
+					"auto_start": true,
+					"rate_pps": 5,
+					"data_records_num": 1,
+					"template_id": 270,
+					"fields": [
+						{
+							"name": "icmpType",
+							"type": 32,
+							"length": 2,
+							"data": [1, 1]
+						},
+						{
+							"name": "minPktLength",
+							"type": 25,
+							"length": 2,
+							"data": [5, 255]
+						},
+						{
+							"name": "minTTL",
+							"type": 52,
+							"length": 1,
+							"data": [50]
+						}
+					],
+					"engines": [
+						{
+							"engine_name": "minTTL",
+							"engine_type": "histogram_uint",
+							"params": {
+								"size": 1,
+								"offset": 0,
+								"entries": [
+									{
+										"v": 64,
+										"prob": 1
+									},
+									{
+										"v": 128,
+										"prob": 2
+									},
+									{
+										"v": 192,
+										"prob": 5
+									}
+								]
+							}
+						}
+					]
+				}
+			]
+		}
+		`
+
+	a := &IPFixTestBase{
+		testname:     "ipfix17",
+		dropAll:      false,
+		monitor:      true,
+		match:        0,
+		capture:      true,
+		initJSON:     [][]byte{[]byte(initJson)},
+		duration:     10 * time.Second,
+		clientsToSim: 1,
+		seed:         0xbdbdbd,
 	}
 	a.Run(t, true)
 }

@@ -65,13 +65,15 @@ func (o *IPFixField) isEnterprise() bool {
 
 // IPFixGenParams represents the paramaters of an IPFix Generator and is used to parse the incoming JSON.
 type IPFixGenParams struct {
-	Name       string               `json:"name" validate:"required"`        // Name of the Generator
-	AutoStart  bool                 `json:"auto_start"`                      // Start exporting this generator when plugin is loaded.
-	DataRate   float32              `json:"rate_pps"`                        // Rate of data records in pps.
-	RecordsNum uint32               `json:"data_records_num"`                // Number of records in each data packet
-	TemplateID uint16               `json:"template_id" validate:"required"` // Template ID
-	Fields     []*IPFixField        `json:"fields" validate:"required"`      // Template Fields of this generator.
-	Engines    *fastjson.RawMessage `json:"engines"`                         // Field Engines for the templates
+	Name            string               `json:"name" validate:"required"`        // Name of the Generator
+	AutoStart       bool                 `json:"auto_start"`                      // Start exporting this generator when plugin is loaded.
+	DataRate        float32              `json:"rate_pps"`                        // Rate of data records in pps.
+	RecordsNum      uint32               `json:"data_records_num"`                // Number of records in each data packet
+	TemplateID      uint16               `json:"template_id" validate:"required"` // Template ID
+	OptionsTemplate bool                 `json:"is_options_template"`             // Is Options Template or Data Template
+	ScopeCount      uint16               `json:"scope_count"`                     // Scope Count for Option Templates, the number of fields that are scoped.
+	Fields          []*IPFixField        `json:"fields" validate:"required"`      // Template Fields of this generator.
+	Engines         *fastjson.RawMessage `json:"engines"`                         // Field Engines for the templates
 }
 
 // IPFixGen represents a fixed collection of fields which can change over time depending on the engines
@@ -84,6 +86,8 @@ type IPFixGen struct {
 	templateID          uint16              // Template ID.
 	recordsNum          uint32              // Number of records in a packet as received from the user.
 	recordsNumToSent    uint32              // Number of records to send in a packet.
+	optionsTemplate     bool                // Is Options Template or Data Template
+	scopeCount          uint16              // Scope Count for Option Templates, the number of fields that are scoped.
 	dataTicks           uint32              // Ticks between 2 consequent Data Set packets.
 	dataPktsPerInterval uint32              // How many data packets to send each interval
 	templateTicks       uint32              // Ticks between 2 consequent Template Set packets.
@@ -137,6 +141,11 @@ func NewIPFixGen(ipfix *PluginIPFixClient, initJson *fastjson.RawMessage) (*IPFi
 		return nil, false
 	}
 
+	if init.OptionsTemplate && (init.ScopeCount == 0) {
+		ipfix.stats.invalidScopeCount++
+		return nil, false
+	}
+
 	o := new(IPFixGen)
 	o.ipfixPlug = ipfix
 	o.OnCreate()
@@ -146,6 +155,8 @@ func NewIPFixGen(ipfix *PluginIPFixClient, initJson *fastjson.RawMessage) (*IPFi
 	o.templateID = init.TemplateID
 	o.dataRate = init.DataRate
 	o.recordsNum = init.RecordsNum
+	o.optionsTemplate = init.OptionsTemplate
+	o.scopeCount = init.ScopeCount
 	o.fields = init.Fields
 	// Create Engine Manager
 	if init.Engines != nil {
@@ -362,9 +373,43 @@ func (o *IPFixGen) sendPkt(pkt []byte) {
 /*======================================================================================================
 										Template Packets
 ======================================================================================================*/
-// getTemplateSets returns the template sets for sending Template Set packets.
+// calcOptionLengthv9 calculates Option Scope Length and Option Length for Options Template v9 packets.
+func (o *IPFixGen) calcOptionLengthv9() (optionScopeLength, optionLength uint16) {
+	// Each field owns 4 bytes, 2 for Type and 2 for Length
+	optionScopeLength = 4 * o.scopeCount
+	optionLength = 4 * (uint16(len(o.templateFields)) - o.scopeCount)
+	return optionScopeLength, optionLength
+}
+
+// getOptionsTemplateSets returns the Options-Template sets for sending Options-Template Set packets.
 // This is the Sets part of TemplateSets L7.
-func (o *IPFixGen) getTemplateSets() layers.IPFixSets {
+func (o *IPFixGen) getOptionsTemplateSets() layers.IPFixSets {
+
+	var optionsTemplateEntry layers.IPFixSetEntry
+	var setID uint16
+
+	if o.ipfixPlug.ver == 9 {
+		setID = uint16(layers.IpfixOptionsTemplateSetIDVer9)
+		optionScopeLength, optionLength := o.calcOptionLengthv9()
+		optionsTemplateEntry = layers.NewIPFixOptionsTemplatev9(o.templateID, optionScopeLength, optionLength, o.templateFields)
+
+	} else if o.ipfixPlug.ver == 10 {
+		setID = uint16(layers.IpfixOptionsTemplateSetIDVer10)
+		optionsTemplateEntry = layers.NewIPFixOptionsTemplatev10(o.templateID, o.scopeCount, o.templateFields)
+	}
+	return layers.IPFixSets{
+		layers.IPFixSet{
+			ID: setID,
+			SetEntries: layers.IPFixSetEntries{
+				layers.IPFixSetEntry(optionsTemplateEntry),
+			},
+		},
+	}
+}
+
+// getDataTemplateSets returns the Data-Template sets for sending Data-Template Set packets.
+// This is the Sets part of TemplateSets L7.
+func (o *IPFixGen) getDataTemplateSets() layers.IPFixSets {
 
 	templateEntry := layers.NewIPFixTemplate(o.templateID, o.templateFields)
 	setID := uint16(layers.IpfixTemplateSetIDVer10)
@@ -383,10 +428,16 @@ func (o *IPFixGen) getTemplateSets() layers.IPFixSets {
 }
 
 // prepareTemplatePkt create the Template packet which is send by default each second to the collector.
-// This packet teaches the controller how to read the data packets.
+// This packet teaches the controller how to read the data packets. Template packets can be Data-Templates
+// or Option Templates.
 func (o *IPFixGen) prepareTemplatePkt() bool {
 	ipfixPlug := o.ipfixPlug
-	sets := o.getTemplateSets()
+	var sets layers.IPFixSets
+	if o.optionsTemplate {
+		sets = o.getOptionsTemplateSets()
+	} else {
+		sets = o.getDataTemplateSets()
+	}
 	ipFixHeader := core.PacketUtlBuild(
 		&layers.IPFix{
 			Ver:       ipfixPlug.ver,
@@ -532,6 +583,7 @@ type IPFixStats struct {
 	invalidTemplateID        uint64 // Invalid Template ID, smaller than 255.
 	failedBuildingEngineMgr  uint64 // Failed Building Engine Manager with the provided JSON.
 	invalidEngineName        uint64 // Invalid Engine Name. Engine name must be a field name.
+	invalidScopeCount        uint64 // Invalid Scope Count, in case of Options Template user must specify a scope count > 0.
 }
 
 // NewIPFixStatsDb creates a IPFixStats database.
@@ -670,6 +722,14 @@ func NewIPFixStatsDb(o *IPFixStats) *core.CCounterDb {
 		Counter:  &o.invalidEngineName,
 		Name:     "invalidEngineName",
 		Help:     "Invalid engine name. Engine name must be a field name.",
+		Unit:     "ops",
+		DumpZero: false,
+		Info:     core.ScERROR})
+
+	db.Add(&core.CCounterRec{
+		Counter:  &o.invalidScopeCount,
+		Name:     "invalidScopeCount",
+		Help:     "Invalid scope count, in case of Options Template, scope count must be scecified and > 0.",
 		Unit:     "ops",
 		DumpZero: false,
 		Info:     core.ScERROR})
