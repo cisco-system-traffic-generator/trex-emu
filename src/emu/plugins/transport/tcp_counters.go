@@ -30,6 +30,8 @@ type TcpStats struct {
 	tcps_rcvackbyte uint64 /* bytes acked by rcvd acks */
 	tcps_preddat    uint64 /* times hdr predict ok for data pkts */
 
+	tcps_drop_unresolved uint64 /* not resolved  */
+
 	tcps_drops          uint64 /* connections dropped */
 	tcps_conndrops      uint64 /* embryonic connections dropped */
 	tcps_timeoutdrop    uint64 /* conn. dropped in rxmt timeout */

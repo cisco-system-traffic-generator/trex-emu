@@ -8,6 +8,8 @@ package transport
 import (
 	"bytes"
 	"emu/core"
+	"encoding/hex"
+	"external/google/gopacket/layers"
 	"fmt"
 	"math/rand"
 	"time"
@@ -15,64 +17,76 @@ import (
 
 type simContext struct {
 	ctx    *transportCtx
-	socket *TcpSocket
 	Client *core.CClient
 	Ns     *core.CNSCtx
 	Tctx   *core.CThreadCtx
 	sim    *transportSim
+	ioctl  map[string]interface{}
 }
 
-func newSimCtx(app iSockeApp, c *core.CClient, server bool, ioctl *map[string]interface{}) *simContext {
+func newSimCtx(app iSockeApp, c *core.CClient, server bool, ioctl *map[string]interface{}, params *transportSimParam) *simContext {
 	o := new(simContext)
 	o.Client = c
 	o.Ns = c.Ns
 	o.Tctx = c.Ns.ThreadCtx
 	o.ctx = NewCtx(c)
-	o.socket = new(TcpSocket)
-	o.socket.init(c, o.ctx)
-	//o.sim = sim
-	s := o.socket
-	if server {
-		s.setTupleIpv4(core.Ipv4Key{48, 0, 0, 1},
-			core.Ipv4Key{16, 0, 0, 1},
-			80,
-			1025)
-	} else {
-		s.setTupleIpv4(core.Ipv4Key{16, 0, 0, 1},
-			core.Ipv4Key{48, 0, 0, 1},
-			1025,
-			80)
-	}
-	s.cb = app.getCb()
-	app.setSocket(s)
-	s.initphase2()
-
-	if ioctl != nil {
-		s.SetIoctl(*ioctl)
+	app.setCtx(o.Tctx)
+	app.setSim(o)
+	net := "tcp"
+	if params.udp {
+		net = "udp"
 	}
 
 	if server {
-		copy(s.pktTemplate[0:6], []byte{0, 0, 1, 0, 0, 1})
-		s.Listen()
+		o.ctx.Listen(net, ":80", app.getServerAcceptCb())
+		if ioctl != nil {
+			o.ioctl = *ioctl // save it for the callback
+		}
 	} else {
-		copy(s.pktTemplate[0:6], []byte{0, 0, 1, 0, 0, 2})
-		s.Connect()
+		var mioctl IoctlMap
+		if ioctl != nil {
+			mioctl = *ioctl
+		}
+		d := "48.0.0.1:80"
+		if params.ipv6 {
+			d = "[2001:db8::3000:1]:80"
+		}
+		ap, err := o.ctx.Dial(net, d, app.getCb(), mioctl)
+		if err != nil {
+			fmt.Printf(" ERROR %v \n", err)
+			return nil
+		}
+
+		app.setSocket(ap)
 	}
 	o.ctx.cdbv.Dump()
 	return o
 }
 
 type iSockeApp interface {
-	setSocket(socket *TcpSocket)
+	setSim(ctx *simContext)
+	setSocket(socket SocketApi)
+	setCtx(ctx *core.CThreadCtx)
 	start()
 	stop()
 	onRemove()
 	getCb() ISocketCb
+	getServerAcceptCb() IServerSocketCb
+}
+
+type SocketAppBase struct {
+	sim    *simContext
+	params *transportSimParam
+	socket SocketApi
+	tctx   *core.CThreadCtx
+}
+
+func (o *SocketAppBase) setSim(ctx *simContext) {
+	o.sim = ctx
 }
 
 type SocketAppTx1 struct {
-	params  *transportSimParam
-	socket  *TcpSocket
+	SocketAppBase
 	state   int
 	doClose int
 	cnt     uint32
@@ -80,8 +94,20 @@ type SocketAppTx1 struct {
 	timerw  *core.TimerCtx
 }
 
-func (o *SocketAppTx1) setSocket(socket *TcpSocket) {
+func (o *SocketAppTx1) setSocket(socket SocketApi) {
 	o.socket = socket
+}
+
+func (o *SocketAppTx1) OnAccept(socket SocketApi) ISocketCb {
+	o.socket = socket
+	if o.sim.ioctl != nil {
+		o.socket.SetIoctl(o.sim.ioctl)
+	}
+	return o
+}
+
+func (o *SocketAppTx1) getServerAcceptCb() IServerSocketCb {
+	return o
 }
 
 func (o *SocketAppTx1) getCb() ISocketCb {
@@ -140,8 +166,12 @@ func (o *SocketAppTx1) OnEvent(a, b interface{}) {
 	}
 }
 
+func (o *SocketAppTx1) setCtx(ctx *core.CThreadCtx) {
+	o.tctx = ctx
+}
+
 func (o *SocketAppTx1) start() {
-	o.timerw = o.socket.tctx.GetTimerCtx()
+	o.timerw = o.tctx.GetTimerCtx()
 	o.timer.SetCB(o, nil, nil)
 }
 
@@ -217,13 +247,27 @@ func (o *SocketAppTx1) OnTxEvent(event SocketEventType) {
 }
 
 type SocketAppRx1 struct {
-	params *transportSimParam
-	socket *TcpSocket
-	cnt    uint32
+	SocketAppBase
+	cnt uint32
 }
 
-func (o *SocketAppRx1) setSocket(socket *TcpSocket) {
+func (o *SocketAppRx1) setCtx(ctx *core.CThreadCtx) {
+}
+
+func (o *SocketAppRx1) setSocket(socket SocketApi) {
 	o.socket = socket
+}
+
+func (o *SocketAppRx1) OnAccept(socket SocketApi) ISocketCb {
+	o.socket = socket
+	if o.sim.ioctl != nil {
+		o.socket.SetIoctl(o.sim.ioctl)
+	}
+	return o
+}
+
+func (o *SocketAppRx1) getServerAcceptCb() IServerSocketCb {
+	return o
 }
 
 func (o *SocketAppRx1) getCb() ISocketCb {
@@ -279,8 +323,7 @@ func (o *SocketAppRx1) OnTxEvent(event SocketEventType) {
 ///############################
 
 type SocketAppC1 struct {
-	params  *transportSimParam
-	socket  *TcpSocket
+	SocketAppBase
 	state   int
 	doClose int
 	cnt     uint32
@@ -288,8 +331,15 @@ type SocketAppC1 struct {
 	timerw  *core.TimerCtx
 }
 
-func (o *SocketAppC1) setSocket(socket *TcpSocket) {
+func (o *SocketAppC1) setCtx(ctx *core.CThreadCtx) {
+}
+
+func (o *SocketAppC1) setSocket(socket SocketApi) {
 	o.socket = socket
+}
+
+func (o SocketAppC1) getServerAcceptCb() IServerSocketCb {
+	return nil
 }
 
 func (o *SocketAppC1) getCb() ISocketCb {
@@ -350,14 +400,11 @@ func (o *SocketAppC1) OnRxData(d []byte) {
 func (o *SocketAppC1) OnTxEvent(event SocketEventType) {
 	if o.params.debug {
 		fmt.Printf(" clientTx %p %x  \n", o, event)
-
 	}
-
 }
 
 type SocketAppRR1 struct {
-	params       *transportSimParam
-	socket       *TcpSocket
+	SocketAppBase
 	state        int
 	waitResponse bool
 	isClient     bool
@@ -369,8 +416,23 @@ type SocketAppRR1 struct {
 	response     []byte
 }
 
-func (o *SocketAppRR1) setSocket(socket *TcpSocket) {
+func (o *SocketAppRR1) setCtx(ctx *core.CThreadCtx) {
+}
+
+func (o *SocketAppRR1) setSocket(socket SocketApi) {
 	o.socket = socket
+}
+
+func (o *SocketAppRR1) OnAccept(socket SocketApi) ISocketCb {
+	o.socket = socket
+	if o.sim.ioctl != nil {
+		o.socket.SetIoctl(o.sim.ioctl)
+	}
+	return o
+}
+
+func (o *SocketAppRR1) getServerAcceptCb() IServerSocketCb {
+	return o
 }
 
 func (o *SocketAppRR1) getCb() ISocketCb {
@@ -391,6 +453,10 @@ func (o *SocketAppRR1) stop() {
 func (o *SocketAppRR1) start() {
 	o.request = []byte(`{"method" :"request"}`)
 	o.response = []byte(`{"method" :"response"}`)
+
+	if o.isClient && o.socket != nil && (o.socket.GetCap()&SocketCapStream == 0) {
+		o.SendRequest()
+	}
 }
 
 func (o *SocketAppRR1) SendRequest() {
@@ -424,7 +490,9 @@ func (o *SocketAppRR1) OnRxEvent(event SocketEventType) {
 	if (event & SocketEventConnected) > 0 {
 		// nothing to do
 		if o.isClient {
-			o.SendRequest()
+			if (o.socket.GetCap() & SocketCapConnection) > 0 {
+				o.SendRequest()
+			}
 		}
 	}
 
@@ -441,7 +509,7 @@ func (o *SocketAppRR1) OnRxEvent(event SocketEventType) {
 
 func (o *SocketAppRR1) OnRxData(d []byte) {
 	if o.params.debug {
-		fmt.Printf(" on data %v  \n", d)
+		fmt.Printf(" on data %v is_client: %v \n", hex.Dump(d), o.isClient)
 	}
 	if o.isClient {
 		if len(d) > 0 {
@@ -450,6 +518,10 @@ func (o *SocketAppRR1) OnRxData(d []byte) {
 			} else {
 				if bytes.Compare(d, o.response) != 0 {
 					panic(" got wrong response ")
+				} else {
+					if o.params.udp {
+						o.socket.Close()
+					}
 				}
 			}
 		}
@@ -519,6 +591,12 @@ func newAppTx1(params *transportSimParam) iSockeApp {
 		s.params = params
 		s.isClient = true
 		return &s
+	case "udp":
+		var s SocketAppRR1
+		s.params = params
+		s.isClient = true
+		return &s
+
 	}
 	return nil
 }
@@ -535,6 +613,8 @@ type transportSimParam struct {
 	debug                   bool
 	ioctlc                  *map[string]interface{}
 	ioctls                  *map[string]interface{}
+	ipv6                    bool
+	udp                     bool
 }
 
 type transportSim struct {
@@ -562,17 +642,23 @@ func newTransportSim(params *transportSimParam) *transportSim {
 
 	client := core.NewClient(ns, core.MACKey{0, 0, 1, 0, 0, 1},
 		core.Ipv4Key{16, 0, 0, 1},
-		core.Ipv6Key{},
+		core.Ipv6Key{0x20, 0x01, 0x0d, 0xb8, 0x00, 0x00, 0x00, 0x00,
+			0x00, 0x00, 0x00, 0x00, 16, 0x00, 0x00, 0x01},
 		core.Ipv4Key{16, 0, 0, 2})
 	client.ForceDGW = true
 	client.Ipv4ForcedgMac = core.MACKey{0, 0, 1, 0, 0, 2}
+	client.Ipv6ForceDGW = true
+	client.Ipv6ForcedgMac = client.Ipv4ForcedgMac
 
 	server := core.NewClient(ns, core.MACKey{0, 0, 1, 0, 0, 2},
 		core.Ipv4Key{48, 0, 0, 1},
-		core.Ipv6Key{},
+		core.Ipv6Key{0x20, 0x01, 0x0d, 0xb8, 0x00, 0x00, 0x00, 0x00,
+			0x00, 0x00, 0x00, 0x00, 48, 0x00, 0x00, 0x01},
 		core.Ipv4Key{48, 0, 0, 2})
 	server.ForceDGW = true
+	server.Ipv6ForceDGW = true
 	server.Ipv4ForcedgMac = core.MACKey{0, 0, 1, 0, 0, 1}
+	server.Ipv6ForcedgMac = server.Ipv4ForcedgMac
 
 	ns.AddClient(client)
 	ns.AddClient(server)
@@ -580,8 +666,8 @@ func newTransportSim(params *transportSimParam) *transportSim {
 	o.clientApp = newAppTx1(params)
 	o.serverApp = newAppRx1(params)
 
-	o.server = newSimCtx(o.serverApp, server, true, params.ioctls)
-	o.client = newSimCtx(o.clientApp, client, false, params.ioctlc)
+	o.server = newSimCtx(o.serverApp, server, true, params.ioctls, params)
+	o.client = newSimCtx(o.clientApp, client, false, params.ioctlc, params)
 
 	o.timer.SetCB(o, nil, nil)
 
@@ -609,10 +695,23 @@ func (o *pktEventTxRx) OnEvent(a, b interface{}) {
 	ps.Tun = &o.sim.client.Ns.Key
 	ps.M = o.m
 	ps.L3 = 14 + 8
-	ps.L4 = ps.L3 + 20
-	do := o.m.GetData()[ps.L4+12]
-	tcplen := (do >> 4) << 2
-	ps.L7 = ps.L4 + uint16(tcplen)
+	isudp := o.sim.param.udp
+	if o.sim.param.ipv6 {
+
+		ps.L4 = ps.L3 + 40
+		tcp := layers.TcpHeader(o.m.GetData()[ps.L3:ps.L4])
+		ps.NextHeader = tcp.GetNextHeader()
+	} else {
+		ps.L4 = ps.L3 + 20
+	}
+	if isudp {
+		ps.L7 = ps.L4 + 8
+
+	} else {
+		do := o.m.GetData()[ps.L4+12]
+		tcplen := (do >> 4) << 2
+		ps.L7 = ps.L4 + uint16(tcplen)
+	}
 	ps.L7Len = ps.M.DataLen() - ps.L7
 
 	if (o.sim.param.drop > 0.0) && (rand.Float32() < o.sim.param.drop) {
@@ -622,22 +721,17 @@ func (o *pktEventTxRx) OnEvent(a, b interface{}) {
 	}
 
 	if o.sendToServer {
-		if o.sim.server.socket != nil {
-			o.sim.server.socket.input(&ps)
-
-		}
+		o.sim.server.ctx.HandleRxPacket(&ps)
 	} else {
-		if o.sim.client.socket != nil {
-			o.sim.client.socket.input(&ps)
-		}
+		o.sim.client.ctx.HandleRxPacket(&ps)
 	}
 }
 
 func (o *transportSim) ProcessTxToRx(m *core.Mbuf) *core.Mbuf {
 	o.cnt++
-	if o.cnt == 2 {
-		//fmt.Printf(" this is it ! \n")
-	}
+	//if o.cnt == 2 {
+	//   fmt.Printf(" this is it ! \n")
+	//}
 	e := new(pktEventTxRx)
 	e.sim = o
 	e.m = m

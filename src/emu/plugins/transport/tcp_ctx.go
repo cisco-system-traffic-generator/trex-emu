@@ -55,6 +55,7 @@ const (
 	TCPOPT_WINDOW  = 3
 	TCPOLEN_WINDOW = 3
 	TCP_HEADER_LEN = 20
+	UDP_HEADER_LEN = 8
 
 	TCPOPT_TIMESTAMP    = 8
 	TCPOLEN_TIMESTAMP   = 10
@@ -172,7 +173,7 @@ func (o *tcpFastTimer) OnEvent(a, b interface{}) {
 	pi.onFastTimerTick()
 }
 
-type TcpSocket struct {
+type baseSocket struct {
 
 	/* template packet */
 	l3Offset    uint16
@@ -180,20 +181,31 @@ type TcpSocket struct {
 	pktTemplate []byte
 
 	/* tuple */
-	src core.Ipv4Key
-	dst core.Ipv4Key
+	src          core.Ipv4Key
+	dst          core.Ipv4Key
+	srcIPv6      core.Ipv6Key
+	dstIPv6      core.Ipv6Key
+	srcPort      uint16
+	dstPort      uint16
+	ipv6         bool
+	resolved     bool
+	interrupt    bool
+	srcPortAlloc bool
 
-	srcIPv6 core.Ipv6Key
-	dstIPv6 core.Ipv6Key
+	client      *core.CClient
+	ns          *core.CNSCtx
+	tctx        *core.CThreadCtx
+	serverIoctl IoctlMap // save ioctl
+	ctx         *transportCtx
+	cb          ISocketCb
+}
 
-	srcPort uint16
-	dstPort uint16
-	ipv6    bool
+type TcpSocket struct {
+	baseSocket
 
-	lastmask  uint16
-	cbmask    uint16 // callbacks
-	interrupt bool
-	dpc       uint16
+	lastmask uint16
+	cbmask   uint16 // callbacks
+	dpc      uint16
 
 	timerw               *core.TimerCtx
 	fasttimer            core.CHTimerObj
@@ -201,9 +213,6 @@ type TcpSocket struct {
 	slowTimerCb          tcpSlowTimer
 	fastTimerCb          tcpFastTimer
 	fastMsec             uint32
-	client               *core.CClient
-	ns                   *core.CNSCtx
-	tctx                 *core.CThreadCtx
 	timer                [TCPT_NTIMERS]uint16
 	force                bool
 	dupacks              uint8
@@ -283,9 +292,7 @@ type TcpSocket struct {
 	//CTcpReass *m_tpc_reass     /* tcp reassembley object, allocated only when needed */
 	//CTcpFlow  *m_flow          /* back pointer to flow*/
 	reass_disabled bool /* don't reassemble ooo packet, to make payload content in order */
-	ctx            *transportCtx
 	socket         *socketData
-	cb             ISocketCb
 	txqueue        []byte /* tx pointer for user data */
 
 	// tunables that can be set in SetIoctl

@@ -142,7 +142,7 @@ func (o *CCounterRec) ClearValue() {
 }
 
 func (o *CCounterRec) Dump() {
-	if !o.IsZero() {
+	if o.IsValid() || !o.IsZero() {
 		s := o.GetValAsString()
 		fmt.Printf("%-30s : %10s \n", o.Name, s)
 	}

@@ -23,6 +23,33 @@ func bsd_umin(a uint32, b uint32) uint32 {
 	return b
 }
 
+// resolve each flow once
+func (o *TcpSocket) resolve() bool {
+	if o.resolved {
+		return true
+	}
+	if o.ipv6 == false {
+		mac, ok := o.client.ResolveIPv4DGMac()
+		if ok {
+			layers.EthernetHeader(o.pktTemplate).SetDestAddress(mac[:])
+			o.resolved = true
+			return true
+		} else {
+			o.ctx.tcpStats.tcps_drop_unresolved++
+		}
+	} else {
+		mac, ok := o.client.ResolveIPv6DGMac()
+		if ok {
+			layers.EthernetHeader(o.pktTemplate).SetDestAddress(mac[:])
+			o.resolved = true
+			return true
+		} else {
+			o.ctx.tcpStats.tcps_drop_unresolved++
+		}
+	}
+	return false
+}
+
 func (o *TcpSocket) send(pkt *tcpPkt) int {
 	// fix checksum
 	m := pkt.m
@@ -48,6 +75,9 @@ func (o *TcpSocket) send(pkt *tcpPkt) int {
 func (o *TcpSocket) buildDpkt(off int32, datalen int32, hdrlen uint16, pkt *tcpPkt) int {
 	if hdrlen < TCP_HEADER_LEN {
 		panic(" tcphdrlen < TCP_HEADER_LEN !")
+	}
+	if o.resolve() == false {
+		return -1
 	}
 	optlen := hdrlen - TCP_HEADER_LEN
 	m := o.ns.AllocMbuf(uint16(len(o.pktTemplate)) + optlen + uint16(datalen))
@@ -86,6 +116,9 @@ func (o *TcpSocket) buildCpkt(tcphdrlen uint16, pkt *tcpPkt) int {
 	/* build a packet base on the template */
 	if tcphdrlen < TCP_HEADER_LEN {
 		panic(" tcphdrlen < TCP_HEADER_LEN !")
+	}
+	if o.resolve() == false {
+		return -1
 	}
 	optlen := tcphdrlen - TCP_HEADER_LEN
 	m := o.ns.AllocMbuf(uint16(len(o.pktTemplate)) + optlen)
@@ -130,13 +163,13 @@ func (o *TcpSocket) mss(offer uint32) uint16 {
 	if o.tuneable_flags == 0 {
 		// no tunable
 		o.snd_cwnd = o.ctx.tcp_initwnd
-		return o.ctx.tcp_mssdflt
+		return o.maxseg
 	} else {
 		var mss uint16
 		if o.tuneable_flags&TUNE_MSS > 0 {
 			mss = o.tun_mss
 		} else {
-			mss = o.ctx.tcp_mssdflt
+			mss = o.maxseg
 		}
 		var initwnd uint32
 		if o.tuneable_flags&TUNE_INIT_WIN > 0 {

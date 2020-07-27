@@ -30,6 +30,18 @@ func (key *Ipv6Key) IsZero() bool {
 	return false
 }
 
+func (o *Ipv6Key) ToIP() net.IP {
+	var p net.IP
+	p = append(p, o[:]...)
+	return p
+}
+
+func (o *Ipv4Key) ToIP() net.IP {
+	var p net.IP
+	p = append(p, o[:]...)
+	return p
+}
+
 func (key *Ipv4Key) IsZero() bool {
 
 	if *key == [4]byte{0, 0, 0, 0} {

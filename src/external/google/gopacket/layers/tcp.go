@@ -30,8 +30,20 @@ func (o TcpHeader) SetHeaderLength(val uint8) {
 	o[12] = (o[12] & 0x0f) | ((val >> 2) << 4)
 }
 
+func (o TcpHeader) GetNextHeader() uint8 {
+	return o[6]
+}
+
 func (o TcpHeader) SetFlags(val uint8) {
 	o[13] = val
+}
+
+func (o TcpHeader) GetFlags() uint8 {
+	return o[13]
+}
+
+func (o TcpHeader) GetDstPort() uint16 {
+	return binary.BigEndian.Uint16(o[2:5])
 }
 
 func (o TcpHeader) SetWindowSize(val uint16) {

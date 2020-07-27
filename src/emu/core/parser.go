@@ -38,14 +38,15 @@ const (
 )
 
 type ParserPacketState struct {
-	Tctx  *CThreadCtx
-	Tun   *CTunnelKey
-	M     *Mbuf
-	L3    uint16 // offset 0 is not valid (ip)
-	L4    uint16 // offset 0 is not valid (tcp/udp)
-	L7    uint16 // offset
-	L7Len uint16 // 0 if not relevant
-	Flags uint32
+	Tctx       *CThreadCtx
+	Tun        *CTunnelKey
+	M          *Mbuf
+	L3         uint16 // offset 0 is not valid (ip)
+	L4         uint16 // offset 0 is not valid (tcp/udp)
+	L7         uint16 // offset
+	L7Len      uint16 // 0 if not relevant
+	Flags      uint32
+	NextHeader uint8 // next header for ipv6
 }
 
 /*ParserCb callback function for a protocol. In case the return value is zero, it means the protocol handle the packet
@@ -508,6 +509,7 @@ func (o *Parser) parsePacketL4(ps *ParserPacketState,
 
 	packetSize := ps.M.PktLen()
 	p := ps.M.GetData()
+	ps.NextHeader = nextHdr
 
 	switch layers.IPProtocol(nextHdr) {
 	case layers.IPProtocolICMPv4:

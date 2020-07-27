@@ -7,14 +7,13 @@ package transport
 
 import (
 	"emu/core"
-	"external/google/gopacket/layers"
 	"net"
 	"time"
 )
 
 const (
-	TCP_IOCTL_TOS            = "tos"              // change the ipv4/ipv6 tos
-	TCP_IOCTL_TTL            = "ttl"              // change the ipv4/ipv6 ttl
+	IP_IOCTL_TOS             = "tos"              // change the ipv4/ipv6 tos
+	IP_IOCTL_TTL             = "ttl"              // change the ipv4/ipv6 ttl
 	TCP_IOCTL_MSS            = "mss"              // sender tcp mss
 	TCP_IOCTL_INITWND        = "initwnd"          // init window, send_window= init_wnd * mss
 	TCP_IOCTL_NODELAY        = "no_delay"         // 0x1- no_delay  ,0x2 - force push by client for each packet, 0 - delay of delay counter
@@ -24,42 +23,17 @@ const (
 	TCP_IOCTL_RX_BUF_SIZE    = "rxbufsize"        // rx queue in bytes
 )
 
-func (o *TcpSocket) SetIoctl(m map[string]interface{}) error {
+func (o *TcpSocket) SetIoctl(m IoctlMap) error {
+
+	if o.socket == nil {
+		o.serverIoctl = m
+		return nil
+	}
+	o.setIoctlBase(m)
 
 	// TOS
-	val, prs := m[TCP_IOCTL_TOS]
-	if prs {
-		tos, ok := val.(int)
-		if ok {
-			if o.ipv6 {
-				ipv6 := layers.IPv6Header(o.pktTemplate[o.l3Offset : o.l3Offset+core.IPV6_HEADER_SIZE])
-				ipv6.SetTOS(uint8(tos))
-			} else {
-				ipv4 := layers.IPv4Header(o.pktTemplate[o.l3Offset : o.l3Offset+20])
-				ipv4.SetTOS(uint8(tos))
-				ipv4.UpdateChecksum()
-			}
-		}
-	}
-
-	// TTL
-	val, prs = m[TCP_IOCTL_TTL]
-	if prs {
-		ttl, ok := val.(int)
-		if ok {
-			if o.ipv6 {
-				ipv6 := layers.IPv6Header(o.pktTemplate[o.l3Offset : o.l3Offset+core.IPV6_HEADER_SIZE])
-				ipv6.SetHopLimit(uint8(ttl))
-			} else {
-				ipv4 := layers.IPv4Header(o.pktTemplate[o.l3Offset : o.l3Offset+20])
-				ipv4.SetTTL(uint8(ttl))
-				ipv4.UpdateChecksum()
-			}
-		}
-	}
-
 	// mss
-	val, prs = m[TCP_IOCTL_MSS]
+	val, prs := m[TCP_IOCTL_MSS]
 	if prs {
 		mss, ok := val.(int)
 		if ok {
@@ -178,17 +152,8 @@ func (o *TcpSocket) SetIoctl(m map[string]interface{}) error {
 	return nil
 }
 
-func (o *TcpSocket) GetIoctl(m map[string]interface{}) error {
-	// TOS/TTL
-	if o.ipv6 {
-		ipv6 := layers.IPv6Header(o.pktTemplate[o.l3Offset : o.l3Offset+core.IPV6_HEADER_SIZE])
-		m[TCP_IOCTL_TOS] = int(ipv6.TOS())
-		m[TCP_IOCTL_TTL] = int(ipv6.HopLimit())
-	} else {
-		ipv4 := layers.IPv4Header(o.pktTemplate[o.l3Offset : o.l3Offset+20])
-		m[TCP_IOCTL_TOS] = int(ipv4.GetTOS())
-		m[TCP_IOCTL_TTL] = int(ipv4.GetTTL())
-	}
+func (o *TcpSocket) GetIoctl(m IoctlMap) error {
+	o.getIoctlBase(m)
 	if o.tun_mss > 0 {
 		m[TCP_IOCTL_MSS] = int(o.tun_mss)
 	} else {
@@ -211,28 +176,30 @@ func (o *TcpSocket) GetIoctl(m map[string]interface{}) error {
 	return nil
 }
 
-// TBD need to replace this
 func (o *TcpSocket) LocalAddr() net.Addr {
-	return nil
+	var l baseSocketLocalAddr
+	l.net = "tcp"
+	l.s = &o.baseSocket
+	return &l
 }
 
 func (o *TcpSocket) RemoteAddr() net.Addr {
-	return nil
+	var l baseSocketRemoteAddr
+	l.net = "tcp"
+	l.s = &o.baseSocket
+	return &l
 }
 
-func (o *TcpSocket) IsStream() bool {
-	return true
+func (o *TcpSocket) GetCap() SocketCapType {
+	return SocketCapStream | SocketCapConnection
+
 }
 
-func (o *TcpSocket) NeedConnection() bool {
-	return true
-}
-
-func (o *TcpSocket) Connect() SocketErr {
+func (o *TcpSocket) connect() SocketErr {
 	sts := &o.ctx.tcpStats
 	if o.state != TCPS_CLOSED {
-		return SeALREADY_OPEN
 		sts.tcps_already_opened++
+		return SeALREADY_OPEN
 	}
 
 	/* Compute window scaling to request.  */
@@ -255,7 +222,7 @@ func (o *TcpSocket) Connect() SocketErr {
 	return SeOK
 }
 
-func (o *TcpSocket) Listen() SocketErr {
+func (o *TcpSocket) listen() SocketErr {
 	sts := &o.ctx.tcpStats
 
 	if o.state != TCPS_CLOSED {
@@ -274,6 +241,10 @@ func (o *TcpSocket) doOutput() {
 	} else {
 		o.output()
 	}
+}
+
+func (o *TcpSocket) GetSocket() interface{} {
+	return o
 }
 
 func (o *TcpSocket) isStartClose() bool {
@@ -480,8 +451,13 @@ func (o *TcpSocket) drop_now(res SocketErr) {
 func (o *TcpSocket) changeStateToClose() bool {
 	sts := &o.ctx.tcpStats
 	if o.state != TCPS_CLOSED {
+		o.removeFlowAssociation()
 		o.cbmask |= SocketClosed
 		sts.tcps_closed++
+		// source port was allocated
+		if o.srcPortAlloc {
+			o.ctx.srcPorts.freePort(TCP_PROTO, o.srcPort)
+		}
 		o.onRemove()
 		o.state = TCPS_CLOSED
 		return true
@@ -506,12 +482,9 @@ func (o *TcpSocket) quench() {
 }
 
 func (o *TcpSocket) init(client *core.CClient, ctx *transportCtx) {
-	o.client = client
-	o.ns = client.Ns
-	o.tctx = o.ns.ThreadCtx
+	o.baseSocket.init(client, ctx)
+
 	o.timerw = o.tctx.GetTimerCtx()
-	o.ctx = ctx
-	o.maxseg = ctx.tcp_mssdflt
 
 	// set the tunables to zero
 	o.tun_mss = 0
@@ -582,79 +555,30 @@ func (o *TcpSocket) onFastTimerTick() {
 	}
 }
 
-func (o *TcpSocket) setTupleIpv4(src core.Ipv4Key,
-	dst core.Ipv4Key,
-	srcPort uint16,
-	dstPort uint16) {
-	o.src = src
-	o.dst = dst
-	o.srcPort = srcPort
-	o.dstPort = dstPort
-	o.ipv6 = false
-}
-
-func (o *TcpSocket) setTupleIpv6(src core.Ipv6Key,
-	dst core.Ipv6Key,
-	srcPort uint16,
-	dstPort uint16) {
-	o.srcIPv6 = src
-	o.dstIPv6 = dst
-	o.srcPort = srcPort
-	o.dstPort = dstPort
-	o.ipv6 = true
+// detach the socket from the flow table
+func (o *TcpSocket) removeFlowAssociation() {
+	o.baseSocket.removeFlowAssociation(false, o)
 }
 
 // build template
-func (o *TcpSocket) initphase2() {
-	if o.ipv6 {
-		o.buildIpv6Template()
-	} else {
-		o.buildIpv4Template()
-	}
+func (o *TcpSocket) initphase2(cb ISocketCb) {
+	o.cb = cb
+	o.baseSocket.initphase2(false)
+	o.maxseg = o.ctx.tcp_mssdflt_ - (o.l4Offset - (20 + 14))
 	o.socket = new(socketData)
 	o.socket.so_snd.init(o.tctx, o.ctx.tcp_tx_socket_bsize)
 	o.socket.so_snd.s = o
 	o.socket.so_rcv.sb_hiwat = o.ctx.tcp_rx_socket_bsize
 }
 
-func (o *TcpSocket) buildIpv4Template() {
-	l2 := o.client.GetL2Header(false, uint16(layers.EthernetTypeIPv4))
-	o.l3Offset = uint16(len(l2)) /* IPv4*/
-
-	dr := core.PacketUtlBuild(
-		&layers.IPv4{Version: 4, IHL: 5, TTL: 128, Id: 0xcc,
-			SrcIP:    net.IPv4(o.src[0], o.src[1], o.src[2], o.src[3]),
-			DstIP:    net.IPv4(o.dst[0], o.dst[1], o.dst[2], o.dst[3]),
-			Protocol: layers.IPProtocolTCP},
-
-		&layers.TCP{DataOffset: 5, SrcPort: layers.TCPPort(o.srcPort), DstPort: layers.TCPPort(o.dstPort)},
-	)
-
-	o.l4Offset = o.l3Offset + 20
-
-	o.pktTemplate = append(l2, dr...)
+func (o *TcpSocket) getProto() uint8 {
+	return TCP_PROTO
 }
 
-func (o *TcpSocket) buildIpv6Template() {
-	l2 := o.client.GetL2Header(false, uint16(layers.EthernetTypeIPv6))
-	o.l3Offset = uint16(len(l2)) /* IPv6*/
+func (o *TcpSocket) getServerIoctl() IoctlMap {
+	return o.serverIoctl
+}
 
-	dr := core.PacketUtlBuild(
-		&layers.IPv6{
-			Version:      6,
-			TrafficClass: 0,
-			FlowLabel:    0,
-			Length:       8,
-			NextHeader:   layers.IPProtocolTCP,
-			HopLimit:     1,
-			SrcIP:        o.srcIPv6[:],
-			DstIP:        o.dstIPv6[:],
-		},
-
-		&layers.TCP{DataOffset: 5, SrcPort: layers.TCPPort(o.srcPort), DstPort: layers.TCPPort(o.dstPort)},
-	)
-
-	o.l4Offset = o.l3Offset + 20
-
-	o.pktTemplate = append(l2, dr...)
+func (o *TcpSocket) clearServerIoctl() {
+	o.serverIoctl = nil
 }

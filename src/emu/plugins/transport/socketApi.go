@@ -6,8 +6,16 @@
 package transport
 
 import (
+	"emu/core"
 	"errors"
 	"net"
+)
+
+type SocketCapType uint16
+
+const (
+	SocketCapStream     = 0x1 // socket is stream based
+	SocketCapConnection = 0x2 // socket is stream connection oriented (need to wait for SocketEventConnected)
 )
 
 // Socket error value
@@ -98,6 +106,8 @@ func (o SocketEventType) String() string {
 	return s
 }
 
+type IoctlMap map[string]interface{}
+
 type ISocketCb interface {
 	// callback in case of Rx side events
 	OnRxEvent(event SocketEventType)
@@ -107,22 +117,49 @@ type ISocketCb interface {
 	OnTxEvent(event SocketEventType)
 }
 
+type IServerSocketCb interface {
+	// callback in case of a new flow, return callback or nil
+	OnAccept(socket SocketApi) ISocketCb
+}
+
 type SocketApi interface {
-	Connect() SocketErr  // connect to remote addr, for client side
-	Listen() SocketErr   //
+
+	// public
 	Close() SocketErr    // close connection **after** all the tx queue was flushed, SocketClosed event will be called
 	Shutdown() SocketErr // shutdown connection immediately, there is no wait for tx queue
 	LocalAddr() net.Addr
 	RemoteAddr() net.Addr
-	IsStream() bool       // return true if it is stream based (e.g. tcp) or message based (e.g udp)
-	NeedConnection() bool // tcp return true, udp return false
+	GetCap() SocketCapType
 	GetLastError() SocketErr
-	SetIoctl(m map[string]interface{}) error // set ioctl options to the socket e.g. {"no_delay":0}
-	GetIoctl(m map[string]interface{}) error // get the value for each key
+	SetIoctl(m IoctlMap) error // set ioctl options to the socket e.g. {"no_delay":0}
+	GetIoctl(m IoctlMap) error // get the value for each key
 	/*
 		queued: true, the buffer was queued in the socket internal buffer, it is possible to queue more without a need to wait
 				false the buffer queued but there is a need to wait for SocketTxMore for writing more as the queue is full.
 				writing after this state will return an error SeWRITE_WHILE_DRAIN
 	*/
 	Write(buf []byte) (err SocketErr, queued bool)
+	GetSocket() interface{} // return internal raw socket *TcpSocket for testing
+}
+
+// internal API for socket
+type internalSocketApi interface {
+	init(client *core.CClient, ctx *transportCtx)
+	connect() SocketErr
+	initphase2(cb ISocketCb)
+
+	setTupleIpv4(src core.Ipv4Key,
+		dst core.Ipv4Key,
+		srcPort uint16,
+		dstPort uint16)
+	setTupleIpv6(src core.Ipv6Key,
+		dst core.Ipv6Key,
+		srcPort uint16,
+		dstPort uint16)
+
+	setPortAlloc(enable bool)
+	getProto() uint8
+	listen() SocketErr
+	getServerIoctl() IoctlMap
+	clearServerIoctl()
 }

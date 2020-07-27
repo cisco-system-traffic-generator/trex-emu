@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"external/google/gopacket/layers"
+	"fmt"
 	"net"
 	"unsafe"
 )
@@ -390,6 +391,21 @@ func (o *CClient) ResolveIPv6DGMac() (mac MACKey, ok bool) {
 		mac, ok = o.Ipv6Router.DgMac, true
 	}
 	return mac, ok
+}
+
+func (o *CClient) GetSourceIPv6() (Ipv6Key, error) {
+	if !o.Dhcpv6.IsZero() {
+		return o.Dhcpv6, nil
+	}
+	if !o.Ipv6.IsZero() {
+		return o.Ipv6, nil
+	}
+	var ipv6Slaac Ipv6Key
+	if o.GetIpv6Slaac(&ipv6Slaac) {
+		return ipv6Slaac, nil
+	}
+	var key Ipv6Key
+	return key, fmt.Errorf(" No IPv6 found for this client! client %v ", o.Mac)
 }
 
 func (o *CClient) ResolveSourceIPv6() Ipv6Key {

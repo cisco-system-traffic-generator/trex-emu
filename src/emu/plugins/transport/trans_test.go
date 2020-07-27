@@ -10,6 +10,7 @@ import (
 	"flag"
 	"fmt"
 	"math/rand"
+	"net"
 	"testing"
 	"time"
 )
@@ -290,13 +291,14 @@ func (o *TransportSimTestBase) Run(t *testing.T, compare bool) {
 
 	sim.tctx.Veth.SetDebug(m, o.capture)
 	sim.tctx.MainLoopSim(o.duration)
+	fmt.Printf("\n== Client counters === \n")
 	sim.client.ctx.cdbv.Dump()
+	fmt.Printf("\n== Server counters === \n")
 	sim.server.ctx.cdbv.Dump()
-	if !sim.client.socket.IsClose() {
-		panic(" socket is not closed")
-	}
-	if !sim.server.socket.IsClose() {
-		panic(" socket is not closed")
+
+	acf := sim.client.ctx.getActiveFlows() + sim.server.ctx.getActiveFlows()
+	if acf > 0 {
+		panic(" active flows exists")
 	}
 
 	defer sim.tctx.Delete()
@@ -317,6 +319,44 @@ func TestPluginTrans4(t *testing.T) {
 			totalClientToServerSize: 1024,
 			chunkSize:               1024,
 			closeByClient:           true},
+	}
+	a.Run(t, false)
+}
+
+func TestPluginV601(t *testing.T) {
+	a := &TransportSimTestBase{
+		testname:     "tcp1-v6",
+		monitor:      false,
+		match:        0,
+		capture:      true,
+		duration:     10 * time.Second,
+		clientsToSim: 1,
+		param: transportSimParam{
+			name:                    "a",
+			sendRandom:              false,
+			totalClientToServerSize: 1024,
+			chunkSize:               1024,
+			closeByClient:           true,
+			ipv6:                    true},
+	}
+	a.Run(t, false)
+}
+
+func TestPluginV602(t *testing.T) {
+	a := &TransportSimTestBase{
+		testname:     "tcp1-v6-02",
+		monitor:      false,
+		match:        0,
+		capture:      true,
+		duration:     10 * time.Second,
+		clientsToSim: 1,
+		param: transportSimParam{
+			name:                    "a",
+			sendRandom:              false,
+			totalClientToServerSize: 60000,
+			chunkSize:               60000,
+			closeByClient:           true,
+			ipv6:                    true},
 	}
 	a.Run(t, false)
 }
@@ -438,7 +478,7 @@ func TestPluginTrans11(t *testing.T) {
 // keepalive
 func TestPluginTrans12(t *testing.T) {
 	a := &TransportSimTestBase{
-		testname:     "tcp1-11",
+		testname:     "tcp1-12",
 		monitor:      false,
 		match:        0,
 		capture:      true,
@@ -648,6 +688,102 @@ func TestPluginTransIoctl5(t *testing.T) {
 			closeByClient:           true,
 			ioctlc:                  &map[string]interface{}{"txbufsize": 128 * 1024, "rxbufsize": 128 * 1024},
 			ioctls:                  &map[string]interface{}{"rxbufsize": 2 * 1024},
+		},
+	}
+	a.Run(t, false)
+}
+
+func MyDial(network, address string) error {
+	fmt.Printf(" %v %v \n", network, address)
+	host, port, err := net.SplitHostPort(address)
+	fmt.Printf(" %v : %v : %v \n", host, port, err)
+	ip := net.ParseIP(host)
+	fmt.Printf(" %v \n", []byte(ip))
+	return nil
+}
+
+func TestPluginTransFt1(t *testing.T) {
+	var ctx transportCtx
+
+	ctx.Dial("tcp", "16.0.0.1:80", nil, nil)
+	ctx.Dial("tcp", "[2001:db8::1]:80", nil, nil)
+
+}
+
+func TestPluginTransFt2(t *testing.T) {
+	var src srcPortManager
+	rand.Seed(0x1234)
+	a := &TransportSimTestBase{
+		testname:     "ioctl5",
+		monitor:      false,
+		match:        0,
+		capture:      true,
+		duration:     100 * time.Second,
+		clientsToSim: 1,
+		param: transportSimParam{
+			name:                    "a",
+			sendRandom:              false,
+			totalClientToServerSize: 10000,
+			chunkSize:               10000,
+			closeByClient:           true,
+			ioctlc:                  &map[string]interface{}{"txbufsize": 128 * 1024, "rxbufsize": 128 * 1024},
+			ioctls:                  &map[string]interface{}{"rxbufsize": 2 * 1024},
+		},
+	}
+	sim := newTransportSim(&a.param)
+	src.init(sim.client.ctx)
+
+	for i := 0; i < 10; i++ {
+		fmt.Printf(" %v \n", src.allocPort(0x11))
+	}
+
+	for i := 0; i < 10; i++ {
+		src.freePort(0x11, 1025+uint16(i))
+	}
+
+	for i := 0; i < 10; i++ {
+		fmt.Printf(" %v \n", src.allocPort(0x11))
+	}
+
+	sim.client.ctx.cdbv.Dump()
+}
+
+func TestPluginUdp1(t *testing.T) {
+	a := &TransportSimTestBase{
+		testname:     "tcp-udp1",
+		monitor:      false,
+		match:        0,
+		capture:      true,
+		duration:     10 * time.Second,
+		clientsToSim: 1,
+		param: transportSimParam{
+			name:                    "r_r",
+			sendRandom:              false,
+			totalClientToServerSize: 1024,
+			chunkSize:               1024,
+			closeByClient:           true,
+			udp:                     true,
+		},
+	}
+	a.Run(t, false)
+}
+
+func TestPluginUdp2(t *testing.T) {
+	a := &TransportSimTestBase{
+		testname:     "tcp-udp2",
+		monitor:      false,
+		match:        0,
+		capture:      true,
+		duration:     10 * time.Second,
+		clientsToSim: 1,
+		param: transportSimParam{
+			name:                    "r_r",
+			sendRandom:              false,
+			totalClientToServerSize: 1024,
+			chunkSize:               1024,
+			closeByClient:           true,
+			udp:                     true,
+			ipv6:                    true,
 		},
 	}
 	a.Run(t, false)
