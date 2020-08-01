@@ -19,6 +19,7 @@ import (
 	"emu/plugins/dot1x"
 	"emu/plugins/icmp"
 	"emu/plugins/igmp"
+	"emu/plugins/ipfix"
 	"emu/plugins/ipv6"
 )
 
@@ -34,6 +35,7 @@ func RegisterPlugins(tctx *core.CThreadCtx) {
 	dhcp.Register(tctx)
 	dhcpv6.Register(tctx)
 	dot1x.Register(tctx)
+	ipfix.Register(tctx)
 }
 
 type MainArgs struct {

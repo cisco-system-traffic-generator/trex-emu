@@ -5,6 +5,18 @@
 
 package ipfix
 
+/*
+NetFlow/IPFix is a feature that was introduced on Cisco routers around 1996 that provides the ability to collect IP network traffic as it enters or exits an interface.
+By analyzing the data provided by NetFlow, a network administrator can determine things such as the source and destination of traffic, class of service, and the causes of congestion.
+A typical flow monitoring setup (using NetFlow) consists of three main components:
+
+* Flow exporter: aggregates packets into flows and exports flow records towards one or more flow collectors.
+* Flow collector: responsible for reception, storage and pre-processing of flow data received from a flow exporter.
+* Analysis application: analyzes received flow data in the context of intrusion detection or traffic profiling, for example.
+
+TRex EMU emulates the aforementioned flow exporter for https://tools.ietf.org/html/rfc3954 Netflow v9, RFC 3954 and https://tools.ietf.org/html/rfc7011 Netflow v10 (IPFix), RFC 7011.
+*/
+
 import (
 	"emu/core"
 	"encoding/binary"
@@ -546,6 +558,8 @@ func (o *IPFixGen) GetInfo() *GenInfo {
 	var i GenInfo
 
 	i.Enabled = o.enabled
+	i.OptionsTemplate = o.optionsTemplate
+	i.ScopeCount = o.scopeCount
 	i.RecordsNum = o.recordsNum
 	i.RecordsNumSend = o.recordsNumToSent
 	i.TemplateRate = o.templateRate
@@ -574,7 +588,7 @@ type IPFixStats struct {
 	invalidJson              uint64 // Json could not be unmarshalled or validated correctly.
 	invalidParams            uint64 // Invalid init JSON params provided.
 	failedCreatingGen        uint64 // Failed creating a generator with the generator's provided JSON.
-	badCopy                  uint64 // Copying elements didn't complete succesfully.
+	badCopy                  uint64 // Copying elements didn't complete successfully.
 	enterpriseFieldv9        uint64 // Enterprise Fields are not supported for V9.
 	badOrNoInitJson          uint64 // Init Json was either not provided or invalid.
 	unsuccessfulMacResolve   uint64 // Tried to resolve MAC of DG and failed.
@@ -633,7 +647,7 @@ func NewIPFixStatsDb(o *IPFixStats) *core.CCounterDb {
 	db.Add(&core.CCounterRec{
 		Counter:  &o.invalidJson,
 		Name:     "invalidJson",
-		Help:     "Json could not be unmarshalled or validated correctly.",
+		Help:     "JSON could not be unmarshalled or validated correctly.",
 		Unit:     "ops",
 		DumpZero: false,
 		Info:     core.ScERROR})
@@ -665,7 +679,7 @@ func NewIPFixStatsDb(o *IPFixStats) *core.CCounterDb {
 	db.Add(&core.CCounterRec{
 		Counter:  &o.enterpriseFieldv9,
 		Name:     "enterpriseFieldv9",
-		Help:     "Enterpise field specified for Netflow v9 is not supported..",
+		Help:     "Enterpise field specified for Netflow v9 is not supported.",
 		Unit:     "ops",
 		DumpZero: false,
 		Info:     core.ScERROR})
@@ -673,7 +687,7 @@ func NewIPFixStatsDb(o *IPFixStats) *core.CCounterDb {
 	db.Add(&core.CCounterRec{
 		Counter:  &o.badOrNoInitJson,
 		Name:     "badOrNoInitJson",
-		Help:     "Init Json was either not provided or invalid.",
+		Help:     "Init JSON was either not provided or invalid.",
 		Unit:     "ops",
 		DumpZero: false,
 		Info:     core.ScERROR})
@@ -729,7 +743,7 @@ func NewIPFixStatsDb(o *IPFixStats) *core.CCounterDb {
 	db.Add(&core.CCounterRec{
 		Counter:  &o.invalidScopeCount,
 		Name:     "invalidScopeCount",
-		Help:     "Invalid scope count, in case of Options Template, scope count must be scecified and > 0.",
+		Help:     "Invalid scope count, in case of Options Template, scope count must be specified and > 0.",
 		Unit:     "ops",
 		DumpZero: false,
 		Info:     core.ScERROR})
@@ -811,7 +825,7 @@ func NewIPFixClient(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
 		return &o.PluginBase
 	}
 
-	// Init Json was provided and successfuly unmarshalled.
+	// Init Json was provided and successfully unmarshalled.
 	if (!init.Ipv4.IsZero() && !init.Ipv6.IsZero()) || (init.Ipv4.IsZero() && init.Ipv6.IsZero()) {
 		o.stats.invalidParams++
 		return &o.PluginBase
@@ -1011,14 +1025,16 @@ func (o PluginIPFixNsReg) NewPlugin(ctx *core.PluginCtx, initJson []byte) *core.
 											RPC Methods
 ======================================================================================================*/
 type GenInfo struct {
-	Enabled        bool    `json:"enabled"`              // Is generator enabled
-	TemplateRate   float32 `json:"template_rate_pps"`    // Template Rate of Generator in PPs
-	DataRate       float32 `json:"data_rate_pps"`        // Data Rate of Generator in PPS
-	RecordsNum     uint32  `json:"data_records_num"`     // Number of records in packets as specified by user
-	RecordsNumSend uint32  `json:"data_records_num_send` // Number of records in packets sent.
-	TemplateID     uint16  `json:"template_id"`          // Template ID
-	FieldsNum      int     `json:"fields_num"`           // Number of fields in each record
-	EnginesNum     int     `json:"engines_num"`          // Numner of engines this generator has.
+	Enabled         bool    `json:"enabled"`               // Is generator enabled
+	OptionsTemplate bool    `json:"options_template"`      // Is options template or regular template
+	ScopeCount      uint16  `json:"scope_count"`           // Scope count in case of options template
+	TemplateRate    float32 `json:"template_rate_pps"`     // Template Rate of Generator in PPs
+	DataRate        float32 `json:"data_rate_pps"`         // Data Rate of Generator in PPS
+	RecordsNum      uint32  `json:"data_records_num"`      // Number of records in packets as specified by user
+	RecordsNumSend  uint32  `json:"data_records_num_send"` // Number of records in packets sent.
+	TemplateID      uint16  `json:"template_id"`           // Template ID
+	FieldsNum       int     `json:"fields_num"`            // Number of fields in each record
+	EnginesNum      int     `json:"engines_num"`           // Number of engines this generator has.
 }
 
 type (
@@ -1032,12 +1048,10 @@ type (
 	}
 
 	ApiIpfixClientGetGensInfoHandler struct{}
-	ApiIpfixClientGetGensInfoParams  struct {
-		GenNames []string `json:"gen_names"`
-	}
-	ApiIpfixClientGetGensInfoResult struct {
+	ApiIpfixClientGetGensInfoResult  struct {
 		GensInfos map[string]GenInfo `json:"generators_info"`
 	}
+	ApiIpfixClientGetGenNamesHandler struct{}
 )
 
 // getClientPlugin gets the client plugin given the client parameters (Mac & Tunnel Key)
@@ -1111,7 +1125,6 @@ func (h ApiIpfixClientSetGenStateHandler) ServeJSONRPC(ctx interface{}, params *
 
 // ApiIpfixClientGetGensInfoHandler gets generator information.
 func (h ApiIpfixClientGetGensInfoHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
-	var p ApiIpfixClientGetGensInfoParams
 	var res ApiIpfixClientGetGensInfoResult
 
 	c, err := getClientPlugin(ctx, params)
@@ -1122,24 +1135,8 @@ func (h ApiIpfixClientGetGensInfoHandler) ServeJSONRPC(ctx interface{}, params *
 		}
 	}
 
-	tctx := ctx.(*core.CThreadCtx)
-	err = tctx.UnmarshalValidate(*params, &p)
-	if err != nil {
-		return nil, &jsonrpc.Error{
-			Code:    jsonrpc.ErrorCodeInvalidRequest,
-			Message: err.Error(),
-		}
-	}
-
-	res.GensInfos = make(map[string]GenInfo, len(p.GenNames))
-	for _, genName := range p.GenNames {
-		gen, ok := c.generatorsMap[genName]
-		if !ok {
-			return nil, &jsonrpc.Error{
-				Code:    jsonrpc.ErrorCodeInvalidRequest,
-				Message: fmt.Sprintf("Generator %s was not found.", genName),
-			}
-		}
+	res.GensInfos = make(map[string]GenInfo, len(c.generatorsMap))
+	for genName, gen := range c.generatorsMap {
 		res.GensInfos[genName] = *gen.GetInfo()
 	}
 
@@ -1172,4 +1169,9 @@ func init() {
 	core.RegisterCB("ipfix_c_cnt", ApiIpfixClientCntHandler{}, false) // get counters / meta
 	core.RegisterCB("ipfix_c_set_gen_state", ApiIpfixClientSetGenStateHandler{}, false)
 	core.RegisterCB("ipfix_c_get_gens_info", ApiIpfixClientGetGensInfoHandler{}, false)
+}
+
+func Register(ctx *core.CThreadCtx) {
+	// In order for this plugin to be included in the EMU compilation one must provide this empty register
+	// function. In case you remove the function call, then the core will not include EMU.
 }

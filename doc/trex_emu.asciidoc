@@ -72,6 +72,7 @@ The framework has an event driven architecture, this way it can scale. The frame
 | IPv6    | IPv6 ND, RFC 4443, RFC 4861, RFC 4862 and MLD and MLDv2 RFC 3810
 | DHCPv6  | RFC 8415 client side
 | DOT1X   | EAP-MD5/EAP-MSCHAPv2  RFC 3748/2759, IEEE 802.1X-2001
+| Netflow | Netflow v9, RFC 3954 and Netflow v10 (IPFix), RFC 7011
 |=================
 
 === TRex Architecture with TRex-EMU
@@ -1904,6 +1905,494 @@ class Prof1():
         7         5  dot1xSup
         13        10  webauth
         10        15  mab
+----
+
+=== Tutorial: Netflow
+NetFlow is a feature that was introduced on Cisco routers around 1996 that provides the ability to collect IP network traffic as it enters or exits an interface.
+By analyzing the data provided by NetFlow, a network administrator can determine things such as the source and destination of traffic, class of service, and the causes of congestion. 
+A typical flow monitoring setup (using NetFlow) consists of three main components:
+
+* Flow exporter: aggregates packets into flows and exports flow records towards one or more flow collectors.
+* Flow collector: responsible for reception, storage and pre-processing of flow data received from a flow exporter.
+* Analysis application: analyzes received flow data in the context of intrusion detection or traffic profiling, for example.
+
+TRex EMU emulates the aforementioned flow exporter for link:https://tools.ietf.org/html/rfc3954[Netflow v9, RFC 3954] and link:https://tools.ietf.org/html/rfc7011[Netflow v10 (IPFix), RFC 7011.]
+
+We designed our Netflow plugin to have the most generic and modular implementation that we can provide. As such we first introduce a new EMU object called `engine`.
+
+==== Engines
+
+Engines are instructions on how to manipulate data on a data buffer. Let's suppose we have a simple buffer of 4 bytes that represents the application identifier (`applicationID` ). We could modify
+this buffer on a variety of ways such as incrementing/decrementing or randomizing the value from iteration to iteration. However that wouldn't make much sense because the values assigned by IANA for the application identifier
+are not incremental, decremental or follow any rule per say. TRex is a real traffic generator, and as such we need to provide an engine that takes in consideration the distribution of real traffic in order to generate application
+identifiers that would make sense. There are plenty of other data fields that need specific modification from iteration to iteration, hence we designed these engines to modify data per our needs.
+
+Let us dive into it. Engines have 3 operations:
+
+[source, go]
+----
+type FieldEngineIF interface {
+    // Update updates the byte slice it receives with the new generated value.
+    // It writes from the beginning of the slice.
+    // If the length of the slice is shorter that the length of the variable we are
+    // trying to write, it will return an error.
+    // It is the responsibility of the caller to provide Update with a long enough
+    // slice.
+    Update(b []byte) error
+    // GetOffset returns the offset of the packet as the interface was provided with.
+    // The caller should use GetOffset to provide the interface with the correct
+    // byte slice.
+    GetOffset() uint16
+    // GetSize() returns the size of the variable that the engine will write in
+    // the slice byte the next time it will be called. In order to provide a slice
+    // long enough, the caller should use GetSize.
+    GetSize() uint16
+}
+----
+
+Engines are defined through simple JSON dictionaries. Let us look at the following example:
+
+[source, json]
+.Simple Engine
+----
+{
+    "engine_name": "interface",
+    "engine_type": "uint",
+    "params": {
+        "size": 1,
+        "offset": 1,
+        "min": 1,
+        "max": 24,
+        "init": 5,
+        "op": "inc",
+        "step": 2
+    }
+}
+----
+* `size` represents the size of the variable that the engine will update.
+* `offset` represents the offset in the byte buffer that is provided in the `Update` call.
+
+When we call `Update` with some buffer on this engine, it will write 1 byte at offset 1. The first time we call `Update` the result will be 5 (`init` value) and then 7, 9 and so on, until we wrap around and continue again.
+Possible sizes are {1, 2, 4, 8} meaning we can modify all of {uint8, uint16, uint32, uint64}.
+Possible operations are {inc, dec, rand}. The `step` and `init` value can be anything on the domain range (`max` - `min` + 1).
+
+The engine we saw until here is very simple and does some simple operation. In case the operation is random it will pick a random value in the domain with uniform probability. But in order to simulate real life cases we need
+fast non uniform random distribution. Hence we have the following engines:
+
+
+[source, json]
+.Simple Histogram
+----
+{
+    "engine_name": "minTTL",
+    "engine_type": "histogram_uint",
+    "params": {
+        "size": 1,
+        "offset": 0,
+        "entries": [
+            {
+                "v": 64,
+                "prob": 1
+            },
+            {
+                "v": 128,
+                "prob": 2
+            },
+            {
+                "v": 192,
+                "prob": 5
+            }
+        ]
+    }
+}
+----
+This engine will write 1 byte at `offset` 0 of the provided buffer. It will write 64 with probability 1/8, 128 with probability 2/8 and 192 with probability 5/8.
+Possible sizes for this engine type are {1, 2, 4}.
+For size 8, please use `engine_type = "histogram_uint64"`. We have to thank Golang's support of generics for that.
+
+Another type of engine would be generating values in different ranges where each range has some probability of being chosen.
+
+[source, json]
+.Range Histogram
+----
+{
+    "engine_name": "initiatorPackets",
+    "engine_type": "histogram_uint64_range",
+    "params":
+    {
+        "size": 8,
+        "offset": 0,
+        "entries": [
+            {
+                "min": 0,
+                "max": 4294967295,
+                "prob": 1
+            },
+            {
+                "min": 4294967296,
+                "max": 8589934591,
+                "prob": 3
+            }
+        ]
+    }
+}
+----
+This engine will generate an uint64 (`size` = 8) and write at `offset` 0 of the buffer a value in
+[0-4294967295] with probability 1/4 and a value in [4294967296-8589934591] with probability 3/4. After one entry is picked with the given probability, the value inside that entries domain
+is generated uniformly. For sizes {1, 2, 4} please use `"engine_type": "histogram_uint_range"`.
+
+Lastly, let us look at an engine that picks an entry from a list with some predefined distribution.
+
+[source, json]
+.List Histogram
+----
+{
+    "engine_name": "protocolIdentifier",
+    "engine_type": "histogram_uint_list",
+    "params": {
+        "size": 1,
+        "offset": 0,
+        "entries": [
+            {
+                "list": [17, 6],
+                "prob": 5
+            },
+            {
+                "list": [1],
+                "prob": 1
+            }
+        ]
+    }
+}
+----
+This engine for example can be used to modify the protocol identifier. The value 1 represents ICMP and is picked with probability 1/6.
+The values 17, 6 represent UDP and TCP respectively. The entry containing this value will be picked with probability 5/6 and then one between TCP and UDP will be picked uniformly.
+
+==== Engine Manager
+
+Multiple engines can be defined in the same time using a list of dictionaries, where each dictionary represents one engine.
+The engine manager is a singleton that aggregates all the engines and can be used to call all of the engines one after the other.
+It has a map that maps the engines by their name to the actual engine object. It also provides aggregated error counters.
+
+==== Netflow Plugin
+
+The Netflow/IPFix plugin in TRex expects an init JSON upon creation of the plugin. Most of the information is provided in this init JSON, however some of the information can be modified through the API
+after the plugin is loaded and transmitting. Let us take a look at an init JSON:
+
+[source, json]
+.Init JSON example
+----
+{
+    "netflow_version": 10,
+    "dst_mac": [0, 0, 2, 0, 0, 0],
+    "dst_ipv4": [48, 0, 0, 0],
+    "dst_ipv6": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    "dst_port": 4739,
+    "src_port": 30334,
+    "domain_id": 7777,
+    "generators": [
+        {
+            "name": "protocolIdentifierGen",
+            "auto_start": true,
+            "rate_pps": 1,
+            "data_records_num": 2,
+            "template_id": 261,
+            "is_options_template": true,
+            "scope_count": 1,
+            "fields": [
+                {
+                    "name": "clientIPv4Address",
+                    "type": 45004,
+                    "length": 4,
+                    "enterprise_number": 9,
+                    "data": [16, 0, 0, 1]
+                },
+                {
+                    "name": "protocolIdentifier",
+                    "type": 4,
+                    "length": 1,
+                    "data": [17]
+                }
+            ],
+            "engines": [
+                {
+                    "engine_name": "clientIPv4Address",
+                    "engine_type": "uint",
+                    "params":
+                    {
+                        "size": 1,
+                        "offset": 3,
+                        "min": 1,
+                        "max": 255,
+                        "op": "inc",
+                        "step": 1,
+                    }
+                }
+            ]
+        },
+        {
+            "name": "ipVersionGen",
+            "auto_start": true,
+            "rate_pps": 0.5,
+            "data_records_num": 5,
+            "template_id": 266,
+            "fields": [
+                {
+                    "name": "ipVersion",
+                    "type": 60,
+                    "length": 1,
+                    "data": [4]
+                }
+            ],
+            "engines": [
+                {
+                    "engine_name": "ipVersion",
+                    "engine_type": "histogram_uint",
+                    "params": {
+                        "size": 1,
+                        "offset": 0,
+                        "entries": [
+                            {
+                                "v": 4,
+                                "prob": 3,
+                            },
+                            {
+                                "v": 6,
+                                "prob": 1
+                            }
+                        ]
+                    }
+                }
+            ]
+        }
+    ]
+}
+----
+* `netflow_version`: Might be 9 or 10, notice version 9 doesn't support variable length fields or per enterprise fields. Defaults to 10.
+* `dst_mac`: Optional, destination MAC address. If not supplied, the destination MAC address will be the default gateway's MAC address, in case there is one.
+* `dst_ipv4`: The collector's IPv4 address. Optional, in case you provide dst_ipv6. One of {dst_ipv4, dst_ipv6} must be provided but not both.
+* `dst_ipv6`: The collector's IPv6 address. Optional, in case you provide dst_ipv4. One of {dst_ipv4, dst_ipv6} must be provided but not both.
+* `dst_port`: Collector's L4 port, defaults to 4739.
+* `src_port`: Exporter's L4 port, defaults to 30334.
+* `domain_id`: The observation domain ID as defined in IPFix. If not provided, it will be randomly generated.
+* `generators`: A list of generators. Each generator defines a Template and operations on that template, like for example the data packets rate. Each generator contains:
+** `name`: Name of the generator. This field is required.
+** `auto_start`: If true will automatically start sending IPFix packets upon creation.
+** `rate_pps`: Rate of IPFix data packets (in pps), defaults to 3.
+** `data_records_num`: Number of data records in each data packet. If not provided, it will default to the maximum number of data packets which doesn't exceed the MTU.
+** `is_options_template`: Indicates if this is generator will send Options Template (True) packets or Data Template packets (False). Defaults to False.
+** `scope_count`: Scope count in case of Options Template packets. Must be bigger than 0.
+** `template_id`: The template ID for this generator. Must be greater than 255. This field is required. Each generator must have a unique template identifier.
+** `fields`: List of fields for this generator. Fields are very much alike the fields of Netflow. Each field is represented by a dictionary.
+*** `name`: Name of this field. The name is required.
+*** `type`: A uint16 that is unique per type. One can consult the RFC for specific values of types.
+*** `length`: Length of this field in bytes. If the value is 0xFFFF, this indicates variable length fields. Variable length fields are not supported at the moment. Variable lengths are supported only in v10.
+*** `enterprise_number`: Enterprise number in case the field is specific per enterprise and the type's MSB equals 1 to indicate this is an enterprise field. Enterprise fields are supported only in v10.
+*** `data`: List of bytes of size length. This will be the initial data in data packets and can be modified by the engines.
+** `engines`: List of engines as described in the previous sections. This field is not mandatory in case we don't want to modify any data. However it is important that the name of each engine should be a field name, and the offset
+is relative to the beginning of that field.
+
+==== Netflow example
+
+Let us show an example with the previous JSON we just saw. First we build a Python profile like this:
+
+link:{github_emu_path}/simple_ipfix2.py[emu/simple_ipfix2.py]
+
+[source, python]
+.simple_ipfix2.py
+----
+from trex.emu.api import *
+import argparse
+
+
+class Prof1():
+    def __init__(self):
+        self.def_ns_plugs  = None
+        self.def_c_plugs  = None
+
+    def create_profile(self, ns_size, clients_size, mac, ipv4, dg, dst_ipv4):
+        ns_list = []
+        mac      = Mac(mac)
+        ipv4     = Ipv4(ipv4)
+        dg       = Ipv4(dg)
+        dst_ipv4 = Ipv4(dst_ipv4)
+
+        for i in range(ns_size):
+            # create different namespace each time
+            ns_key = EMUNamespaceKey(vport = i, tci = 0,tpid = 0)
+            ns = EMUNamespaceObj(ns_key = ns_key, def_c_plugs = self.def_c_plugs)
+
+            for j in range(clients_size):
+                c = EMUClientObj(   mac     = mac[j].V(),
+                                    ipv4    = ipv4[j].V(),
+                                    ipv4_dg = dg.V(),
+                                    plugs  = {'ipfix': self.get_init_json()} <1>
+                                )
+                ns.add_clients(c)
+            ns_list.append(ns)
+        return EMUProfile(ns = ns_list, def_ns_plugs = self.def_ns_plugs)
+
+    def get_profile(self, tuneables):
+        # Argparse for tunables
+        parser = argparse.ArgumentParser(description='Argparser for simple emu profile.',
+                                         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+        parser.add_argument('--ns', type = int, default = 1,
+                    help='Number of namespaces to create')
+        parser.add_argument('--clients', type = int, default = 1,
+                    help='Number of clients to create in each namespace')
+
+        # client args
+        parser.add_argument('--mac', type = str, default = '00:00:00:70:00:01',
+            help='Mac address of the first client')
+        parser.add_argument('--4', type = str, default = '1.1.1.3', dest = 'ipv4',
+            help='IPv4 address of the first client')
+        parser.add_argument('--dst-4', type = str, default = '10.56.97.19', dest = 'dst_4',
+            help='Ipv4 address of collector')
+        parser.add_argument('--dg', type = str, default = '1.1.1.1',
+            help='Default Gateway address of the clients')
+
+        args = parser.parse_args(tuneables)
+        
+        assert 0 < args.ns < 65535, 'Namespaces size must be positive!'
+        assert 0 < args.clients, 'Clients size must be positive!'
+        
+        return self.create_profile(args.ns, args.clients, args.mac, args.ipv4, args.dg, args.dst_4)
+
+def register():
+    return Prof1()
+----
+<1> For brevity purposes we have omitted the `get_init_json` function from here but it returns exactly the JSON we saw. In this line we instruct the client that it runs the IPFix plugin with the parameters in the JSON.
+
+We can load this profile through the console:
+
+[source,bash]
+----
+trex>emu_load_profile -f emu/simple_ipfix2.py
+----
+
+Now let us see the PCAP generated. In this first picture we see that the client has two generators, the first one with `template_id = 261` and Options-Template and the second one with `template_id = 266` and Data-Template.
+The Data packets for the first generator are generated with a rate of 1 pps, as specified in the init JSON. Meanwhile the Data packets for the second generator are generated with a rate of 0.5 pps. The domain identifier was specified to 7777
+in the init JSON, but be careful not to create 2 clients with the same domain identifier. Options-Template and Data-Template packets are send with a default rate of 1 pps.
+
+image::images/ipfix1.png[title="IPFix Example",align="left",width={p_width}, link="images/ipfix1.png"]
+
+We can have a closer look at the Options Template packet and see that we have two fields as specified, the first one being a Cisco enterprise field and the second one being the protocol identifier. The scope is 1 as specified in the init JSON.
+
+image::images/ipfix2.png[title="IPFix Options-Template",align="left",width={p_width}, link="images/ipfix2.png"]
+
+Next, we take a closer look at the Data Template packet and see that it has the one IP protocol version.
+
+image::images/ipfix3.png[title="IPFix Data-Template",align="left",width={p_width}, link="images/ipfix3.png"]
+
+Finally, let us see how the data fields change thanks to the engine. Take a look at the `engines` definition in the init JSON. The first engine, named `clientIPv4Address` modifies the last byte of this IP address by incrementing it on each record. The first three bytes will remain unchanged from the data parameter provided in the init JSON, hence will remain [16, 0, 0] or [10, 0, 0] in hexadecimal representation.
+
+And indeed in the first packet which has two flows (specified in the init JSON with `data_records_num`) we see:
+
+image::images/ipfix4.png[title="IPFix Engine",align="left",width={p_width}, link="images/ipfix4.png"]
+
+==== Netflow/IPFix Console API
+
+Last in this section we explore the Netflow/IPFix console API. We have the following functions:
+
+[source, bash]
+----
+emu_ipfix_disable_gen -        Disable an IPFIx generator.
+emu_ipfix_enable_gen -         Enable an IPFIx generator.
+emu_ipfix_get_gen_info -       Get IPFix generators information.
+emu_ipfix_get_gen_names -      Get IPFix generator names per client.
+emu_ipfix_set_data_rate -      Set IPFix generator data rate.
+emu_ipfix_show_counters -      Show IPFix data counters data.
+----
+
+We can get the generator names:
+
+[source, bash]
+----
+trex>emu_ipfix_get_gen_names -p 0 --mac 00:00:00:70:00:01
+Generator Names
+
+protocolIdentifierGen
+ipVersionGen
+----
+
+
+We can get information on one or more generators:
+
+[source, bash]
+----
+trex>emu_ipfix_get_gen_info -p 0 --mac 00:00:00:70:00:01 -g protocolIdentifierGen ipVersionGen
+Ipversiongen
+
+Enabled | Opt. Template | Template Rate (pps) | Data Rate (pps) |   Data Records spec. 
+--------+---------------+---------------------+-----------------+----------------------
+ True   |     False     |          1          |      0.500      |          5           
+
+|  Data Records calc.  | Template ID  |  Fields |  Engines
++----------------------+-------------+----------+----------
+|          5           |     266     |    1     |     1
+
+Protocolidentifiergen
+
+Enabled | Opt. Template | Template Rate (pps) | Data Rate (pps) |   Data Records spec. 
+--------+---------------+---------------------+-----------------+----------------------
+ True   |     True      |          1          |        1        |          2           
+
+|   Data Records calc. | Template ID |   Fields |   Engines
++----------------------+-------------+----------+----------
+|          2           |     261     |    2     |     1
+----
+
+Let us see the counters:
+[source, bash]
+----
+trex>emu_ipfix_show_counters -p 0 --mac 00:00:00:70:00:01  -v
+Ipfix Counters
+
+   name     | value | unit | zero  |          help
+------------+-------+------+-------+-----------------------
+pktTempSent |  42   | pkts | False | Template packets sent.
+pktDataSent |  32   | pkts | False | Data packets sent.
+
+6.62 [ms]
+----
+
+We can change the data rate of any generator, for example:
+
+[source, bash]
+----
+trex>emu_ipfix_set_data_rate -p 0 --mac 00:00:00:70:00:01 -g ipVersionGen -r 1000
+7.19 [ms]
+----
+
+After changing we can see the counters and see that we are sending a lot of packets:
+
+[source, bash]
+----
+trex>emu_ipfix_show_counters -p 0 --mac 00:00:00:70:00:01  --zero
+Ipfix Counters
+
+          name           | value
+-------------------------+------
+pktTempSent              | 22
+pktDataSent              | 6823
+templatePktLongerThanMTU | 0
+recordsMtuMissErr*       | 0
+dataIncorrectLength*     | 0
+invalidJson*             | 0
+failedCreatingGen*       | 0
+badCopy*                 | 0
+invalidParams*           | 0
+enterpriseFieldv9*       | 0
+badOrNoInitJson*         | 0
+unsuccessfulMacResolve*  | 0
+duplicateGenName*        | 0
+duplicateTemplateID*     | 0
+invalidTemplateID*       | 0
+failedBuildingEngineMgr* | 0
+invalidEngineName*       | 0
+invalidScopeCount*       | 0
+
+7.03 [ms]
 ----
 
 

@@ -241,11 +241,11 @@ func (o *PluginCtx) GetOrCreate(pl string) *PluginBase {
 }
 
 func (o *PluginCtx) GetAllPlugNames() []string {
-	
-    keys := make([]string, 0, len(o.mapPlugins))
-    for plName := range o.mapPlugins {
-        keys = append(keys, plName)
-    }
+
+	keys := make([]string, 0, len(o.mapPlugins))
+	for plName := range o.mapPlugins {
+		keys = append(keys, plName)
+	}
 
 	return keys
 }

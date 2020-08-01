@@ -30,7 +30,7 @@ type FieldEngineIF interface {
 	// It is the responsibility of the caller to provide Update with a long enough
 	// slice.
 	Update(b []byte) error
-	// GetOffset returns the offset of the packet as the interface was provived with.
+	// GetOffset returns the offset of the packet as the interface was provided with.
 	// The caller should use GetOffset to provide the interface with the correct
 	// byte slice.
 	GetOffset() uint16
@@ -387,7 +387,7 @@ func (o *HistogramUInt32Entry) GetProb() uint32 {
 
 // CreateHistogramUInt32ListEngine creates an histogram engine of uint 32 from the input json.
 func CreateHistogramUInt32Engine(params *fastjson.RawMessage, mgr *FieldEngineManager) (eng FieldEngineIF, err error) {
-	// unmarshall the data
+	// unmarshal the data
 	p := HistogramUInt32Params{}
 	err = fastjson.Unmarshal(*params, &p)
 	if err != nil {
@@ -457,7 +457,7 @@ func (o *HistogramUInt32RangeEntry) GetProb() uint32 {
 
 // CreateHistogramUInt32RangeEngine creates an histogram engine of uint32 range from the input json.
 func CreateHistogramUInt32RangeEngine(params *fastjson.RawMessage, mgr *FieldEngineManager) (eng FieldEngineIF, err error) {
-	// unmarshall the data
+	// unmarshal the data
 	p := HistogramUInt32RangeParams{}
 	err = fastjson.Unmarshal(*params, &p)
 	if err != nil {
@@ -530,7 +530,7 @@ func (o *HistogramUInt32ListEntry) GetProb() uint32 {
 
 // CreateHistogramUInt32ListEngine creates an histogram engine of uint32 list from the input json.
 func CreateHistogramUInt32ListEngine(params *fastjson.RawMessage, mgr *FieldEngineManager) (eng FieldEngineIF, err error) {
-	// unmarshall the data
+	// unmarshal the data
 	p := HistogramUInt32ListParams{}
 	err = fastjson.Unmarshal(*params, &p)
 	if err != nil {
@@ -605,7 +605,7 @@ func (o *HistogramUInt64Entry) GetProb() uint32 {
 
 // CreateHistogramUInt64Engine creates an histogram engine of uint64 from the input json.
 func CreateHistogramUInt64Engine(params *fastjson.RawMessage, mgr *FieldEngineManager) (eng FieldEngineIF, err error) {
-	// unmarshall the data
+	// unmarshal the data
 	p := HistogramUInt64Params{}
 	err = fastjson.Unmarshal(*params, &p)
 	if err != nil {
@@ -669,7 +669,7 @@ func (o *HistogramUInt64RangeEntry) GetProb() uint32 {
 
 // CreateHistogramUInt64RangeEngine creates an histogram engine of uint64 range from the input json.
 func CreateHistogramUInt64RangeEngine(params *fastjson.RawMessage, mgr *FieldEngineManager) (eng FieldEngineIF, err error) {
-	// unmarshall the data
+	// unmarshal the data
 	p := HistogramUInt64RangeParams{}
 	err = fastjson.Unmarshal(*params, &p)
 	if err != nil {
@@ -736,7 +736,7 @@ func (o *HistogramUInt64ListEntry) GetProb() uint32 {
 
 // CreateHistogramUInt32ListEngine creates an histogram engine of uint32 list from the input json.
 func CreateHistogramUInt64ListEngine(params *fastjson.RawMessage, mgr *FieldEngineManager) (eng FieldEngineIF, err error) {
-	// unmarshall the data
+	// unmarshal the data
 	p := HistogramUInt64ListParams{}
 	err = fastjson.Unmarshal(*params, &p)
 	if err != nil {
