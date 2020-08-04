@@ -163,3 +163,33 @@ type internalSocketApi interface {
 	getServerIoctl() IoctlMap
 	clearServerIoctl()
 }
+
+// GetTransportCtx Allocate transport layer and add it to client
+func GetTransportCtx(c *core.CClient) *transportCtx {
+	ti := c.GetTransportCtx()
+	var cfg TransportCtxCfg
+	if ti == nil {
+		tc := newCtx(c)
+		// take the json from the plugin
+		plug := c.PluginCtx.Get(TRANS_PLUG)
+		if plug != nil {
+			pClient := plug.Ext.(*PluginTransClient)
+			json := pClient.initJson
+			if json != nil {
+				c.Ns.ThreadCtx.UnmarshalValidate(json, &cfg)
+				tc.setCfg(&cfg)
+			}
+		}
+		c.SetTransportCtx(tc)
+		return tc
+	}
+	return ti.(*transportCtx)
+}
+
+func getTransportCtxIfExist(c *core.CClient) *transportCtx {
+	ti := c.GetTransportCtx()
+	if ti == nil {
+		return nil
+	}
+	return ti.(*transportCtx)
+}

@@ -21,6 +21,7 @@ import (
 	"emu/plugins/igmp"
 	"emu/plugins/ipfix"
 	"emu/plugins/ipv6"
+	"emu/plugins/transport"
 )
 
 const (
@@ -36,6 +37,7 @@ func RegisterPlugins(tctx *core.CThreadCtx) {
 	dhcpv6.Register(tctx)
 	dot1x.Register(tctx)
 	ipfix.Register(tctx)
+	transport.Register(tctx)
 }
 
 type MainArgs struct {

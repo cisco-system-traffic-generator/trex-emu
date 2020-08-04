@@ -29,7 +29,7 @@ func newSimCtx(app iSockeApp, c *core.CClient, server bool, ioctl *map[string]in
 	o.Client = c
 	o.Ns = c.Ns
 	o.Tctx = c.Ns.ThreadCtx
-	o.ctx = NewCtx(c)
+	o.ctx = newCtx(c)
 	app.setCtx(o.Tctx)
 	app.setSim(o)
 	net := "tcp"

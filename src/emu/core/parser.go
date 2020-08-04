@@ -61,6 +61,7 @@ type ParserStats struct {
 	errIcmpv4TooShort     uint64
 	errIgmpv4TooShort     uint64
 	errUdpTooShort        uint64
+	errTcpTooShort        uint64
 	errDot1qTooShort      uint64
 	errToManyDot1q        uint64
 	errIPv4TooShort       uint64
@@ -165,6 +166,14 @@ func newParserStatsDb(o *ParserStats) *CCounterDb {
 		Counter:  &o.errIgmpv4TooShort,
 		Name:     "errIgmpv4TooShort",
 		Help:     "igmpv4 too short",
+		Unit:     "pkts",
+		DumpZero: false,
+		Info:     ScERROR})
+
+	db.Add(&CCounterRec{
+		Counter:  &o.errTcpTooShort,
+		Name:     "errTcpTooShort",
+		Help:     "udp too short",
 		Unit:     "pkts",
 		DumpZero: false,
 		Info:     ScERROR})
@@ -489,6 +498,10 @@ func (o *Parser) Register(protocol string) {
 		o.eapol = getProto("dot1x")
 	}
 
+	if protocol == "transport" {
+		o.tcp = getProto("transport")
+		o.udp = getProto("transport")
+	}
 }
 
 func (o *Parser) Init(tctx *CThreadCtx) {
@@ -536,10 +549,27 @@ func (o *Parser) parsePacketL4(ps *ParserPacketState,
 		o.stats.igmpBytes += uint64(packetSize)
 		return o.igmp(ps)
 	case layers.IPProtocolTCP:
-		o.stats.errTCP++
+		if l4len < uint16(20) {
+			o.stats.errTcpTooShort++
+			return PARSER_ERR
+		}
+		do := p[ps.L4+12]
+		tcplen := (do >> 4) << 2
+		if l4len < uint16(tcplen) {
+			o.stats.errTcpTooShort++
+			return PARSER_ERR
+		}
+		ps.L7 = ps.L4 + uint16(tcplen)
+		ps.L7Len = l4len - uint16(tcplen)
+
+		if layers.PktChecksum(p[ps.L4:ps.L4+l4len], pcs) != 0 {
+			o.stats.tcpCsErr++
+			return PARSER_ERR
+		}
+
 		o.stats.tcpPkts++
 		o.stats.tcpBytes += uint64(packetSize)
-		return PARSER_ERR
+		return o.tcp(ps)
 	case layers.IPProtocolUDP:
 		if packetSize < uint32(ps.L4+8) {
 			o.stats.errUdpTooShort++
@@ -569,6 +599,8 @@ func (o *Parser) parsePacketL4(ps *ParserPacketState,
 				o.stats.dhcpBytes += uint64(packetSize)
 				ps.L7 = ps.L4 + 8
 				return o.dhcp(ps)
+			} else {
+				return o.udp(ps)
 			}
 		}
 

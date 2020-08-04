@@ -89,6 +89,9 @@ type CClient struct {
 	Ipv4ForcedgMac MACKey
 
 	PluginCtx *PluginCtx
+
+	transport interface{} // pointer to transport, allocated only if needed
+
 }
 
 type CClientCmd struct {
@@ -465,4 +468,13 @@ func (o *CClient) IsDGIpv6(ipv6 Ipv6Key) bool {
 		return ipv6 == o.Ipv6Router.IPv6
 	}
 	return false
+}
+
+func (o *CClient) GetTransportCtx() interface{} {
+	return o.transport
+}
+
+// set by transport layer
+func (o *CClient) SetTransportCtx(val interface{}) {
+	o.transport = val
 }

@@ -21,6 +21,18 @@ const (
 	UDP_PROTO = uint8(layers.IPProtocolUDP)
 )
 
+type TransportCtxCfg struct {
+	TcpFastTickMsec *uint16 `json:"tcp_fasttick_msec" validate:"gte=20 &lte=100"`
+	Tcpkeepalive    *uint16 `json:"tcp_keepalive" validate:"gte=10 &lte=6500"`
+	TcpNoDelay      *uint8  `json:"tcp_no_delay" validate:"gte=0 &lte=4"`
+	TcpNoDelayCnt   *uint16 `json:"tcp_no_delay_counter" validate:"gte=0 &lte=65000"`
+	TcpInitWnd      *uint32 `json:"initwnd" validate:"gte=1 &lte=20"`
+	TcpRxBufSize    *uint32 `json:"rxbufsize" validate:"gte=8192 &lte=1048576"`
+	TcpTxBufSize    *uint32 `json:"txbufsize" validate:"gte=8192 &lte=1048576"`
+	TcpDorfc1323    *bool   `json:"do_rfc1323"`
+	TcpMss          *uint16 `json:"mss" validate:"gte=10 &lte=9000"`
+}
+
 type prototbl map[uint8]IServerSocketCb // per protocol accept callback
 type serverft map[uint16]prototbl       // server open ports
 
@@ -493,7 +505,7 @@ func updateInitwnd(mss uint16, initwnd uint16) uint16 {
 	return (calc)
 }
 
-func NewCtx(c *core.CClient) *transportCtx {
+func newCtx(c *core.CClient) *transportCtx {
 	o := new(transportCtx)
 	o.init()
 	o.Client = c
@@ -517,6 +529,46 @@ func NewCtx(c *core.CClient) *transportCtx {
 	return o
 }
 
+func (o *transportCtx) setCfg(cfg *TransportCtxCfg) {
+
+	if cfg.TcpDorfc1323 != nil {
+		o.tcp_do_rfc1323 = *cfg.TcpDorfc1323
+	}
+
+	if cfg.TcpFastTickMsec != nil {
+		o.tcp_fast_tick_msec = *cfg.TcpFastTickMsec
+	}
+
+	if cfg.Tcpkeepalive != nil {
+		o.tcp_keepidle = *cfg.Tcpkeepalive
+	}
+
+	if cfg.TcpNoDelay != nil {
+		o.tcp_no_delay = *cfg.TcpNoDelay
+	}
+
+	if cfg.TcpNoDelayCnt != nil {
+		o.tcp_no_delay_counter = *cfg.TcpNoDelayCnt
+	}
+
+	if cfg.TcpInitWnd != nil {
+		o.tcp_initwnd = *cfg.TcpInitWnd
+	}
+
+	if cfg.TcpRxBufSize != nil {
+		o.tcp_rx_socket_bsize = *cfg.TcpRxBufSize
+	}
+
+	if cfg.TcpTxBufSize != nil {
+		o.tcp_tx_socket_bsize = *cfg.TcpTxBufSize
+	}
+
+	if cfg.TcpMss != nil {
+		o.tcp_mssdflt_ = *cfg.TcpMss
+	}
+
+}
+
 func (o *transportCtx) getActiveFlows() uint64 {
 	p := &o.flowTableStats
 	return p.ft_activev4 + p.ft_activev6 + p.src_port_active
@@ -524,7 +576,7 @@ func (o *transportCtx) getActiveFlows() uint64 {
 
 /* we assume that there relatively small number of flows per
 client  so we could iterate it in atomic way wihtout stalling the scheduler*/
-func (o *transportCtx) OnRemove() {
+func (o *transportCtx) onRemove() {
 	for _, flow := range o.ftv4 {
 		var or socketRemoveIf
 		or = flow.(socketRemoveIf)
@@ -1157,4 +1209,8 @@ func (o *transportCtx) UnListen(network, address string, cb IServerSocketCb) err
 		return fmt.Errorf(" port %v is no register for %s network", port, network)
 	}
 	return nil
+}
+
+func (o *transportCtx) OnRemove(c *core.CClient) {
+	o.onRemove()
 }
