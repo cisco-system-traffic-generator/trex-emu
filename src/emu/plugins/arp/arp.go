@@ -821,11 +821,15 @@ func (o *PluginArpNs) OnEvent(msg string, a, b interface{}) {
  */
 func (o *PluginArpNs) DisassociateClient(arpc *PluginArpClient,
 	oldDgIpv4 core.Ipv4Key) {
-
 	if oldDgIpv4.IsZero() {
 		panic("DisassociateClient old ipv4 is not valid")
 	}
 	flow := o.tbl.Lookup(oldDgIpv4)
+	if flow == nil {
+		o.stats.disasociateWithClient++
+		arpc.Client.DGW = nil
+		return
+	}
 	if flow.refc == 0 {
 		panic(" ref count can't be zero before remove")
 	}
