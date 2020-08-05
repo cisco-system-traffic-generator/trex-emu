@@ -46,10 +46,16 @@ func (o *PluginTransNs) SetTruncated() {
 type PluginTransClient struct {
 	core.PluginBase
 	initJson []byte
+	ns       *PluginTransNs
 }
 
 func NewTransClient(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
 	o := new(PluginTransClient)
+	o.InitPluginBase(ctx, o) /* init base object*/
+	o.RegisterEvents(ctx, []string{}, o)
+	nsplg := o.Ns.PluginCtx.GetOrCreate(TRANS_PLUG)
+	o.ns = nsplg.Ext.(*PluginTransNs)
+
 	o.initJson = append(o.initJson, initJson...)
 	return &o.PluginBase
 }
@@ -63,25 +69,27 @@ func (o *PluginTransClient) OnRemove(ctx *core.PluginCtx) {
 	if tl == nil {
 		return
 	}
-	tx := tl.(*transportCtx)
+	tx := tl.(*TransportCtx)
 	tx.onRemove()
 }
 
-func (o *PluginTransClient) HandleRxTransPacket(ps *core.ParserPacketState) int {
+func (o *PluginTransClient) handleRxTransPacket(ps *core.ParserPacketState) int {
 	tl := o.Client.GetTransportCtx()
 	if tl == nil {
 		return -1
 	}
-	tx := tl.(*transportCtx)
-	return tx.HandleRxPacket(ps)
+	tx := tl.(*TransportCtx)
+	return tx.handleRxPacket(ps)
 }
 
-func (o *PluginTransNs) HandleRxTransPacket(ps *core.ParserPacketState) int {
+func (o *PluginTransNs) handleRxTransPacket(ps *core.ParserPacketState) int {
 
 	m := ps.M
 	p := m.GetData()
 	/* the header is at least 8 bytes*/
 	/* UDP checksum was verified in the parser */
+	
+	// lookup by MAC
 	var mackey core.MACKey
 	copy(mackey[:], p[0:6])
 
@@ -91,17 +99,25 @@ func (o *PluginTransNs) HandleRxTransPacket(ps *core.ParserPacketState) int {
 		return core.PARSER_ERR
 	}
 
+	/*	ipv4 := layers.IPv4Header(p[ps.L3 : ps.L3+20])
+
+		var ipv4Key core.Ipv4Key
+		ipv4Key.SetUint32(ipv4.GetIPDst())
+		client := o.Ns.CLookupByIPv4(&ipv4Key)
+		if client == nil {
+			return 0
+		}
+	*/
 	cplg := client.PluginCtx.Get(TRANS_PLUG)
 	if cplg == nil {
 		return core.PARSER_ERR
 	}
 	transCPlug := cplg.Ext.(*PluginTransClient)
-	return transCPlug.HandleRxTransPacket(ps)
+	return transCPlug.handleRxTransPacket(ps)
 }
 
 func HandleRxTransPacket(ps *core.ParserPacketState) int {
 	ns := ps.Tctx.GetNs(ps.Tun)
-
 	if ns == nil {
 		return core.PARSER_ERR
 	}
@@ -110,7 +126,7 @@ func HandleRxTransPacket(ps *core.ParserPacketState) int {
 		return core.PARSER_ERR
 	}
 	transPlug := nsplg.Ext.(*PluginTransNs)
-	return transPlug.HandleRxTransPacket(ps)
+	return transPlug.handleRxTransPacket(ps)
 }
 
 type PluginTransCReg struct{}
@@ -131,7 +147,7 @@ type (
 	ApiTransClientCntHandler struct{}
 )
 
-func getClientPlugin(ctx interface{}, params *fastjson.RawMessage) (*transportCtx, error) {
+func getClientPlugin(ctx interface{}, params *fastjson.RawMessage) (*TransportCtx, error) {
 	tctx := ctx.(*core.CThreadCtx)
 
 	plug, err := tctx.GetClientPlugin(params, TRANS_PLUG)

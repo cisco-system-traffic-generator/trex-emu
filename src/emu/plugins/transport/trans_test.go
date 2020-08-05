@@ -703,7 +703,7 @@ func MyDial(network, address string) error {
 }
 
 func TestPluginTransFt1(t *testing.T) {
-	var ctx transportCtx
+	var ctx TransportCtx
 
 	ctx.Dial("tcp", "16.0.0.1:80", nil, nil)
 	ctx.Dial("tcp", "[2001:db8::1]:80", nil, nil)

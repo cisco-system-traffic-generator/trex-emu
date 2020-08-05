@@ -12,7 +12,7 @@ import (
 	"strconv"
 )
 
-func (o *baseSocket) init(client *core.CClient, ctx *transportCtx) {
+func (o *baseSocket) init(client *core.CClient, ctx *TransportCtx) {
 	o.client = client
 	o.ns = client.Ns
 	o.tctx = o.ns.ThreadCtx

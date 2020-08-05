@@ -125,17 +125,19 @@ type IServerSocketCb interface {
 type SocketApi interface {
 
 	// public
-	Close() SocketErr    // close connection **after** all the tx queue was flushed, SocketClosed event will be called
-	Shutdown() SocketErr // shutdown connection immediately, there is no wait for tx queue
+	Close() SocketErr    // close the connection **after** all the tx queue was flushed, SocketClosed event will be called
+	Shutdown() SocketErr // shutdown connection immediately, there is no need to wait for tx queue
 	LocalAddr() net.Addr
 	RemoteAddr() net.Addr
-	GetCap() SocketCapType
+	GetCap() SocketCapType // get the capability of the socket e.g. SocketCapStream
 	GetLastError() SocketErr
 	SetIoctl(m IoctlMap) error // set ioctl options to the socket e.g. {"no_delay":0}
 	GetIoctl(m IoctlMap) error // get the value for each key
 	/*
-		queued: true, the buffer was queued in the socket internal buffer, it is possible to queue more without a need to wait
+		queued: true, the buffer was queued in the socket internal buffer, it is possible to queue more without a need to wait.
+		              In this case the buffer was copied to the internal buffer and can be touched
 				false the buffer queued but there is a need to wait for SocketTxMore for writing more as the queue is full.
+				      the buffer can't be used until you get  SocketTxMore event
 				writing after this state will return an error SeWRITE_WHILE_DRAIN
 	*/
 	Write(buf []byte) (err SocketErr, queued bool)
@@ -144,7 +146,7 @@ type SocketApi interface {
 
 // internal API for socket
 type internalSocketApi interface {
-	init(client *core.CClient, ctx *transportCtx)
+	init(client *core.CClient, ctx *TransportCtx)
 	connect() SocketErr
 	initphase2(cb ISocketCb)
 
@@ -165,14 +167,15 @@ type internalSocketApi interface {
 }
 
 // GetTransportCtx Allocate transport layer and add it to client
-func GetTransportCtx(c *core.CClient) *transportCtx {
+func GetTransportCtx(c *core.CClient) *TransportCtx {
 	ti := c.GetTransportCtx()
 	var cfg TransportCtxCfg
 	if ti == nil {
 		tc := newCtx(c)
 		// take the json from the plugin
 		plug := c.PluginCtx.Get(TRANS_PLUG)
-		if plug != nil {
+
+		if plug != nil && plug.Ext != nil {
 			pClient := plug.Ext.(*PluginTransClient)
 			json := pClient.initJson
 			if json != nil {
@@ -183,13 +186,13 @@ func GetTransportCtx(c *core.CClient) *transportCtx {
 		c.SetTransportCtx(tc)
 		return tc
 	}
-	return ti.(*transportCtx)
+	return ti.(*TransportCtx)
 }
 
-func getTransportCtxIfExist(c *core.CClient) *transportCtx {
+func getTransportCtxIfExist(c *core.CClient) *TransportCtx {
 	ti := c.GetTransportCtx()
 	if ti == nil {
 		return nil
 	}
-	return ti.(*transportCtx)
+	return ti.(*TransportCtx)
 }

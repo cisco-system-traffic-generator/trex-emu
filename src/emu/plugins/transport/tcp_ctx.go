@@ -196,7 +196,7 @@ type baseSocket struct {
 	ns          *core.CNSCtx
 	tctx        *core.CThreadCtx
 	serverIoctl IoctlMap // save ioctl
-	ctx         *transportCtx
+	ctx         *TransportCtx
 	cb          ISocketCb
 }
 

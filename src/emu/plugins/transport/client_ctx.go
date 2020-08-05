@@ -151,7 +151,7 @@ type ctxClientTimer struct {
 }
 
 func (o *ctxClientTimer) OnEvent(a, b interface{}) {
-	pi := a.(*transportCtx)
+	pi := a.(*TransportCtx)
 	pi.onTimerEvent()
 }
 
@@ -196,7 +196,7 @@ type ftStats struct {
 	dial_wrong_addr    uint64 // dial - wrong addr
 }
 
-func NewftStatsDb(o *ftStats) *core.CCounterDb {
+func newftStatsDb(o *ftStats) *core.CCounterDb {
 	db := core.NewCCounterDb("ft")
 
 	db.Add(&core.CCounterRec{
@@ -451,7 +451,7 @@ func NewftStatsDb(o *ftStats) *core.CCounterDb {
 }
 
 // TransportCtx context per client for all tansport v4 and v6
-type transportCtx struct {
+type TransportCtx struct {
 	Client   *core.CClient
 	Ns       *core.CNSCtx
 	Tctx     *core.CThreadCtx
@@ -505,8 +505,8 @@ func updateInitwnd(mss uint16, initwnd uint16) uint16 {
 	return (calc)
 }
 
-func newCtx(c *core.CClient) *transportCtx {
-	o := new(transportCtx)
+func newCtx(c *core.CClient) *TransportCtx {
+	o := new(TransportCtx)
 	o.init()
 	o.Client = c
 	o.Ns = c.Ns
@@ -520,7 +520,7 @@ func newCtx(c *core.CClient) *transportCtx {
 	o.timer.SetCB(&o.timerCb, o, 0) // set the callback to OnEvent
 	o.restartTimer()
 
-	o.ftcdb = NewftStatsDb(&o.flowTableStats)
+	o.ftcdb = newftStatsDb(&o.flowTableStats)
 	o.cdbv.Add(o.ftcdb)
 	o.ftv4 = make(flowTablev4)
 	o.ftv6 = make(flowTablev6)
@@ -529,7 +529,7 @@ func newCtx(c *core.CClient) *transportCtx {
 	return o
 }
 
-func (o *transportCtx) setCfg(cfg *TransportCtxCfg) {
+func (o *TransportCtx) setCfg(cfg *TransportCtxCfg) {
 
 	if cfg.TcpDorfc1323 != nil {
 		o.tcp_do_rfc1323 = *cfg.TcpDorfc1323
@@ -569,14 +569,14 @@ func (o *transportCtx) setCfg(cfg *TransportCtxCfg) {
 
 }
 
-func (o *transportCtx) getActiveFlows() uint64 {
+func (o *TransportCtx) getActiveFlows() uint64 {
 	p := &o.flowTableStats
 	return p.ft_activev4 + p.ft_activev6 + p.src_port_active
 }
 
 /* we assume that there relatively small number of flows per
 client  so we could iterate it in atomic way wihtout stalling the scheduler*/
-func (o *transportCtx) onRemove() {
+func (o *TransportCtx) onRemove() {
 	for _, flow := range o.ftv4 {
 		var or socketRemoveIf
 		or = flow.(socketRemoveIf)
@@ -594,7 +594,7 @@ func (o *transportCtx) onRemove() {
 	}
 }
 
-func (o *transportCtx) removeFlowv4(tuple *c5tuplekeyv4, f interface{}) bool {
+func (o *TransportCtx) removeFlowv4(tuple *c5tuplekeyv4, f interface{}) bool {
 	v, ok := o.ftv4[*tuple]
 	if !ok {
 		o.flowTableStats.ft_remove_err_not_exitsv4++
@@ -610,7 +610,7 @@ func (o *transportCtx) removeFlowv4(tuple *c5tuplekeyv4, f interface{}) bool {
 	return true
 }
 
-func (o *transportCtx) removeFlowv6(tuple *c5tuplekeyv6, f interface{}) bool {
+func (o *TransportCtx) removeFlowv6(tuple *c5tuplekeyv6, f interface{}) bool {
 	v, ok := o.ftv6[*tuple]
 	if !ok {
 		o.flowTableStats.ft_remove_err_not_exitsv6++
@@ -626,7 +626,7 @@ func (o *transportCtx) removeFlowv6(tuple *c5tuplekeyv6, f interface{}) bool {
 	return true
 }
 
-func (o *transportCtx) addFlowv4(tuple *c5tuplekeyv4, v interface{}) bool {
+func (o *TransportCtx) addFlowv4(tuple *c5tuplekeyv4, v interface{}) bool {
 	_, ok := o.ftv4[*tuple]
 	if ok {
 		o.flowTableStats.ft_add_err_already_exitsv4++
@@ -638,7 +638,7 @@ func (o *transportCtx) addFlowv4(tuple *c5tuplekeyv4, v interface{}) bool {
 	return true
 }
 
-func (o *transportCtx) addFlowv6(tuple *c5tuplekeyv6, v interface{}) bool {
+func (o *TransportCtx) addFlowv6(tuple *c5tuplekeyv6, v interface{}) bool {
 	_, ok := o.ftv6[*tuple]
 	if ok {
 		o.flowTableStats.ft_add_err_already_exitsv6++
@@ -651,7 +651,7 @@ func (o *transportCtx) addFlowv6(tuple *c5tuplekeyv6, v interface{}) bool {
 }
 
 // on tick 1000/PR_SLOWHZ msec
-func (o *transportCtx) onTimerEvent() {
+func (o *TransportCtx) onTimerEvent() {
 	o.tcp_maxidle = o.tcp_keepcnt * o.tcp_keepintvl
 	if o.tcp_maxidle > (TCPTV_2MSL) {
 		o.tcp_maxidle = (TCPTV_2MSL)
@@ -662,12 +662,12 @@ func (o *transportCtx) onTimerEvent() {
 	o.restartTimer()
 }
 
-func (o *transportCtx) restartTimer() {
+func (o *TransportCtx) restartTimer() {
 	o.timerw.Start(&o.timer, time.Duration(1000/PR_SLOWHZ)*time.Millisecond)
 }
 
 // init tunable
-func (o *transportCtx) init() {
+func (o *TransportCtx) init() {
 	o.tcp_iss = TCP_ISSINCR // TBD replace with random random32()
 	o.tcp_blackhole = 0
 	o.tcp_do_rfc1323 = true
@@ -688,12 +688,12 @@ func (o *transportCtx) init() {
 	o.tcp_no_delay_counter = TCP_MSS * 2
 }
 
-func (o *transportCtx) getTcpIss() uint32 {
+func (o *TransportCtx) getTcpIss() uint32 {
 	o.tcp_iss++
 	return o.tcp_iss
 }
 
-func (o *transportCtx) HandleRxUdpPacket(ps *core.ParserPacketState, flow interface{}) int {
+func (o *TransportCtx) handleRxUdpPacket(ps *core.ParserPacketState, flow interface{}) int {
 	var udp *UdpSocket
 	udp, ok := flow.(*UdpSocket)
 	if ok == false {
@@ -705,7 +705,7 @@ func (o *transportCtx) HandleRxUdpPacket(ps *core.ParserPacketState, flow interf
 	return udp.input(ps)
 }
 
-func (o *transportCtx) HandleRxTcpPacket(ps *core.ParserPacketState, flow interface{}) int {
+func (o *TransportCtx) handleRxTcpPacket(ps *core.ParserPacketState, flow interface{}) int {
 	var tcps *TcpSocket
 	tcps, ok := flow.(*TcpSocket)
 	if ok == false {
@@ -717,7 +717,7 @@ func (o *transportCtx) HandleRxTcpPacket(ps *core.ParserPacketState, flow interf
 	return tcps.input(ps)
 }
 
-func (o *transportCtx) fillv4tuple(ps *core.ParserPacketState, tuplev4 *c5tuplekeyv4) int {
+func (o *TransportCtx) fillv4tuple(ps *core.ParserPacketState, tuplev4 *c5tuplekeyv4) int {
 	m := ps.M
 	p := m.GetData()
 	ipv4 := layers.IPv4Header(p[ps.L3 : ps.L3+20])
@@ -740,7 +740,7 @@ func (o *transportCtx) fillv4tuple(ps *core.ParserPacketState, tuplev4 *c5tuplek
 	return 0
 }
 
-func (o *transportCtx) fillv6tuple(ps *core.ParserPacketState, tuplev6 *c5tuplekeyv6) int {
+func (o *TransportCtx) fillv6tuple(ps *core.ParserPacketState, tuplev6 *c5tuplekeyv6) int {
 
 	m := ps.M
 	p := m.GetData()
@@ -764,7 +764,7 @@ func (o *transportCtx) fillv6tuple(ps *core.ParserPacketState, tuplev6 *c5tuplek
 	return 0
 }
 
-func (o *transportCtx) HandleRxCmnNewFlow(ps *core.ParserPacketState,
+func (o *TransportCtx) handleRxCmnNewFlow(ps *core.ParserPacketState,
 	s internalSocketApi,
 	socket SocketApi,
 	dstport uint16,
@@ -826,7 +826,7 @@ func (o *transportCtx) HandleRxCmnNewFlow(ps *core.ParserPacketState,
 	return 0
 }
 
-func (o *transportCtx) HandleRxTcpNewFlow(ps *core.ParserPacketState,
+func (o *TransportCtx) handleRxTcpNewFlow(ps *core.ParserPacketState,
 	ipv6 bool,
 	keyv4 *c5tuplekeyv4,
 	keyv6 *c5tuplekeyv6) int {
@@ -854,7 +854,7 @@ func (o *transportCtx) HandleRxTcpNewFlow(ps *core.ParserPacketState,
 
 	s := new(TcpSocket)
 
-	if o.HandleRxCmnNewFlow(ps,
+	if o.handleRxCmnNewFlow(ps,
 		s,
 		s,
 		dstport,
@@ -868,7 +868,7 @@ func (o *transportCtx) HandleRxTcpNewFlow(ps *core.ParserPacketState,
 	return s.input(ps) // process the packet (first syn)
 }
 
-func (o *transportCtx) HandleRxUdpNewFlow(ps *core.ParserPacketState,
+func (o *TransportCtx) handleRxUdpNewFlow(ps *core.ParserPacketState,
 	ipv6 bool,
 	keyv4 *c5tuplekeyv4,
 	keyv6 *c5tuplekeyv6) int {
@@ -889,7 +889,7 @@ func (o *transportCtx) HandleRxUdpNewFlow(ps *core.ParserPacketState,
 
 	s := new(UdpSocket)
 
-	if o.HandleRxCmnNewFlow(ps,
+	if o.handleRxCmnNewFlow(ps,
 		s,
 		s,
 		dstport,
@@ -904,7 +904,8 @@ func (o *transportCtx) HandleRxUdpNewFlow(ps *core.ParserPacketState,
 }
 
 // per client handler, for both ipv4 and ipv6
-func (o *transportCtx) HandleRxPacket(ps *core.ParserPacketState) int {
+func (o *TransportCtx) handleRxPacket(ps *core.ParserPacketState) int {
+
 
 	m := ps.M
 	p := m.GetData()
@@ -924,15 +925,15 @@ func (o *transportCtx) HandleRxPacket(ps *core.ParserPacketState) int {
 			o.flowTableStats.ft_lookup_foundv4++
 			if keyv4.getProto() == uint8(layers.IPProtocolTCP) {
 				// TCP
-				return o.HandleRxTcpPacket(ps, f)
+				return o.handleRxTcpPacket(ps, f)
 			} else {
-				return o.HandleRxUdpPacket(ps, f)
+				return o.handleRxUdpPacket(ps, f)
 			}
 		} else {
 			if keyv4.getProto() == uint8(layers.IPProtocolTCP) {
-				o.HandleRxTcpNewFlow(ps, false, &keyv4, nil)
+				o.handleRxTcpNewFlow(ps, false, &keyv4, nil)
 			} else {
-				o.HandleRxUdpNewFlow(ps, false, &keyv4, nil)
+				o.handleRxUdpNewFlow(ps, false, &keyv4, nil)
 			}
 		}
 
@@ -948,15 +949,15 @@ func (o *transportCtx) HandleRxPacket(ps *core.ParserPacketState) int {
 			o.flowTableStats.ft_lookup_foundv6++
 			if keyv6.getProto() == uint8(layers.IPProtocolTCP) {
 				// TCP
-				return o.HandleRxTcpPacket(ps, f)
+				return o.handleRxTcpPacket(ps, f)
 			} else {
-				return o.HandleRxUdpPacket(ps, f)
+				return o.handleRxUdpPacket(ps, f)
 			}
 		} else {
 			if keyv6.getProto() == uint8(layers.IPProtocolTCP) {
-				o.HandleRxTcpNewFlow(ps, true, nil, &keyv6)
+				o.handleRxTcpNewFlow(ps, true, nil, &keyv6)
 			} else {
-				o.HandleRxUdpNewFlow(ps, true, nil, &keyv6)
+				o.handleRxUdpNewFlow(ps, true, nil, &keyv6)
 			}
 		}
 	}
@@ -969,7 +970,7 @@ func (o *transportCtx) HandleRxPacket(ps *core.ParserPacketState) int {
 //	Dial("tcp", "192.0.2.1:80",cb,nil)
 //	Dial("tcp", "[2001:db8::1]:80",cb,nil)
 //	Dial("tcp", "[2001:db8::1]:80",cb,{"tos":12})
-func (o *transportCtx) Dial(network, address string, cb ISocketCb, ioctl IoctlMap) (SocketApi, error) {
+func (o *TransportCtx) Dial(network, address string, cb ISocketCb, ioctl IoctlMap) (SocketApi, error) {
 
 	o.flowTableStats.dial++
 
@@ -1014,7 +1015,7 @@ func toV6(ip net.IP, ipv6 *core.Ipv6Key) {
 	copy(ipv6[:], ip[0:16])
 }
 
-func (o *transportCtx) dialCmn(s internalSocketApi, socket SocketApi, dst net.IP, port uint16, cb ISocketCb, ioctl IoctlMap) (SocketApi, error) {
+func (o *TransportCtx) dialCmn(s internalSocketApi, socket SocketApi, dst net.IP, port uint16, cb ISocketCb, ioctl IoctlMap) (SocketApi, error) {
 	s.init(o.Client, o)
 	var sourceport uint16
 	proto := s.getProto()
@@ -1075,17 +1076,17 @@ func (o *transportCtx) dialCmn(s internalSocketApi, socket SocketApi, dst net.IP
 	return socket, nil
 }
 
-func (o *transportCtx) dialTcp(dst net.IP, port uint16, cb ISocketCb, ioctl IoctlMap) (SocketApi, error) {
+func (o *TransportCtx) dialTcp(dst net.IP, port uint16, cb ISocketCb, ioctl IoctlMap) (SocketApi, error) {
 	s := new(TcpSocket)
 	return o.dialCmn(s, s, dst, port, cb, ioctl)
 }
 
-func (o *transportCtx) dialUdp(dst net.IP, port uint16, cb ISocketCb, ioctl IoctlMap) (SocketApi, error) {
+func (o *TransportCtx) dialUdp(dst net.IP, port uint16, cb ISocketCb, ioctl IoctlMap) (SocketApi, error) {
 	s := new(UdpSocket)
 	return o.dialCmn(s, s, dst, port, cb, ioctl)
 }
 
-func (o *transportCtx) addServerCb(port uint16, proto uint8, cb IServerSocketCb) bool {
+func (o *TransportCtx) addServerCb(port uint16, proto uint8, cb IServerSocketCb) bool {
 	v, ok := o.serverCb[port]
 	if !ok {
 		// first
@@ -1103,7 +1104,7 @@ func (o *transportCtx) addServerCb(port uint16, proto uint8, cb IServerSocketCb)
 	return true
 }
 
-func (o *transportCtx) removeServerCb(port uint16, proto uint8, cb IServerSocketCb) bool {
+func (o *TransportCtx) removeServerCb(port uint16, proto uint8, cb IServerSocketCb) bool {
 
 	v, ok := o.serverCb[port]
 	if !ok {
@@ -1125,7 +1126,7 @@ func (o *transportCtx) removeServerCb(port uint16, proto uint8, cb IServerSocket
 	return true
 }
 
-func (o *transportCtx) lookupServerPort(port uint16, proto uint8) IServerSocketCb {
+func (o *TransportCtx) lookupServerPort(port uint16, proto uint8) IServerSocketCb {
 
 	v, ok := o.serverCb[port]
 	if !ok {
@@ -1140,7 +1141,7 @@ func (o *transportCtx) lookupServerPort(port uint16, proto uint8) IServerSocketC
 	}
 }
 
-func (o *transportCtx) parseNA(network, address string, port *uint16, proto *uint8) error {
+func (o *TransportCtx) parseNA(network, address string, port *uint16, proto *uint8) error {
 	var proid uint8
 	switch network {
 	case "tcp":
@@ -1184,7 +1185,7 @@ to remove the callback
 ctx.UnListen("tcp",":8080",cb)
 
 */
-func (o *transportCtx) Listen(network, address string, cb IServerSocketCb) error {
+func (o *TransportCtx) Listen(network, address string, cb IServerSocketCb) error {
 	var proto uint8
 	var port uint16
 	if err := o.parseNA(network, address, &port, &proto); err != nil {
@@ -1199,7 +1200,7 @@ func (o *transportCtx) Listen(network, address string, cb IServerSocketCb) error
 /*
 UnListen(), see listen
 */
-func (o *transportCtx) UnListen(network, address string, cb IServerSocketCb) error {
+func (o *TransportCtx) UnListen(network, address string, cb IServerSocketCb) error {
 	var proto uint8
 	var port uint16
 	if err := o.parseNA(network, address, &port, &proto); err != nil {
@@ -1211,6 +1212,6 @@ func (o *transportCtx) UnListen(network, address string, cb IServerSocketCb) err
 	return nil
 }
 
-func (o *transportCtx) OnRemove(c *core.CClient) {
+func (o *TransportCtx) OnRemove(c *core.CClient) {
 	o.onRemove()
 }

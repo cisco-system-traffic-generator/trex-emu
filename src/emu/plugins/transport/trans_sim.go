@@ -16,7 +16,7 @@ import (
 )
 
 type simContext struct {
-	ctx    *transportCtx
+	ctx    *TransportCtx
 	Client *core.CClient
 	Ns     *core.CNSCtx
 	Tctx   *core.CThreadCtx
@@ -721,10 +721,11 @@ func (o *pktEventTxRx) OnEvent(a, b interface{}) {
 	}
 
 	if o.sendToServer {
-		o.sim.server.ctx.HandleRxPacket(&ps)
+		o.sim.server.ctx.handleRxPacket(&ps)
 	} else {
-		o.sim.client.ctx.HandleRxPacket(&ps)
+		o.sim.client.ctx.handleRxPacket(&ps)
 	}
+	ps.M.FreeMbuf()
 }
 
 func (o *transportSim) ProcessTxToRx(m *core.Mbuf) *core.Mbuf {

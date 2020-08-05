@@ -72,7 +72,6 @@ func (o *TcpSocket) input(ps *core.ParserPacketState) int {
 		}
 	}
 	o.interrupt = false
-	ps.M.FreeMbuf()
 	o.handleDpc()
 	return (r)
 }

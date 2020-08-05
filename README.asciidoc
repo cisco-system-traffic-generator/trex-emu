@@ -31,6 +31,7 @@ The framework has an event driven architecture, this way it can scale. The frame
 | DHCPv6  | RFC 8415 client side
 | DOT1X   | EAP-MD5/EAP-MSCHAPv2  RFC 3748, IEEE 802.1X-2001
 | Netflow | Netflow v9, RFC 3954 and Netflow v10 (IPFix), RFC 7011
+| transport | user space TCP based on BSD (converted to native golang) and UDP 
 |=================
 
 **TRex Architecture with TRex-EMU**:

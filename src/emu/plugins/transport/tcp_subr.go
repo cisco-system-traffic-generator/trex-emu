@@ -481,7 +481,7 @@ func (o *TcpSocket) quench() {
 	o.snd_cwnd = uint32(o.maxseg)
 }
 
-func (o *TcpSocket) init(client *core.CClient, ctx *transportCtx) {
+func (o *TcpSocket) init(client *core.CClient, ctx *TransportCtx) {
 	o.baseSocket.init(client, ctx)
 
 	o.timerw = o.tctx.GetTimerCtx()

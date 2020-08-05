@@ -2589,10 +2589,6 @@ What is missing in Golang:
 
 You can, but we should support it in the framework first.
 
-=== My plugin requires TCP/TLS/QUIC socket, can I use TRex-EMU?
-
-Not supported yet. The API would be an event driver API.
-
 
 == For Developers
 
@@ -2987,7 +2983,7 @@ to the golden file.
 
 [source, bash]
 ----
-bdollma@sceasr-b20:src$ go test -v emu/plugins/icmp -run 3
+$:src$ go test -v emu/plugins/icmp -run 3
 === RUN   TestPluginIcmp3
  counters icmp db
 pktTxIcmpQuery                 :          5
@@ -3004,6 +3000,51 @@ Lastly, we can monitor and see the capture:
 
 [source, bash]
 ----
-bdollma@sceasr-b20:src$ go test -v emu/plugins/icmp -run 3 --monitor 1 > $bdollma/a.pcap
+$:src$ go test -v emu/plugins/icmp -run 3 --monitor 1 > $bdollma/a.pcap
 ----
 
+
+==== Transport 
+
+TCP and UDP sockets can be used by a plugin. The Client Transport Context (ctx) will be loaded dynamicly only when the first socket will be used. It working like that to save memory in case there is no use of TCP/UDP (only dot1x)
+The TCP logic was ported from BSD c code to native golang (from TRex code )
+The socket is working in event driven similar to nodejs and not like golang (micro-threads)
+
+.Socket example 
+[source, go]
+----
+   // ipv4
+   ap, err := ctx.Dial("udp", 48.0.0.1:80", cb(), nil)
+   //ipv6 
+    ap, err := ctx.Dial("tcp", "[2001:db8::3000:1]:80", cb(), nil)
+    if err != nil {
+        return nil
+    }
+
+    // write
+     ap.Write([]byte(`{"method" :"request"}`))
+----
+
+.Socket callbacks
+
+[source, go]
+----
+
+func (o *SocketAppRR1) OnRxEvent(event SocketEventType) {
+}
+
+func (o *SocketAppRR1) OnRxData(d []byte) {
+}
+
+func (o *SocketAppRR1) OnTxEvent(event SocketEventType) {
+}
+
+----
+
+
+There are utility (rpc) commands to inspect the counters and configuration of the transport context 
+
+Plugin transport_example there is an example of usage of TCP socket 
+
+NOTE: better not to create a socket in the Plugin create beacuse ARP/IPV6 won't have time to complete. Better to delay it 
+ 

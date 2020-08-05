@@ -19,11 +19,11 @@ const (
 
 type srcPortManager struct {
 	m       srcPortmap
-	ctx     *transportCtx
+	ctx     *TransportCtx
 	srcPort uint16
 }
 
-func (o *srcPortManager) init(ctx *transportCtx) {
+func (o *srcPortManager) init(ctx *TransportCtx) {
 	o.m = make(srcPortmap)
 	o.ctx = ctx
 	o.srcPort = SRC_PORT_MIN

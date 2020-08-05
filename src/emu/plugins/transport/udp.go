@@ -23,7 +23,7 @@ type UdpSocket struct {
 	isClosed bool
 }
 
-func (o *UdpSocket) init(client *core.CClient, ctx *transportCtx) {
+func (o *UdpSocket) init(client *core.CClient, ctx *TransportCtx) {
 	o.baseSocket.init(client, ctx)
 }
 
@@ -213,7 +213,6 @@ func (o *UdpSocket) input(ps *core.ParserPacketState) int {
 			o.cb.OnRxData(p[ps.L7:])
 		}
 	}
-	ps.M.FreeMbuf()
 	return (0)
 }
 
