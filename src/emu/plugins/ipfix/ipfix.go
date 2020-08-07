@@ -934,6 +934,16 @@ func (o *PluginIPFixClient) trySettingDstMac() {
 		if ok {
 			o.dstMacResolved = true
 			layers.EthernetHeader(o.basePkt).SetDestAddress(dstMac[:])
+			for i := range o.generators {
+				gen := o.generators[i]
+				if len(gen.templatePkt) > 0 {
+					layers.EthernetHeader(gen.templatePkt).SetDestAddress(dstMac[:])
+				}
+				if len(gen.dataPkt) > 0 {
+					layers.EthernetHeader(gen.dataPkt).SetDestAddress(dstMac[:])
+				}
+
+			}
 		} else {
 			o.stats.unsuccessfulMacResolve++
 		}
