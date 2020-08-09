@@ -450,6 +450,155 @@ func TestEngineManagerNeg12(t *testing.T) {
 	a.Run(t, true)
 }
 
+func TestEngineManagerNeg13(t *testing.T) {
+	a := &EngineManagerTestBase{
+		testname:     "feNeg13",
+		monitor:      false,
+		bufferSize:   2,
+		iterNumber:   0,
+		engineNumber: 1,
+		inputJson: fastjson.RawMessage([]byte(`[
+			{
+				"engine_type": "uint_list",
+				"engine_name": "TRex",
+				"params":
+				{
+					"size": 1,
+					"offset": 0,
+					"list": [50, 20, 30, 256],
+					"step": 2,
+					"init_index": 6,
+					"op": "a"
+				}
+			 }
+		 ]`)),
+		counters: FieldEngineCounters{badOperation: 1, badInitValue: 1, sizeTooSmall: 1, failedBuildingEngine: 1},
+	}
+	a.Run(t, true)
+}
+
+func TestEngineManagerNeg14(t *testing.T) {
+	a := &EngineManagerTestBase{
+		testname:     "feNeg14",
+		monitor:      false,
+		bufferSize:   20,
+		iterNumber:   0,
+		engineNumber: 1,
+		inputJson: fastjson.RawMessage([]byte(`[
+			{
+				"engine_type": "histogram_url",
+				"engine_name": "URL",
+				"params":
+				{
+					"size": 20,
+					"offset": 0,
+					"entries": [
+						{
+							"schemes": [],
+							"hosts": ["google.com"],
+							"prob": 2
+						}
+					]
+				}
+			 }
+		 ]`)),
+		counters: FieldEngineCounters{emptyList: 1, invalidHistogramEntry: 1, failedBuildingEngine: 1},
+	}
+	a.Run(t, true)
+}
+
+func TestEngineManagerNeg15(t *testing.T) {
+	a := &EngineManagerTestBase{
+		testname:     "feNeg15",
+		monitor:      false,
+		bufferSize:   20,
+		iterNumber:   0,
+		engineNumber: 1,
+		inputJson: fastjson.RawMessage([]byte(`[
+			{
+				"engine_type": "histogram_url",
+				"engine_name": "URL",
+				"params":
+				{
+					"size": 20,
+					"offset": 0,
+					"entries": [
+						{
+							"schemes": ["http"],
+							"hosts": [],
+							"prob": 2
+						}
+					]
+				}
+			 }
+		 ]`)),
+		counters: FieldEngineCounters{emptyList: 1, invalidHistogramEntry: 1, failedBuildingEngine: 1},
+	}
+	a.Run(t, true)
+}
+
+func TestEngineManagerNeg16(t *testing.T) {
+	a := &EngineManagerTestBase{
+		testname:     "feNeg16",
+		monitor:      false,
+		bufferSize:   20,
+		iterNumber:   0,
+		engineNumber: 1,
+		inputJson: fastjson.RawMessage([]byte(`[
+			{
+				"engine_type": "histogram_url",
+				"engine_name": "URL",
+				"params":
+				{
+					"size": 10,
+					"offset": 0,
+					"entries": [
+						{
+							"schemes": ["http"],
+							"hosts": ["mylongdomain.com"],
+							"prob": 2
+						}
+					]
+				}
+			 }
+		 ]`)),
+		counters: FieldEngineCounters{sizeTooSmall: 1, failedBuildingEngine: 1},
+	}
+	a.Run(t, true)
+}
+
+func TestEngineManagerNeg17(t *testing.T) {
+	a := &EngineManagerTestBase{
+		testname:     "feNeg17",
+		monitor:      false,
+		bufferSize:   20,
+		iterNumber:   0,
+		engineNumber: 1,
+		inputJson: fastjson.RawMessage([]byte(`[
+			{
+				"engine_type": "histogram_url",
+				"engine_name": "URL",
+				"params":
+				{
+					"size": 20,
+					"offset": 0,
+					"entries": [
+						{
+							"schemes": ["http"],
+							"hosts": ["trex-tgn.cisco.com"],
+							"queries": ["fail=True"],
+							"random_queries": true,
+							"prob": 2
+						}
+					]
+				}
+			 }
+		 ]`)),
+		counters: FieldEngineCounters{invalidHistogramEntry: 1, failedBuildingEngine: 1},
+	}
+	a.Run(t, true)
+}
+
 func TestEngineManager1(t *testing.T) {
 	a := &EngineManagerTestBase{
 		testname:     "fe1",
@@ -867,6 +1016,261 @@ func TestEngineManager5(t *testing.T) {
 									"prob": 1
 								}
 							]
+					}
+			}
+		 ]`)),
+	}
+	a.Run(t, true)
+}
+
+func TestEngineManager6(t *testing.T) {
+	a := &EngineManagerTestBase{
+		testname:     "fe6",
+		monitor:      true,
+		bufferSize:   16,
+		iterNumber:   200,
+		engineNumber: 4,
+		seed:         0xc15c0c15c0be5be,
+		inputJson: fastjson.RawMessage([]byte(`[
+			{
+				"engine_type": "uint_list",
+				"engine_name": "uint_list_inc",
+				"params": 
+					{
+						"size": 4,
+						"offset": 0,
+						"op": "inc",
+						"list": [70000, 6214125, 5, 2]
+					}
+			},
+			{
+				"engine_type": "uint_list",
+				"engine_name": "uint_list_dec",
+				"params":
+					{
+						"size": 2,
+						"offset": 4,
+						"op": "dec",
+						"list": [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096],
+						"step": 2,
+						"init_index": 4
+					}
+			},
+			{
+				"engine_type": "uint_list",
+				"engine_name": "uint_list_random",
+				"params":
+					{
+						"size": 1,
+						"offset": 6,
+						"list": [3, 7, 15, 31, 127, 255],
+						"op": "rand"
+					}
+			},
+			{
+				"engine_type": "uint_list",
+				"engine_name": "uint_list_64",
+				"params":
+					{
+						"size": 8,
+						"offset": 8,
+						"list": [128, 192, 224, 240, 248, 254],
+						"op": "inc",
+						"step": 5,
+						"init_index": 3
+					}
+			}
+		 ]`)),
+	}
+	a.Run(t, true)
+}
+
+func TestEngineManager7(t *testing.T) {
+	a := &EngineManagerTestBase{
+		testname:     "fe7",
+		monitor:      true,
+		bufferSize:   120,
+		iterNumber:   200,
+		engineNumber: 4,
+		seed:         0xc15c0c15c0be5be,
+		inputJson: fastjson.RawMessage([]byte(`[
+			{
+				"engine_type": "string_list",
+				"engine_name": "string_list_inc",
+				"params": 
+					{
+						"size": 20,
+						"offset": 0,
+						"op": "inc",
+						"list": ["TRex", "Cisco", "AVC", "EMU", "Golang", "🤩"]
+					}
+			},
+			{
+				"engine_type": "string_list",
+				"engine_name": "string_list_dec",
+				"params":
+					{
+						"size": 5,
+						"offset": 20,
+						"op": "dec",
+						"list": ["icmp", "tcp", "udp", "rtp", "tls", "dns", "dhcp", "ipfix"],
+						"step": 3,
+						"init_index": 4,
+						"padding_value": 255
+					}
+			},
+			{
+				"engine_type": "string_list",
+				"engine_name": "string_list_random",
+				"params":
+					{
+						"size": 75,
+						"offset": 25,
+						"list": ["https://cisco.com", "https://trex-tgn.cisco.com", "https://github.com/cisco-system-traffic-generator", "https://groups.google.com/g/trex-tgn"],
+						"op": "rand"
+					}
+			},
+			{
+				"engine_type": "string_list",
+				"engine_name": "string_list_inc2",
+				"params":
+					{
+						"size": 20,
+						"offset": 100,
+						"list": ["ciscociscobesbes"],
+						"op": "inc",
+						"step": 5,
+						"init_index": 0,
+						"padding": 255,
+					}
+			}
+		 ]`)),
+	}
+	a.Run(t, true)
+}
+
+func TestEngineManager8(t *testing.T) {
+	/* There is a hack in this test. Since the simulating environment
+	runs the engines in a lexicographic order to provide deterministic
+	running behavior, in order to make sure time_start engines are run
+	before time_end engines, we make sure their names are smaller (lexicographically)
+	than time_end engines*/
+	a := &EngineManagerTestBase{
+		testname:     "fe8",
+		monitor:      true,
+		bufferSize:   24,
+		iterNumber:   200,
+		engineNumber: 4,
+		seed:         0xbe51be51,
+		inputJson: fastjson.RawMessage([]byte(`[
+			{
+				"engine_type": "time_start",
+				"engine_name": "a",
+				"params": 
+					{
+						"size": 4,
+						"offset": 0,
+						"time_end_engine_name": "b",
+						"ipg_min": 2000,
+						"ipg_max": 5000
+					}
+			},
+			{
+				"engine_type": "time_end",
+				"engine_name": "b",
+				"params":
+					{
+						"size": 4,
+						"offset": 4,
+						"time_start_engine_name": "a",
+						"duration_min": 10,
+						"duration_max": 100
+					}
+			},
+			{
+				"engine_type": "time_start",
+				"engine_name": "c",
+				"params":
+					{
+						"size": 8,
+						"offset": 8,
+						"time_end_engine_name": "d",
+						"time_offset": 9000000000,
+						"ipg_min": 1000000,
+						"ipg_max": 5000000
+					}
+			},
+			{
+				"engine_type": "time_end",
+				"engine_name": "d",
+				"params":
+					{
+						"size": 8,
+						"offset": 16,
+						"time_start_engine_name": "c",
+						"duration_min": 90000,
+						"duration_max": 100000
+					}
+			}
+		 ]`)),
+	}
+	a.Run(t, true)
+}
+
+func TestEngineManager9(t *testing.T) {
+	a := &EngineManagerTestBase{
+		testname:     "fe9",
+		monitor:      true,
+		bufferSize:   60,
+		iterNumber:   500,
+		engineNumber: 1,
+		seed:         0x12344321,
+		inputJson: fastjson.RawMessage([]byte(`[
+			{
+				"engine_type": "histogram_url",
+				"engine_name": "URL",
+				"params": 
+					{
+						"size": 60,
+						"offset": 0,
+						"entries": [
+							{
+								"schemes": ["https"],
+								"hosts": ["www.google.com", "www.facebook.com"]
+								"prob": 2,
+							},
+							{
+								"schemes": ["http"],
+								"hosts": ["cisco.com"]
+								"paths": ["en", "il", "en/careers"]
+								"prob": 5
+							},
+							{
+								"schemes": ["ftp"],
+								"hosts": ["downloads.cisco.com"],
+								"queries": ["image=asr1k"]
+								"prob": 3
+							},
+							{
+								"schemes": ["https", "http"]
+								"hosts": ["www.trex-tgn.cisco.com"]
+								"paths": ["trex", "trex/doc", "trex/release", "trex/reports"]
+								"prob": 10
+							},
+							{
+								"schemes": ["https"],
+								"hosts": ["stackoverflow.com"],
+								"random_queries": true,
+								"prob": 4,
+							},
+							{
+								"schemes": ["http"],
+								"hosts": ["sceasr-b20:8080", "sceasr-b20:8181"],
+								"paths": ["jenkins", "trex", "trex/doc"],
+								"random_queries": true,
+								"prob": 6
+							}
+						]
 					}
 			}
 		 ]`)),
