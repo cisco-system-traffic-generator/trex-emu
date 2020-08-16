@@ -182,18 +182,24 @@
 					"261": {
 						"data_rate_pps": 1,
 						"data_records_num": 1,
+						"data_records_num_send": 1,
 						"enabled": true,
 						"engines_num": 0,
 						"fields_num": 16,
+						"options_template": false,
+						"scope_count": 0,
 						"template_id": 261,
 						"template_rate_pps": 1
 					},
 					"266": {
 						"data_rate_pps": 2,
 						"data_records_num": 2,
+						"data_records_num_send": 2,
 						"enabled": true,
 						"engines_num": 0,
 						"fields_num": 23,
+						"options_template": false,
+						"scope_count": 0,
 						"template_id": 266,
 						"template_rate_pps": 1
 					}
@@ -324,18 +330,24 @@
 					"261": {
 						"data_rate_pps": 1,
 						"data_records_num": 1,
+						"data_records_num_send": 1,
 						"enabled": true,
 						"engines_num": 0,
 						"fields_num": 16,
+						"options_template": false,
+						"scope_count": 0,
 						"template_id": 261,
 						"template_rate_pps": 1
 					},
 					"266": {
 						"data_rate_pps": 2,
 						"data_records_num": 2,
+						"data_records_num_send": 2,
 						"enabled": true,
 						"engines_num": 0,
 						"fields_num": 23,
+						"options_template": false,
+						"scope_count": 0,
 						"template_id": 266,
 						"template_rate_pps": 1
 					}

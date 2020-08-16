@@ -957,6 +957,164 @@ func TestPluginIPFixNeg11(t *testing.T) {
 	a.Run(t, true)
 }
 
+func TestPluginIPFixNeg12(t *testing.T) {
+	// Variable length with v9
+
+	initJson := `
+	{
+		"netflow_version": 9,
+		"dst_ipv4": [48, 0, 0, 0],
+		"dst_mac": [0, 0, 2, 0, 0, 0],
+		"dst_ipv6": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+		"src_port": 30334,
+		"domain_id": 22,
+		"generators": [
+			{
+				"name": "a",
+				"auto_start": true,
+				"rate_pps": 2.0,
+				"data_records_num": 5,
+				"template_id": 260,
+				"fields":
+				[
+					{
+						"name": "nbar2HttpHost",
+						"type": 45003,
+						"length": 65535,
+						"enterprise_number": 9,
+					}
+				]
+			}
+		]
+	}
+	`
+
+	a := &IPFixTestBase{
+		testname:     "ipfixNeg12",
+		dropAll:      false,
+		monitor:      false,
+		match:        0,
+		capture:      true,
+		initJSON:     [][]byte{[]byte(initJson)},
+		duration:     10 * time.Second,
+		clientsToSim: 1,
+		counters:     IPFixStats{enterpriseFieldv9: 1, failedCreatingGen: 1},
+	}
+	a.Run(t, true)
+}
+
+func TestPluginIPFixNeg13(t *testing.T) {
+	// Variable length with data
+
+	initJson := `
+	{
+		"netflow_version": 10,
+		"dst_ipv4": [48, 0, 0, 0],
+		"dst_mac": [0, 0, 2, 0, 0, 0],
+		"dst_ipv6": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+		"src_port": 30334,
+		"domain_id": 22,
+		"generators": [
+			{
+				"name": "a",
+				"auto_start": true,
+				"rate_pps": 2.0,
+				"data_records_num": 5,
+				"template_id": 260,
+				"fields":
+				[
+					{
+						"name": "nbar2HttpHost",
+						"type": 45003,
+						"length": 65535,
+						"enterprise_number": 9,
+						"data": [3, 5]
+					}
+				]
+			}
+		]
+	}
+	`
+
+	a := &IPFixTestBase{
+		testname:     "ipfixNeg13",
+		dropAll:      false,
+		monitor:      false,
+		match:        0,
+		capture:      true,
+		initJSON:     [][]byte{[]byte(initJson)},
+		duration:     10 * time.Second,
+		clientsToSim: 1,
+		counters:     IPFixStats{dataIncorrectLength: 1, failedCreatingGen: 1},
+	}
+	a.Run(t, true)
+}
+
+func TestPluginIPFixNeg14(t *testing.T) {
+	// Variable length without engine
+
+	initJson := `
+	{
+		"netflow_version": 10,
+		"dst_ipv4": [48, 0, 0, 0],
+		"dst_mac": [0, 0, 2, 0, 0, 0],
+		"dst_ipv6": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+		"src_port": 30334,
+		"domain_id": 22,
+		"generators": [
+			{
+				"name": "a",
+				"auto_start": true,
+				"rate_pps": 2.0,
+				"data_records_num": 5,
+				"template_id": 260,
+				"fields":
+				[
+					{
+						"name": "nbar2HttpHost",
+						"type": 45003,
+						"length": 65535,
+						"enterprise_number": 9,
+						"data": []
+					},
+					{
+						"name": "protocolIdentifier",
+						"type": 4,
+						"length": 1,
+						"data": [17]
+					}
+				],
+				"engines": [
+					{
+						"engine_name": "protocolIdentifier",
+						"engine_type": "uint_list",
+						"params": {
+							"size": 1,
+							"offset": 0,
+							"list": [6, 17],
+							"op": "inc"
+						}
+					}
+				]
+			}
+		]
+	}
+	`
+
+	a := &IPFixTestBase{
+		testname:     "ipfixNeg14",
+		dropAll:      false,
+		monitor:      false,
+		match:        0,
+		capture:      true,
+		initJSON:     [][]byte{[]byte(initJson)},
+		duration:     10 * time.Second,
+		clientsToSim: 1,
+		counters:     IPFixStats{variableLengthNoEngine: 1, failedCreatingGen: 1},
+	}
+	a.Run(t, true)
+}
+
 func TestPluginIPFix1(t *testing.T) {
 	// DNS Generator - 7 Records in One Data Packet with 2 Data packets per second
 	templateParams := TemplateParams{
@@ -2078,6 +2236,303 @@ func TestPluginIPFix17(t *testing.T) {
 		duration:     10 * time.Second,
 		clientsToSim: 1,
 		seed:         0xbdbdbd,
+	}
+	a.Run(t, true)
+}
+
+func getVariableLengthJson(rate float32, data_records_num uint16) string {
+	initJson := fmt.Sprintf(`
+	{
+		"netflow_version": 10,
+		"dst_ipv4": [48, 0, 0, 0],
+		"dst_mac": [0, 0, 2, 0, 0, 0],
+		"dst_ipv6": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+		"src_port": 30334,
+		"domain_id": 6,
+		"generators": [
+			{
+				"name": "275",
+				"auto_start": true,
+				"rate_pps": %v,
+				"data_records_num": %v,
+				"template_id": 275,
+				"fields": [
+					{
+						"name": "protocolIdentifier",
+						"type": 4,
+						"length": 1,
+						"data": [17]
+					},
+					{
+						"name": "nbar2HttpHost",
+						"type": 45003,
+						"length": 65535,
+						"enterprise_number": 9
+					},
+					{
+						"name": "nbar2HttpHost2",
+						"type": 45003,
+						"length": 65535,
+						"enterprise_number": 9
+					},
+					{
+						"name": "flowStartMilliseconds",
+						"type": 152,
+						"length": 8,
+						"data": [0, 0, 0, 0, 0, 0, 0, 0]
+					},
+					{
+						"name": "flowEndMilliseconds",
+						"type": 153,
+						"length": 8,
+						"data": [0, 0, 0, 0, 0, 0, 100, 255]
+					},
+					{
+						"name": "ipVersion",
+						"type": 60,
+						"length": 1,
+						"data": [4]
+					}
+				],
+				"engines": [
+					{
+						"engine_name": "protocolIdentifier",
+						"engine_type": "uint_list",
+						"params": {
+							"size": 1,
+							"offset": 1,
+							"list": [1, 6, 17],
+							"op": "dec",
+						}
+					},
+					{
+						"engine_name": "nbar2HttpHost",
+						"engine_type": "histogram_url",
+						"params": {
+							"size": 60,
+							"offset": 0,
+							"entries": [
+								{
+									"schemes": ["https"],
+									"hosts": ["www.google.com", "www.facebook.com"],
+									"prob": 2,
+								},
+								{
+									"schemes": ["http"],
+									"hosts": ["cisco.com"],
+									"paths": ["en", "il", "en/careers"],
+									"prob": 5
+								}
+							]
+						}
+					},
+					{
+						"engine_name": "nbar2HttpHost2",
+						"engine_type": "histogram_url",
+						"params": {
+							"size": 60,
+							"offset": 0,
+							"entries": [
+								{
+									"schemes": ["https"],
+									"hosts": ["stackoverflow.com"],
+									"random_queries": true,
+									"prob": 4,
+								}
+							]
+						}
+					},
+					{
+						"engine_type": "time_start",
+						"engine_name": "flowStartMilliseconds",
+						"params": {
+							"size": 8,
+							"offset": 0,
+							"time_end_engine_name": "flowEndMilliseconds",
+							"time_offset": 1257894000000,
+							"ipg_min": 20000,
+							"ipg_max": 20000
+						}
+					},
+					{
+						"engine_type": "time_end",
+						"engine_name": "flowEndMilliseconds",
+						"params": {
+							"size": 8,
+							"offset": 0,
+							"time_start_engine_name": "flowStartMilliseconds",
+							"duration_min": 5000,
+							"duration_max": 10000
+						}
+					}
+				]
+			}
+		]
+	}
+	`, rate, data_records_num)
+	return initJson
+}
+
+func TestPluginIPFix18(t *testing.T) {
+	// Variable length with Time engines.
+	// The timestamp offset is set fixed simply because this is a simulation
+	// and we need the test to pass all the time.
+	// Simple version without max records calculated.
+	initJson := getVariableLengthJson(20, 3)
+
+	a := &IPFixTestBase{
+		testname:     "ipfix18",
+		dropAll:      false,
+		monitor:      true,
+		match:        0,
+		capture:      true,
+		initJSON:     [][]byte{[]byte(initJson)},
+		duration:     10 * time.Second,
+		clientsToSim: 1,
+		seed:         0xbe5be5,
+	}
+	a.Run(t, true)
+}
+
+func TestPluginIPFix19(t *testing.T) {
+	// Variable length with Time engines.
+	// The timestamp offset is set fixed simply because this is a simulation
+	// and we need the test to pass all the time.
+	// Simple version without max records calculated.
+	// Maximum records
+
+	initJson := getVariableLengthJson(1, 0)
+
+	a := &IPFixTestBase{
+		testname:     "ipfix19",
+		dropAll:      false,
+		monitor:      true,
+		match:        0,
+		capture:      true,
+		initJSON:     [][]byte{[]byte(initJson)},
+		duration:     10 * time.Second,
+		clientsToSim: 1,
+		seed:         0xbe5be5,
+	}
+	a.Run(t, true)
+}
+
+func TestPluginIPFix20(t *testing.T) {
+	// Variable length with Time engines.
+	// The timestamp offset is set fixed simply because this is a simulation
+	// and we need the test to pass all the time.
+	// Simple version without max records calculated.
+	// Maximum records with misses
+
+	initJson := getVariableLengthJson(1, 255)
+
+	a := &IPFixTestBase{
+		testname:     "ipfix20",
+		dropAll:      false,
+		monitor:      true,
+		match:        0,
+		capture:      true,
+		initJSON:     [][]byte{[]byte(initJson)},
+		duration:     10 * time.Second,
+		clientsToSim: 1,
+		seed:         0xc15c0be51,
+	}
+	a.Run(t, true)
+}
+
+func TestPluginIPFix21(t *testing.T) {
+	// Variable length with Time engines.
+	// The timestamp offset is set fixed simply because this is a simulation
+	// and we need the test to pass all the time.
+	// Simple version without max records calculated.
+	// 1 record with bursts
+
+	initJson := getVariableLengthJson(200, 1)
+
+	a := &IPFixTestBase{
+		testname:     "ipfix21",
+		dropAll:      false,
+		monitor:      true,
+		match:        0,
+		capture:      true,
+		initJSON:     [][]byte{[]byte(initJson)},
+		duration:     5 * time.Second,
+		clientsToSim: 1,
+		seed:         0xc15c0be51,
+	}
+	a.Run(t, true)
+}
+
+func TestPluginIPFix22(t *testing.T) {
+
+	// long variable length fields
+	initJson := `
+	{
+		"netflow_version": 10,
+		"dst_ipv4": [48, 0, 0, 0],
+		"dst_mac": [0, 0, 2, 0, 0, 0],
+		"dst_ipv6": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+		"src_port": 30334,
+		"domain_id": 6,
+		"generators": [
+			{
+				"name": "275",
+				"auto_start": true,
+				"rate_pps": 2,
+				"data_records_num": 3,
+				"template_id": 275,
+				"fields": [
+					{
+						"name": "protocolIdentifier",
+						"type": 4,
+						"length": 1,
+						"data": [17]
+					},
+					{
+						"name": "nbar2HttpHost",
+						"type": 45003,
+						"length": 65535,
+						"enterprise_number": 9
+					},
+					{
+						"name": "ipVersion",
+						"type": 60,
+						"length": 1,
+						"data": [4]
+					}
+				],
+				"engines": [
+					{
+						"engine_name": "nbar2HttpHost",
+						"engine_type": "histogram_url",
+						"params": {
+							"size": 450,
+							"offset": 0,
+							"entries": [
+								{
+									"schemes": ["https"],
+									"hosts": ["stackoverflow.com"],
+									"random_queries": true,
+									"prob": 4,
+								}
+							]
+						}
+					}
+				]
+			}
+		]
+	}
+	`
+	a := &IPFixTestBase{
+		testname:     "ipfix22",
+		dropAll:      false,
+		monitor:      true,
+		match:        0,
+		capture:      true,
+		initJSON:     [][]byte{[]byte(initJson)},
+		duration:     10 * time.Second,
+		clientsToSim: 1,
+		seed:         0xc15c0be51,
 	}
 	a.Run(t, true)
 }

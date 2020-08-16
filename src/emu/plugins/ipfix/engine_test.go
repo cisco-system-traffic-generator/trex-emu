@@ -1979,9 +1979,8 @@ func TestHistogramURL(t *testing.T) {
 		t.FailNow()
 	}
 	for i := 0; i < iterNumber; i++ {
-		eng.Update(b[eng.GetOffset() : eng.GetOffset()+eng.GetSize()])
-		// The update will write on all the buffer but when the string is finished we will have 0.
-		gen := string(b[:bytes.IndexByte(b, 0)])
+		length, _ := eng.Update(b[eng.GetOffset() : eng.GetOffset()+eng.GetSize()])
+		gen := string(b[:length])
 		generated[gen]++
 	}
 	expected := make(map[string]int, 8)
@@ -2050,10 +2049,8 @@ func TestHistogramURL(t *testing.T) {
 	}
 	generated = make(map[string]int, 14)
 	for i := 0; i < iterNumber; i++ {
-		eng.Update(b[eng.GetOffset() : eng.GetOffset()+eng.GetSize()])
-		// The update will write on all the buffer but when the string is finished we will have 0.
-		len := bytes.IndexByte(b[eng.GetOffset():eng.GetOffset()+eng.GetSize()], 0)
-		gen := string(b[eng.GetOffset() : int(eng.GetOffset())+len])
+		length, _ := eng.Update(b[eng.GetOffset() : eng.GetOffset()+eng.GetSize()])
+		gen := string(b[eng.GetOffset() : int(eng.GetOffset())+length])
 		generated[gen]++
 	}
 
@@ -2106,13 +2103,7 @@ func TestHistogramURL(t *testing.T) {
 		t.FailNow()
 	}
 	for i := 0; i < iterNumber; i++ {
-		eng.Update(b[eng.GetOffset() : eng.GetOffset()+eng.GetSize()])
-		// The update will write on all the buffer but when the string is finished we will have 0.
-		// Here we can write to the end so if the len is 0 we need until the end of the array.
-		length := bytes.IndexByte(b[eng.GetOffset():eng.GetOffset()+eng.GetSize()], 0)
-		if length == -1 {
-			length = int(eng.GetSize())
-		}
+		length, _ := eng.Update(b[eng.GetOffset() : eng.GetOffset()+eng.GetSize()])
 		gen := string(b[eng.GetOffset() : int(eng.GetOffset())+length])
 		generated[gen]++
 	}

@@ -49,7 +49,7 @@ type IPFixField struct {
 	Type             uint16 `json:"type" validate:"required"`   // Type of this field
 	Length           uint16 `json:"length" validate:"required"` // Length of this field
 	EnterpriseNumber uint32 `json:"enterprise_number"`          // Enterprise Number
-	Data             []byte `json:"data" validate:"required"`   // Starting Data
+	Data             []byte `json:"data"`                       // Starting Data
 }
 
 // isVariableLength indicates if this field is variable length.
@@ -91,29 +91,31 @@ type IPFixGenParams struct {
 // IPFixGen represents a fixed collection of fields which can change over time depending on the engines
 // they are supplied. The generator generates Template and Data packets alike, given a rate for each one.
 type IPFixGen struct {
-	name                string              // Name of this generator.
-	enabled             bool                // Is generator exporting at the moment.
-	templateRate        float32             // Template rate in PPS.
-	dataRate            float32             // Data rate in PPS.
-	templateID          uint16              // Template ID.
-	recordsNum          uint32              // Number of records in a packet as received from the user.
-	recordsNumToSent    uint32              // Number of records to send in a packet.
-	optionsTemplate     bool                // Is Options Template or Data Template
-	scopeCount          uint16              // Scope Count for Option Templates, the number of fields that are scoped.
-	dataTicks           uint32              // Ticks between 2 consequent Data Set packets.
-	dataPktsPerInterval uint32              // How many data packets to send each interval
-	templateTicks       uint32              // Ticks between 2 consequent Template Set packets.
-	dataBuffer          []byte              // Data Buffer containing the field values.
-	templatePkt         []byte              // A complete Template Packet.
-	dataPkt             []byte              // A complete Data Packet from L2 to IPFix Data Sets (L7)
-	fields              []*IPFixField       // IPFixFields as parsed from the JSON.
-	templateFields      layers.IPFixFields  // IPFixFields in layers.
-	fieldNames          map[string]bool     // Set of field names.
-	engineMgr           *FieldEngineManager // Field Engine Manager
-	dataTimer           core.CHTimerObj     // Timer for Data Set packets.
-	templateTimer       core.CHTimerObj     // Timer for Template Set packets
-	timerw              *core.TimerCtx      // Timer Wheel
-	ipfixPlug           *PluginIPFixClient  // Pointer to the IPFixClient that owns this generator.
+	name                   string              // Name of this generator.
+	enabled                bool                // Is generator exporting at the moment.
+	templateRate           float32             // Template rate in PPS.
+	dataRate               float32             // Data rate in PPS.
+	templateID             uint16              // Template ID.
+	recordsNum             uint32              // Number of records in a packet as received from the user.
+	recordsNumToSent       uint32              // Number of records to send in a packet.
+	variableLengthFields   bool                // Has variable length fields?
+	optionsTemplate        bool                // Is Options Template or Data Template
+	scopeCount             uint16              // Scope Count for Option Templates, the number of fields that are scoped.
+	availableRecordPayload uint16              // Available bytes for record payloads.
+	dataTicks              uint32              // Ticks between 2 consequent Data Set packets.
+	dataPktsPerInterval    uint32              // How many data packets to send each interval
+	templateTicks          uint32              // Ticks between 2 consequent Template Set packets.
+	dataBuffer             []byte              // Data Buffer containing the field values.
+	templatePkt            []byte              // A complete Template Packet.
+	dataPkt                []byte              // A complete Data Packet from L2 to IPFix Data Sets (L7)
+	fields                 []*IPFixField       // IPFixFields as parsed from the JSON.
+	templateFields         layers.IPFixFields  // IPFixFields in layers.
+	fieldNames             map[string]bool     // Set of field names.
+	engineMgr              *FieldEngineManager // Field Engine Manager
+	dataTimer              core.CHTimerObj     // Timer for Data Set packets.
+	templateTimer          core.CHTimerObj     // Timer for Template Set packets
+	timerw                 *core.TimerCtx      // Timer Wheel
+	ipfixPlug              *PluginIPFixClient  // Pointer to the IPFixClient that owns this generator.
 }
 
 // NewIPFixGen creates a new IPFix generator (exporting process) based on the parameters received in the
@@ -186,13 +188,37 @@ func NewIPFixGen(ipfix *PluginIPFixClient, initJson *fastjson.RawMessage) (*IPFi
 			o.ipfixPlug.stats.enterpriseFieldv9++
 			return nil, false
 		}
+		if o.ipfixPlug.ver == 9 && o.fields[i].isVariableLength() {
+			o.ipfixPlug.stats.variableLengthFieldv9++
+			return nil, false
+		}
 		o.templateFields = append(o.templateFields, o.fields[i].getIPFixField())
-		if len(o.fields[i].Data) != int(o.fields[i].Length) {
+		if !o.fields[i].isVariableLength() && (len(o.fields[i].Data) != int(o.fields[i].Length)) {
 			ipfix.stats.dataIncorrectLength++
 			return nil, false
 		}
 		o.fieldNames[o.fields[i].Name] = true // add each field to the field names
-		o.dataBuffer = append(o.dataBuffer, o.fields[i].Data...)
+		if !o.fields[i].isVariableLength() {
+			// don't add variable length fields to the data buffer, they don't have a data buffer.
+			o.dataBuffer = append(o.dataBuffer, o.fields[i].Data...)
+		} else {
+			o.variableLengthFields = true
+			// variable length field, verify that no data.
+			if len(o.fields[i].Data) != 0 {
+				ipfix.stats.dataIncorrectLength++
+				return nil, false
+			}
+			// also we must have an engine for variable length fields
+			if o.engineMgr == nil {
+				ipfix.stats.variableLengthNoEngine++
+				return nil, false
+			} else {
+				if _, ok := o.engineMgr.engines[o.fields[i].Name]; !ok {
+					ipfix.stats.variableLengthNoEngine++
+					return nil, false
+				}
+			}
+		}
 	}
 
 	// verify each engine name is a correct field
@@ -214,7 +240,16 @@ func NewIPFixGen(ipfix *PluginIPFixClient, initJson *fastjson.RawMessage) (*IPFi
 	}
 	// Preparing the data packet is not needed as SendPkt prepares it by itself. This packet changes every iteration.
 
-	maxRecords := o.calcMaxRecords()
+	o.calcAvailableRecordPayload()
+	var maxRecords uint32
+
+	if !o.variableLengthFields {
+		// in case we are working with fixed size records we know ahed of time how many records we can send.
+		maxRecords = o.calcMaxRecords()
+	} else {
+		// Upper bound on the maximum number of records
+		maxRecords = o.calcMaxRecordsVarLength()
+	}
 
 	if o.recordsNum == 0 || o.recordsNum > maxRecords {
 		// number of records wasn't supplied or it is bigger then what the MTU allows.
@@ -267,19 +302,58 @@ func (o *IPFixGen) OnEvent(a, b interface{}) {
 
 }
 
-// calcMaxRecords calculate the maximum number of records we can send without overflowing the MTU.
-// In case of variable length, each time the len of the flow changes, we need to calculate the maximum
-// num of records again.
-func (o *IPFixGen) calcMaxRecords() uint32 {
-	recordLength := len(o.dataBuffer)                                  // length of 1 record.
+// calcAvailableRecordPayload calculates the amount of bytes available for record payloads.
+func (o *IPFixGen) calcAvailableRecordPayload() {
 	basePktLen := len(o.ipfixPlug.basePkt) - int(o.ipfixPlug.l3Offset) // length of packet L3-L4
 	ipfixHeaderLen := layers.IpfixHeaderLenVer10
 	if o.ipfixPlug.ver == 9 {
 		ipfixHeaderLen = layers.IpfixHeaderLenVer9
 	}
+	o.availableRecordPayload = o.ipfixPlug.Client.MTU - uint16(basePktLen+ipfixHeaderLen+4) // set header length is 4
+}
 
-	allowed := o.ipfixPlug.Client.MTU - uint16(basePktLen+ipfixHeaderLen+4) // set header length is 4
-	return uint32(allowed / uint16(recordLength))
+// calcShortestRecord calculates the length of the shortest possible record in case of variable length.
+func (o *IPFixGen) calcShortestRecord() (length uint16) {
+	if !o.variableLengthFields {
+		length = uint16(len(o.dataBuffer))
+	} else {
+		length = uint16(len(o.dataBuffer))
+		for i, _ := range o.fields {
+			if o.fields[i].isVariableLength() {
+				length += 1 // one for each variable length
+			}
+		}
+	}
+	return length
+}
+
+// calcLongestRecord calculates the length of the longest possible record in case of variable length.
+func (o *IPFixGen) calcLongestRecord() (length uint16) {
+	if !o.variableLengthFields {
+		length = uint16(len(o.dataBuffer))
+	} else {
+		length = uint16(len(o.dataBuffer))
+		for i, _ := range o.fields {
+			if o.fields[i].isVariableLength() {
+				eng := o.engineMgr.engines[o.fields[i].Name]
+				length += eng.GetSize() // Size is the upper limit.
+			}
+		}
+	}
+	return length
+}
+
+// calcMaxRecords calculate the maximum number of records we can send without overflowing the MTU.
+// This function should be called only on generators that don't contain variable length fields.
+func (o *IPFixGen) calcMaxRecords() uint32 {
+	recordLength := len(o.dataBuffer) // length of 1 record.
+	return uint32(o.availableRecordPayload / uint16(recordLength))
+}
+
+// calcMaxRecordsVarLength calculates the maximum number of records we can send in case of variable length.
+// This is an upper bound and not exactly the number we can send.
+func (o *IPFixGen) calcMaxRecordsVarLength() uint32 {
+	return uint32(o.availableRecordPayload / o.calcShortestRecord())
 }
 
 /*======================================================================================================
@@ -309,14 +383,9 @@ func (o *IPFixGen) sendDataPkt() {
 	if canSent {
 		ipfixVer := o.ipfixPlug.ver
 		// Only Data Packets can have bursts.
-		var mtuMissedRecords uint32
-		if o.recordsNum > o.recordsNumToSent {
-			mtuMissedRecords = o.recordsNum - o.recordsNumToSent
-			o.ipfixPlug.stats.recordsMtuMissErr += uint64(mtuMissedRecords * o.dataPktsPerInterval)
-		}
 		o.ipfixPlug.stats.pktDataSent += uint64(o.dataPktsPerInterval)
 		for i := 0; i < int(o.dataPktsPerInterval); i++ {
-			o.prepareDataPkt()
+			records := o.prepareDataPkt()
 			pkt := o.dataPkt
 			o.fixPkt(pkt)
 			o.sendPkt(pkt)
@@ -324,7 +393,11 @@ func (o *IPFixGen) sendDataPkt() {
 			if ipfixVer == 9 {
 				o.ipfixPlug.flowSeqNum++
 			} else if ipfixVer == 10 {
-				o.ipfixPlug.flowSeqNum += o.recordsNumToSent
+				o.ipfixPlug.flowSeqNum += records
+			}
+			if o.recordsNum > records {
+				mtuMissedRecords := o.recordsNum - records
+				o.ipfixPlug.stats.recordsMtuMissErr += uint64(mtuMissedRecords)
 			}
 		}
 	}
@@ -474,56 +547,127 @@ func (o *IPFixGen) prepareTemplatePkt() bool {
 /*======================================================================================================
 										Data Packets
 ======================================================================================================*/
-// updateDataBuffer updates the data buffer by running the different engines provided to the generator.
+// encodeVarLengthData encodes the payload of a variable length (information element, ie) field when
+// length represents the length of this information element
+func (o *IPFixGen) encodeVarLengthData(length int, ie []byte) (data []byte) {
+	/*
+		In most cases, the length of the Information Element will be less
+		than 255 octets.  The following length-encoding mechanism optimizes
+		the overhead of carrying the Information Element length in this more
+		common case.  The length is carried in the octet before the
+		Information Element, as shown in Figure R.
+
+		 0                    1                   2                   3
+		 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+		+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+		| Length (< 255)|          Information Element                  |
+		+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+		|                      ... continuing as needed                 |
+		+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+
+			Figure R: Variable-Length Information Element (IE)
+						(Length < 255 Octets)
+
+		The length may also be encoded into 3 octets before the Information
+		Element, allowing the length of the Information Element to be greater
+		than or equal to 255 octets.  In this case, the first octet of the
+		Length field MUST be 255, and the length is carried in the second and
+		third octets, as shown in Figure S.
+
+		 0                   1                   2                   3
+		 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+		+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+		|      255      |      Length (0 to 65535)      |       IE      |
+		+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+		|                      ... continuing as needed                 |
+		+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+
+			Figure S: Variable-Length Information Element (IE)
+					(Length 0 to 65535 Octets)
+
+		The octets carrying the length (either the first or the first
+		three octets) MUST NOT be included in the length of the Information
+		Element.
+	*/
+	if length < 0xFF {
+		data = append(data, uint8(length))
+	} else {
+		data = append(data, 0xFF)
+		lengthBuffer := make([]byte, 2)
+		binary.BigEndian.PutUint16(lengthBuffer, uint16(length))
+		data = append(data, lengthBuffer...)
+	}
+	data = append(data, ie[:length]...)
+	return data
+}
+
+// getDataRecords updates the data buffer by running the different engines provided to the generator.
+// Also it runs the variable length engines on variable length fields which are not part of the data buffer.
+// Returns the Data Record buffer as it should be put in the payload.
 // It runs the engines *in order* with the order the fields were provided. If you provide the engines
 // in the same order as the fields, they will run in order.
 // The offset provided is relative to the beginning of the field.
-func (o *IPFixGen) updateDataBuffer() {
+func (o *IPFixGen) getDataRecord() (data []byte) {
 	if o.engineMgr == nil {
-		// Nothing to do
-		return
+		// Nothing to do, no engines and no variable length fields.
+		// Pre calculated data buffer is enough.
+		return o.dataBuffer
 	}
 	currentOffset := 0
 	for _, field := range o.fields {
 		if eng, ok := o.engineMgr.engines[field.Name]; ok {
-			b := o.dataBuffer[currentOffset:]
-			eng.Update(b[eng.GetOffset() : eng.GetOffset()+eng.GetSize()])
+			// field has engine
+			if field.isVariableLength() {
+				// variable length fields are not part of the data buffer
+				buffer := make([]byte, eng.GetSize())
+				length, _ := eng.Update(buffer)
+				data = append(data, o.encodeVarLengthData(length, buffer)...)
+			} else {
+				b := o.dataBuffer[currentOffset:]
+				eng.Update(b[eng.GetOffset() : eng.GetOffset()+eng.GetSize()])
+			}
 		}
-		currentOffset += int(field.Length)
+		if !field.isVariableLength() {
+			data = append(data, o.dataBuffer[currentOffset:currentOffset+int(field.Length)]...)
+			currentOffset += int(field.Length)
+		}
 	}
+	return data
 }
 
 // getDataSets creates the Sets for the Data outgoing packet.
-func (o *IPFixGen) getDataSets() layers.IPFixSets {
-	setEntries := make(layers.IPFixSetEntries, o.recordsNumToSent)
+func (o *IPFixGen) getDataSets() (layers.IPFixSets, uint32) {
+	var setEntries layers.IPFixSetEntries
+	availablePayload := o.availableRecordPayload
+	longestRecord := o.calcLongestRecord()
 	for i := uint32(0); i < o.recordsNumToSent; i++ {
-		o.updateDataBuffer()
-		data := make([]byte, len(o.dataBuffer))
-		copiedBytes := copy(data, o.dataBuffer)
-		if copiedBytes != len(o.dataBuffer) {
-			o.ipfixPlug.stats.badCopy++
+		if availablePayload < longestRecord {
+			// in case we don't have variable length fields this shouldn't happen
+			break
+		} else {
+			data := o.getDataRecord()
+			availablePayload -= uint16(len(data))
+			setEntries = append(setEntries, layers.IPFixSetEntry(&layers.IPFixRecord{Data: data}))
 		}
-		setEntries[i] = layers.IPFixSetEntry(&layers.IPFixRecord{
-			Data: data,
-		})
 	}
 	return layers.IPFixSets{
 		layers.IPFixSet{
 			ID:         o.templateID,
 			SetEntries: setEntries,
 		},
-	}
+	}, uint32(len(setEntries))
 }
 
-// getDataSets prepares the Data packet by generating the IPFix L7 Data and attaching the newly created
+// prepareDataPkt prepares the Data packet by generating the IPFix L7 Data and attaching the newly created
 // L7 to the base packet created the IPFix Client Plugin.
-func (o *IPFixGen) prepareDataPkt() {
+// Returns the number of records it added to the data set.
+func (o *IPFixGen) prepareDataPkt() (records uint32) {
 	if o.dataPkt != nil {
 		// Clear the Data Packet as we are about to create a new one.
 		o.dataPkt = o.dataPkt[:0]
 	}
 	ipfixPlug := o.ipfixPlug
-	sets := o.getDataSets()
+	sets, records := o.getDataSets()
 	ipFixHeader := core.PacketUtlBuild(
 		&layers.IPFix{
 			Ver:       ipfixPlug.ver,
@@ -536,6 +680,7 @@ func (o *IPFixGen) prepareDataPkt() {
 	)
 
 	o.dataPkt = append(ipfixPlug.basePkt, ipFixHeader...)
+	return records
 }
 
 /*======================================================================================================
@@ -590,6 +735,8 @@ type IPFixStats struct {
 	failedCreatingGen        uint64 // Failed creating a generator with the generator's provided JSON.
 	badCopy                  uint64 // Copying elements didn't complete successfully.
 	enterpriseFieldv9        uint64 // Enterprise Fields are not supported for V9.
+	variableLengthFieldv9    uint64 // Variable length Fields are not supported for V9.
+	variableLengthNoEngine   uint64 // Variable length field without engine provided.
 	badOrNoInitJson          uint64 // Init Json was either not provided or invalid.
 	unsuccessfulMacResolve   uint64 // Tried to resolve MAC of DG and failed.
 	duplicateGenName         uint64 // Generator with the same name already registered.
@@ -680,6 +827,22 @@ func NewIPFixStatsDb(o *IPFixStats) *core.CCounterDb {
 		Counter:  &o.enterpriseFieldv9,
 		Name:     "enterpriseFieldv9",
 		Help:     "Enterpise field specified for Netflow v9 is not supported.",
+		Unit:     "ops",
+		DumpZero: false,
+		Info:     core.ScERROR})
+
+	db.Add(&core.CCounterRec{
+		Counter:  &o.variableLengthFieldv9,
+		Name:     "variableLengthFieldv9",
+		Help:     "Variable length field specified for Netflow v9 is not supported.",
+		Unit:     "ops",
+		DumpZero: false,
+		Info:     core.ScERROR})
+
+	db.Add(&core.CCounterRec{
+		Counter:  &o.variableLengthNoEngine,
+		Name:     "variableLengthNoEngine",
+		Help:     "Variable length field without engine provided.",
 		Unit:     "ops",
 		DumpZero: false,
 		Info:     core.ScERROR})

@@ -30,8 +30,8 @@ type FieldEngineIF interface {
 	// If the length of the slice is shorter that the length of the variable we are
 	// trying to write, it will return an error.
 	// It is the responsibility of the caller to provide Update with a long enough
-	// slice.
-	Update(b []byte) error
+	// slice. It returns the number of bytes it wrote as the first integer parameter.
+	Update(b []byte) (int, error)
 	// GetOffset returns the offset of the packet as the interface was provided with.
 	// The caller should use GetOffset to provide the interface with the correct
 	// byte slice.
@@ -246,19 +246,19 @@ func (o *UIntEngine) PerformOp() (err error) {
 }
 
 // Update implements the Update function of FieldEngineIF.
-func (o *UIntEngine) Update(b []byte) error {
+func (o *UIntEngine) Update(b []byte) (int, error) {
 
 	err := PutValue(o.par.Size, o.currValue, b, o.mgr)
 	if err != nil {
 		// errors already set
-		return err
+		return 0, err
 	}
 	err = o.PerformOp()
 	if err != nil {
-		// errors already set
-		return err
+		// errors already set and value already put
+		return int(o.par.Size), err
 	}
-	return nil
+	return int(o.par.Size), nil
 }
 
 // GetOffset implements the GetOffset function of FieldEngineIF.
@@ -397,20 +397,20 @@ func (o *UIntListEngine) PerformOp() (err error) {
 }
 
 // Update implements the Update function of FieldEngineIF.
-func (o *UIntListEngine) Update(b []byte) error {
+func (o *UIntListEngine) Update(b []byte) (int, error) {
 
 	err := PutValue(o.par.Size, o.par.List[o.currIndex], b, o.mgr)
 	if err != nil {
 		// errors already set
-		return err
+		return 0, err
 	}
 
 	err = o.PerformOp()
 	if err != nil {
-		// errors already set
-		return err
+		// errors already set and value already put
+		return int(o.par.Size), err
 	}
-	return nil
+	return int(o.par.Size), nil
 }
 
 // GetOffset implements the GetOffset function of FieldEngineIF.
@@ -557,24 +557,24 @@ func (o *StringListEngine) PerformOp() (err error) {
 }
 
 // Update implements the Update function of FieldEngineIF.
-func (o *StringListEngine) Update(b []byte) error {
+func (o *StringListEngine) Update(b []byte) (int, error) {
 	if len(b) < int(o.par.Size) {
 		o.mgr.counters.bufferTooShort++
-		return fmt.Errorf("Provided slice is shorter that the size of the variable to write, want at least %v, have %v.\n", o.par.Size, len(b))
+		return 0, fmt.Errorf("Provided slice is shorter that the size of the variable to write, want at least %v, have %v.\n", o.par.Size, len(b))
 	}
 
 	copied := copy(b, o.processedList[o.currIndex])
 	if copied != int(o.par.Size) {
 		o.mgr.counters.badCopyToBuffer++
-		return fmt.Errorf("Error happened copying the string into the buffer. Copied bytes: want %v and have %v.\n", o.par.Size, copied)
+		return 0, fmt.Errorf("Error happened copying the string into the buffer. Copied bytes: want %v and have %v.\n", o.par.Size, copied)
 	}
 
 	err := o.PerformOp()
 	if err != nil {
-		// errors already set
-		return err
+		// errors already set and value already put
+		return int(o.par.Size), err
 	}
-	return nil
+	return int(o.par.Size), nil
 }
 
 // GetOffset implements the GetOffset function of FieldEngineIF.
@@ -635,34 +635,34 @@ func (o *HistogramEngine) buildDistributionSlice(entries []HistogramEntry) {
 }
 
 // Update implements the Update function of FieldEngineIF.
-func (o *HistogramEngine) Update(b []byte) error {
+func (o *HistogramEngine) Update(b []byte) (int, error) {
 	if len(b) < int(o.par.Size) {
 		o.mgr.counters.bufferTooShort++
-		return fmt.Errorf("Provided slice is shorter that the size of the variable to write, want at least %v, have %v.\n", o.par.Size, len(b))
+		return 0, fmt.Errorf("Provided slice is shorter that the size of the variable to write, want at least %v, have %v.\n", o.par.Size, len(b))
 	}
 	// clean the provided buffer
 	copiedSize := copy(b[:o.par.Size], make([]byte, o.par.Size))
 	if copiedSize != int(o.par.Size) {
 		o.mgr.counters.badCopyToBuffer++
-		return fmt.Errorf("Didn't copy the right amount to the buffer, want %v have %v.\n", o.par.Size, copiedSize)
+		return 0, fmt.Errorf("Didn't copy the right amount to the buffer, want %v have %v.\n", o.par.Size, copiedSize)
 	}
 	entryIndex := o.generator.Generate()
 	entry := o.par.Entries[entryIndex]
 	newValueBytes, err := entry.GetValue(o.par.Size)
 	if err != nil {
 		o.mgr.counters.invalidHistogramEntry++
-		return err
+		return 0, err
 	}
 	if len(newValueBytes) > int(o.par.Size) {
 		o.mgr.counters.sizeTooSmall++
-		return fmt.Errorf("Size %v is too small for generated value with length %v.\n", o.par.Size, len(newValueBytes))
+		return 0, fmt.Errorf("Size %v is too small for generated value with length %v.\n", o.par.Size, len(newValueBytes))
 	}
 	copiedSize = copy(b[:o.par.Size], newValueBytes)
 	if copiedSize != len(newValueBytes) {
 		o.mgr.counters.badCopyToBuffer++
-		return fmt.Errorf("Didn't copy the right amount to the buffer, want %v have %v.\n", len(newValueBytes), copiedSize)
+		return 0, fmt.Errorf("Didn't copy the right amount to the buffer, want %v have %v.\n", len(newValueBytes), copiedSize)
 	}
-	return nil
+	return copiedSize, nil
 }
 
 // GetOffset implements the GetOffset function of FieldEngineIF.
@@ -1197,18 +1197,18 @@ func (o *TimeStartEngine) getNewFlowStartValue() (value uint64) {
 }
 
 // Update implements the Update function of FieldEngineIF.
-func (o *TimeStartEngine) Update(b []byte) error {
+func (o *TimeStartEngine) Update(b []byte) (int, error) {
 
 	// Get the Time End engine. This can't be done upon creation as the engine might not be created yet.
 	if o.timeEndEngine == nil {
 		timeEndEngine, ok := o.mgr.engines[o.par.TimeEndEngineName]
 		if !ok {
-			return fmt.Errorf("TimeEnd engine name %v not found in engine manager database. Must provide this engine.\n", o.par.TimeEndEngineName)
+			return 0, fmt.Errorf("TimeEnd engine name %v not found in engine manager database. Must provide this engine.\n", o.par.TimeEndEngineName)
 		}
 		o.timeEndEngine, ok = timeEndEngine.(*TimeEndEngine)
 		if !ok {
 			o.mgr.counters.badEngineType++
-			return fmt.Errorf("Failed converting engine %v to TimeEnd. Make sure the engine type is corrent.\n", o.par.TimeEndEngineName)
+			return 0, fmt.Errorf("Failed converting engine %v to TimeEnd. Make sure the engine type is corrent.\n", o.par.TimeEndEngineName)
 		}
 	}
 
@@ -1223,12 +1223,12 @@ func (o *TimeStartEngine) Update(b []byte) error {
 		binary.BigEndian.PutUint64(b, value)
 	default:
 		o.mgr.counters.invalidSize++
-		return errors.New("Size should be 1, 2, 4 or 8.")
+		return 0, errors.New("Size should be 1, 2, 4 or 8.")
 	}
 
 	// Update the time end engine so it will know to calculate the new value
 	o.timeEndEngine.setCurrentFlowStartTime(value)
-	return nil
+	return int(o.par.Size), nil
 }
 
 // GetOffset implements the GetOffset function of FieldEngineIF.
@@ -1330,18 +1330,18 @@ func (o *TimeEndEngine) getFlowEndValue() (value uint64) {
 }
 
 // Update implements the Update function of FieldEngineIF.
-func (o *TimeEndEngine) Update(b []byte) error {
+func (o *TimeEndEngine) Update(b []byte) (int, error) {
 
 	// Get the Time Start engine. This can't be done upon creation as the engine might not be created yet.
 	if o.timeStartEngine == nil {
 		timeEndEngine, ok := o.mgr.engines[o.par.TimeStartEngineName]
 		if !ok {
-			return fmt.Errorf("TimeStart engine name %v not found in engine manager database. Must provide this engine.\n", o.par.TimeStartEngineName)
+			return 0, fmt.Errorf("TimeStart engine name %v not found in engine manager database. Must provide this engine.\n", o.par.TimeStartEngineName)
 		}
 		o.timeStartEngine, ok = timeEndEngine.(*TimeStartEngine)
 		if !ok {
 			o.mgr.counters.badEngineType++
-			return fmt.Errorf("Failed converting engine %v to TimeStart. Make sure the engine type is corrent.\n", o.par.TimeStartEngineName)
+			return 0, fmt.Errorf("Failed converting engine %v to TimeStart. Make sure the engine type is corrent.\n", o.par.TimeStartEngineName)
 		}
 	}
 
@@ -1356,12 +1356,12 @@ func (o *TimeEndEngine) Update(b []byte) error {
 		binary.BigEndian.PutUint64(b, value)
 	default:
 		o.mgr.counters.invalidSize++
-		return errors.New("Size should be 1, 2, 4 or 8.")
+		return 0, errors.New("Size should be 1, 2, 4 or 8.")
 	}
 
 	// Update the start engine so it will know how to calculate the IPG.
 	o.timeStartEngine.setPreviousFlowEndTime(value)
-	return nil
+	return int(o.par.Size), nil
 }
 
 // GetOffset implements the GetOffset function of FieldEngineIF.

@@ -1937,8 +1937,8 @@ type FieldEngineIF interface {
     // If the length of the slice is shorter that the length of the variable we are
     // trying to write, it will return an error.
     // It is the responsibility of the caller to provide Update with a long enough
-    // slice.
-    Update(b []byte) error
+    // slice. It returns the number of bytes it wrote as the first integer parameter.
+    Update(b []byte) (int, error)
     // GetOffset returns the offset of the packet as the interface was provided with.
     // The caller should use GetOffset to provide the interface with the correct
     // byte slice.
@@ -2190,6 +2190,16 @@ A path list can be provided if the user wants to. If a path list is provided, a 
 flag are mutually exclusive.
 
 Finally, the histogram picks an entry with that entries' probability, and generates an URL from that entry.
+
+[NOTE]
+=====================================================================
+The `histogram_url` engine is an engine that works with variable length fields for IPFix.
+For example this engine will write exactly the generated URL in the provided buffer through Update.
+It means that it will not pad the size, unlike `string_list` for example.
+The number of bytes written in the buffer, is the first return parameter of the Update function.
+The `size` parameter in this engine is an upper bound for the random queries length, or for the
+longest possible URL that can be composed.
+=====================================================================
 
 We will summarize the engines and their types in the following table:
 
