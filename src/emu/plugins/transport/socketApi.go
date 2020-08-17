@@ -141,6 +141,7 @@ type SocketApi interface {
 				writing after this state will return an error SeWRITE_WHILE_DRAIN
 	*/
 	Write(buf []byte) (err SocketErr, queued bool)
+	GetL7MTU() uint16       // Returns the L7 MTU.
 	GetSocket() interface{} // return internal raw socket *TcpSocket for testing
 }
 

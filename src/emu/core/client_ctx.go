@@ -461,6 +461,17 @@ func (o *CClient) ResolveDGv6() (ipv6 Ipv6Key, mac MACKey, ok bool) {
 	return ipv6, mac, ok
 }
 
+func (o *CClient) GetIPv6MTU() (mtu uint16) {
+	if o.Ipv6Router != nil {
+		// Router Advertisment received from the router.
+		mtu = o.Ipv6Router.MTU
+	} else {
+		// Unless set, the MTU is the standard MTU of 1500
+		mtu = 1500
+	}
+	return mtu
+}
+
 func (o *CClient) IsDGIpv6(ipv6 Ipv6Key) bool {
 	if ipv6 == o.DgIpv6 {
 		return true

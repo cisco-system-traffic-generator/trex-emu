@@ -66,6 +66,26 @@ func (o *UdpSocket) listen() SocketErr {
 	return SeOK
 }
 
+// GetL7MTU returns the L7 MTU that is available for this socket.
+func (o *UdpSocket) GetL7MTU() uint16 {
+	var ipMTU uint16
+	ipHeaderLen := o.l4Offset - o.l3Offset
+	if o.ipv6 {
+		// IPv6 client
+		ipMTU = o.client.GetIPv6MTU()
+	} else {
+		// IPv4 client
+		ipMTU = o.client.MTU
+
+	}
+	if ipMTU < (ipHeaderLen + UDP_HEADER_LEN) {
+		// make sure we never overflow
+		return 0
+	}
+	return ipMTU - (ipHeaderLen + UDP_HEADER_LEN)
+
+}
+
 func (o *UdpSocket) GetSocket() interface{} {
 	return o
 }
@@ -75,10 +95,8 @@ func (o *UdpSocket) Write(buf []byte) (res SocketErr, queued bool) {
 		return SeCONNECTION_IS_CLOSED, false
 	}
 	var pkt udpPkt
-	var mtu uint32
-	mtu = uint32(o.client.MTU)
 
-	if uint32(len(buf))+uint32(o.l4Offset+UDP_HEADER_LEN) > mtu {
+	if uint16(len(buf)) > o.GetL7MTU() {
 		o.ctx.udpStats.udp_drop_msg_bigger_mtu++
 		return SeENOBUFS, false
 	}

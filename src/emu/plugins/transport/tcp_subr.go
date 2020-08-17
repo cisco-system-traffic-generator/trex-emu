@@ -243,6 +243,12 @@ func (o *TcpSocket) doOutput() {
 	}
 }
 
+// GetL7MTU returns the L7 MTU that is available for this socket.
+func (o *TcpSocket) GetL7MTU() uint16 {
+	// By definition this is the MSS.
+	return o.maxseg
+}
+
 func (o *TcpSocket) GetSocket() interface{} {
 	return o
 }
