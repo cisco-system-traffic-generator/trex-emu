@@ -18,7 +18,6 @@ type IPFixTestBase struct {
 	match        uint8
 	capture      bool
 	duration     time.Duration
-	simEnv       uint8
 	clientsToSim int
 	clientIpv6   core.Ipv6Key
 	counters     IPFixStats
@@ -57,11 +56,7 @@ func (o *IPFixTestBase) Run(t *testing.T, compare bool) {
 		simVeth.match = o.match
 	}
 	var tctx *core.CThreadCtx
-	if o.simEnv == 1 {
-		tctx, _ = createSimulationEnv1(&simrx, o)
-	} else {
-		tctx, _ = createSimulationEnv(&simrx, o)
-	}
+	tctx, _ = createSimulationEnv(&simrx, o)
 
 	if o.cb != nil {
 		o.cb(tctx, o)
@@ -85,31 +80,18 @@ func (o *IPFixTestBase) Run(t *testing.T, compare bool) {
 
 	var ipfixPlug *PluginIPFixClient
 
-	if o.simEnv == 0 {
-		for j := 0; j < o.clientsToSim; j++ {
-			a := uint8((j >> 8) & 0xff)
-			b := uint8(j & 0xff)
+	for j := 0; j < o.clientsToSim; j++ {
+		a := uint8((j >> 8) & 0xff)
+		b := uint8(j & 0xff)
 
-			c := ns.CLookupByMac(&core.MACKey{0, 0, 1, 0, a, b})
-			clplg := c.PluginCtx.Get(IPFIX_PLUG)
-			if clplg == nil {
-				t.Fatalf(" can't find plugin")
-			}
-			ipfixPlug = clplg.Ext.(*PluginIPFixClient)
-			ipfixPlug.cdbv.Dump()
-			tctx.SimRecordAppend(ipfixPlug.cdb.MarshalValues(false))
+		c := ns.CLookupByMac(&core.MACKey{0, 0, 1, 0, a, b})
+		clplg := c.PluginCtx.Get(IPFIX_PLUG)
+		if clplg == nil {
+			t.Fatalf(" can't find plugin")
 		}
-	} else if o.simEnv == 1 {
-		for j := 1; j <= o.clientsToSim; j++ {
-			c := ns.CLookupByMac(&core.MACKey{0, 0, 1, 0, 0, uint8(j)})
-			clplg := c.PluginCtx.Get(IPFIX_PLUG)
-			if clplg == nil {
-				t.Fatalf(" can't find plugin")
-			}
-			ipfixPlug = clplg.Ext.(*PluginIPFixClient)
-			ipfixPlug.cdbv.Dump()
-			tctx.SimRecordAppend(ipfixPlug.cdb.MarshalValues(false))
-		}
+		ipfixPlug = clplg.Ext.(*PluginIPFixClient)
+		ipfixPlug.cdbv.Dump()
+		tctx.SimRecordAppend(ipfixPlug.cdb.MarshalValues(false))
 	}
 
 	if compare {
@@ -148,43 +130,15 @@ func createSimulationEnv(simRx *core.VethIFSim, t *IPFixTestBase) (*core.CThread
 			core.Ipv4Key{16, 0, a, b},
 			t.clientIpv6,
 			dg)
+		// force the mac so that resolve won't be a problem.
+		// IPv4
+		client.ForceDGW = true
+		client.Ipv4ForcedgMac = core.MACKey{0, 0, 2, 0, 0, 0}
+		// IPv6
+		client.Ipv6ForceDGW = true
+		client.Ipv6ForcedgMac = core.MACKey{0, 0, 2, 0, 0, 0}
 		ns.AddClient(client)
 		client.PluginCtx.CreatePlugins([]string{IPFIX_PLUG}, t.initJSON)
-
-		cPlg := client.PluginCtx.Get(IPFIX_PLUG)
-		if cPlg == nil {
-			panic(" can't find plugin")
-		}
-	}
-	ns.Dump()
-
-	return tctx, nil
-}
-
-func createSimulationEnv1(simRx *core.VethIFSim, t *IPFixTestBase) (*core.CThreadCtx, *core.CClient) {
-	tctx := core.NewThreadCtx(0, 4510, true, simRx)
-	var key core.CTunnelKey
-	key.Set(&core.CTunnelData{Vport: 1})
-	ns := core.NewNSCtx(tctx, &key)
-	tctx.AddNs(&key, ns)
-	num := t.clientsToSim
-
-	for j := 1; j <= num; j++ {
-		dg := core.Ipv4Key{16, 0, 0, 1}
-		client := core.NewClient(ns, core.MACKey{0, 0, 1, 0, 0, uint8(j)},
-			core.Ipv4Key{16, 0, 0, uint8(j)},
-			t.clientIpv6,
-			dg)
-		// Force so we won't use ARP
-		client.ForceDGW = true
-		client.Ipv4ForcedgMac = core.MACKey{0, 0, 1, 0, 0, 1}
-		ns.AddClient(client)
-		if j == 1 {
-			// The DG doesn't run IPFix as an exporter.
-			client.PluginCtx.CreatePlugins([]string{IPFIX_PLUG}, [][]byte{[]byte(`[]`)})
-		} else {
-			client.PluginCtx.CreatePlugins([]string{IPFIX_PLUG}, t.initJSON)
-		}
 
 		cPlg := client.PluginCtx.Get(IPFIX_PLUG)
 		if cPlg == nil {
@@ -506,10 +460,7 @@ func TestPluginIPFixNeg1(t *testing.T) {
 	initJson := fmt.Sprintf(`
 	{
 		"netflow_version": 10,
-		"dst_ipv4": [48, 0, 0, 0],
-		"dst_mac": [0, 0, 2, 0, 0, 0],
-		"dst_ipv6": [32, 1, 13, 184, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2],
-		"src_port": 30334,
+		"dst": "48.0.0.0",
 		"domain_id": 7777,
 		"generators": [%s]
 	}
@@ -524,7 +475,7 @@ func TestPluginIPFixNeg1(t *testing.T) {
 		initJSON:     [][]byte{[]byte(initJson)},
 		duration:     10 * time.Second,
 		clientsToSim: 1,
-		counters:     IPFixStats{invalidParams: 1},
+		counters:     IPFixStats{invalidDst: 1},
 	}
 	a.Run(t, true)
 }
@@ -540,10 +491,7 @@ func TestPluginIPFixNeg2(t *testing.T) {
 	initJson := fmt.Sprintf(`
 	{
 		"netflow_version": 10,
-		"dst_ipv4": [0, 0, 0, 0],
-		"dst_mac": [0, 0, 2, 0, 0, 0],
-		"dst_ipv6": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-		"src_port": 30334,
+		"dst": "2001::1:80",
 		"domain_id": 7777,
 		"generators": [%s]
 	}
@@ -558,7 +506,7 @@ func TestPluginIPFixNeg2(t *testing.T) {
 		initJSON:     [][]byte{[]byte(initJson)},
 		duration:     10 * time.Second,
 		clientsToSim: 1,
-		counters:     IPFixStats{invalidParams: 1},
+		counters:     IPFixStats{invalidDst: 1},
 	}
 	a.Run(t, true)
 }
@@ -574,10 +522,7 @@ func TestPluginIPFixNeg3(t *testing.T) {
 	initJson := fmt.Sprintf(`
 	{
 		"netflow_version": 10,
-		"dst_ipv4": [48, 0, 0, 0],
-		"dst_mac": [0, 0, 2, 0, 0, 0
-		"dst_ipv6": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-		"src_port": 30334,
+		"dst": "48, 0, 0, 0
 		"domain_id": 7777,
 		"generators": [%s]
 	}
@@ -608,10 +553,7 @@ func TestPluginIPFixNeg4(t *testing.T) {
 	initJson := fmt.Sprintf(`
 	{
 		"netflow_version": 10,
-		"dst_ipv4": [48, 0, 0, 0],
-		"dst_mac": [0, 0, 2, 0, 0, 0],
-		"dst_ipv6": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-		"src_port": 30334,
+		"dst": "48.0.0.0:4739",
 		"domain_id": 7777,
 		"generators": [%s]
 	}
@@ -652,10 +594,7 @@ func TestPluginIPFixNeg6(t *testing.T) {
 	initJson := fmt.Sprintf(`
 	{
 		"netflow_version": 10,
-		"dst_ipv4": [48, 0, 0, 0],
-		"dst_mac": [0, 0, 2, 0, 0, 0],
-		"dst_ipv6": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-		"src_port": 30334,
+		"dst": "48.0.0.0:4739",
 		"domain_id": 7777,
 		"generators": [
 			{
@@ -714,10 +653,7 @@ func TestPluginIPFixNeg7(t *testing.T) {
 	initJson := fmt.Sprintf(`
 	{
 		"netflow_version": 10,
-		"dst_ipv4": [48, 0, 0, 0],
-		"dst_mac": [0, 0, 2, 0, 0, 0],
-		"dst_ipv6": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-		"src_port": 30334,
+		"dst": "48.0.0.0:4739",
 		"domain_id": 7777,
 		"generators": [
 			{
@@ -773,10 +709,7 @@ func TestPluginIPFixNeg8(t *testing.T) {
 	initJson := fmt.Sprintf(`
 				{
 					"netflow_version": 10,
-					"dst_ipv4": [48, 0, 0, 0],
-					"dst_mac": [0, 0, 2, 0, 0, 0],
-					"dst_ipv6": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-					"src_port": 30334,
+					"dst": "48.0.0.0:4739",
 					"domain_id": 7777,
 					"generators": [
 						{
@@ -835,10 +768,7 @@ func TestPluginIPFixNeg9(t *testing.T) {
 	initJson := fmt.Sprintf(`
 				{
 					"netflow_version": 10,
-					"dst_ipv4": [48, 0, 0, 0],
-					"dst_mac": [0, 0, 2, 0, 0, 0],
-					"dst_ipv6": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-					"src_port": 30334,
+					"dst": "48.0.0.0:4739",
 					"domain_id": 7777,
 					"generators": [
 						{
@@ -887,10 +817,7 @@ func TestPluginIPFixNeg10(t *testing.T) {
 	initJson := fmt.Sprintf(`
 	{
 		"netflow_version": 10,
-		"dst_ipv4": [48, 0, 0, 0],
-		"dst_mac": [0, 0, 2, 0, 0, 0],
-		"dst_ipv6": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-		"src_port": 30334,
+		"dst": "48.0.0.0:4739",
 		"domain_id": 7777,
 		"generators": [%s]
 	}
@@ -916,10 +843,7 @@ func TestPluginIPFixNeg11(t *testing.T) {
 	initJson := `
 	{
 		"netflow_version": 10,
-		"dst_ipv4": [48, 0, 0, 0],
-		"dst_mac": [0, 0, 2, 0, 0, 0],
-		"dst_ipv6": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-		"src_port": 30334,
+		"dst": "48.0.0.0:4739",
 		"domain_id": 22,
 		"generators": [
 			{
@@ -958,15 +882,12 @@ func TestPluginIPFixNeg11(t *testing.T) {
 }
 
 func TestPluginIPFixNeg12(t *testing.T) {
-	// Variable length with v9
+	// Enterprise field with v9
 
 	initJson := `
 	{
 		"netflow_version": 9,
-		"dst_ipv4": [48, 0, 0, 0],
-		"dst_mac": [0, 0, 2, 0, 0, 0],
-		"dst_ipv6": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-		"src_port": 30334,
+		"dst": "48.0.0.0:4739",
 		"domain_id": 22,
 		"generators": [
 			{
@@ -1009,10 +930,7 @@ func TestPluginIPFixNeg13(t *testing.T) {
 	initJson := `
 	{
 		"netflow_version": 10,
-		"dst_ipv4": [48, 0, 0, 0],
-		"dst_mac": [0, 0, 2, 0, 0, 0],
-		"dst_ipv6": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-		"src_port": 30334,
+		"dst": "48.0.0.0:4739",
 		"domain_id": 22,
 		"generators": [
 			{
@@ -1056,10 +974,7 @@ func TestPluginIPFixNeg14(t *testing.T) {
 	initJson := `
 	{
 		"netflow_version": 10,
-		"dst_ipv4": [48, 0, 0, 0],
-		"dst_mac": [0, 0, 2, 0, 0, 0],
-		"dst_ipv6": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-		"src_port": 30334,
+		"dst": "48.0.0.0:4739",
 		"domain_id": 22,
 		"generators": [
 			{
@@ -1126,10 +1041,7 @@ func TestPluginIPFix1(t *testing.T) {
 	initJson := fmt.Sprintf(`
 	{
 		"netflow_version": 10,
-		"dst_ipv4": [48, 0, 0, 0],
-		"dst_mac": [0, 0, 2, 0, 0, 0],
-		"dst_ipv6": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-		"src_port": 30334,
+		"dst": "48.0.0.0:4739",
 		"domain_id": 7777,
 		"generators": [%s]
 	}
@@ -1159,10 +1071,7 @@ func TestPluginIPFix2(t *testing.T) {
 	initJson := fmt.Sprintf(`
 	{
 		"netflow_version": 10,
-		"dst_ipv4": [0, 0, 0, 0],
-		"dst_mac": [0, 0, 2, 0, 0, 0],
-		"dst_ipv6": [32, 1, 13, 184, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2],
-		"src_port": 30334,
+		"dst": "[2001:db8::2]:4739",
 		"domain_id": 7777,
 		"generators": [%s]
 	}
@@ -1193,10 +1102,7 @@ func TestPluginIPFix3(t *testing.T) {
 	initJson := fmt.Sprintf(`
 	{
 		"netflow_version": 10,
-		"dst_ipv4": [48, 0, 0, 0],
-		"dst_mac": [0, 0, 2, 0, 0, 0],
-		"dst_ipv6": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-		"src_port": 30334,
+		"dst": "48.0.0.0:4739",
 		"domain_id": 7777,
 		"generators": [%s]
 	}
@@ -1226,10 +1132,7 @@ func TestPluginIPFix4(t *testing.T) {
 	initJson := fmt.Sprintf(`
 	{
 		"netflow_version": 10,
-		"dst_ipv4": [48, 0, 0, 0],
-		"dst_mac": [0, 0, 2, 0, 0, 0],
-		"dst_ipv6": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-		"src_port": 30334,
+		"dst": "48.0.0.0:4739",
 		"domain_id": 7777,
 		"generators": [%s]
 	}
@@ -1260,10 +1163,7 @@ func TestPluginIPFix5(t *testing.T) {
 		initJSON: [][]byte{[]byte(`
 		{
 			"netflow_version": 9,
-			"dst_ipv4": [48, 0, 0, 0],
-			"dst_mac": [0, 0, 2, 0, 0, 0],
-			"dst_ipv6": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-			"src_port": 30334,
+			"dst": "48.0.0.0:4739",
 			"domain_id": 7777,
 			"generators": [
 				{
@@ -1343,10 +1243,7 @@ func TestPluginIPFix6(t *testing.T) {
 	initJson := fmt.Sprintf(`
 	{
 		"netflow_version": 10,
-		"dst_ipv4": [48, 0, 0, 0],
-		"dst_mac": [0, 0, 2, 0, 0, 0],
-		"dst_ipv6": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-		"src_port": 30334,
+		"dst": "48.0.0.0:4739",
 		"domain_id": 7777,
 		"generators": [%s, %s]
 	}
@@ -1370,10 +1267,7 @@ func TestPluginIPFix7(t *testing.T) {
 	initJson := `
 	{
 		"netflow_version": 9,
-		"dst_ipv4": [48, 0, 0, 0],
-		"dst_mac": [0, 0, 2, 0, 0, 0],
-		"dst_ipv6": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-		"src_port": 30334,
+		"dst": "48.0.0.0:4739",
 		"domain_id": 7777,
 		"generators": [
 			{
@@ -1428,10 +1322,7 @@ func TestPluginIPFix8(t *testing.T) {
 	initJson := fmt.Sprintf(`
 	{
 		"netflow_version": 10,
-		"dst_ipv4": [48, 0, 0, 0],
-		"dst_mac": [0, 0, 2, 0, 0, 0],
-		"dst_ipv6": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-		"src_port": 30334,
+		"dst": "48.0.0.0:4739",
 		"domain_id": 7777,
 		"generators": [
 			{
@@ -1479,10 +1370,7 @@ func TestPluginIPFix9(t *testing.T) {
 	initJson := fmt.Sprintf(`
 	{
 		"netflow_version": 10,
-		"dst_ipv4": [48, 0, 0, 0],
-		"dst_mac": [0, 0, 2, 0, 0, 0],
-		"dst_ipv6": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-		"src_port": 30334,
+		"dst": "48.0.0.0:4739",
 		"domain_id": 7777,
 		"generators": [
 			{
@@ -1559,10 +1447,7 @@ func TestPluginIPFix10(t *testing.T) {
 	initJson := `
 	{
 		"netflow_version": 9,
-		"dst_ipv4": [0, 0, 0, 0],
-		"dst_mac": [0, 0, 2, 0, 0, 0],
-		"dst_ipv6": [32, 1, 13, 184, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2],
-		"src_port": 30334,
+		"dst": "[2001:db8::2]:4739",
 		"domain_id": 7777,
 		"generators": [
 			{
@@ -1708,10 +1593,7 @@ func TestPluginIPFix11(t *testing.T) {
 	initJson := `
 	{
 		"netflow_version": 10,
-		"dst_ipv4": [48, 0, 0, 0],
-		"dst_mac": [0, 0, 2, 0, 0, 0],
-		"dst_ipv6": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-		"src_port": 30334,
+		"dst": "48.0.0.0:4739",
 		"domain_id": 7777,
 		"generators": [
 			{
@@ -1868,10 +1750,7 @@ func TestPluginIPFix12(t *testing.T) {
 	initJson := fmt.Sprintf(`
 		{
 			"netflow_version": 10,
-			"dst_ipv4": [48, 0, 0, 0],
-			"dst_mac": [0, 0, 2, 0, 0, 0],
-			"dst_ipv6": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-			"src_port": 30334,
+			"dst": "48.0.0.0:4739",
 			"domain_id": 7777,
 			"generators": [%s]
 		}
@@ -1910,10 +1789,7 @@ func TestPluginIPFix13(t *testing.T) {
 	initJson := fmt.Sprintf(`
 		{
 			"netflow_version": 10,
-			"dst_ipv4": [48, 0, 0, 0],
-			"dst_mac": [0, 0, 2, 0, 0, 0],
-			"dst_ipv6": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-			"src_port": 30334,
+			"dst": "48.0.0.0:4739",
 			"domain_id": 7777,
 			"generators": [%s, %s]
 		}
@@ -1945,7 +1821,7 @@ func TestPluginIPFix14(t *testing.T) {
 	initJson := fmt.Sprintf(`
 		{
 			"netflow_version": 10,
-			"dst_ipv4": [48, 0, 0, 0],
+			"dst": "48.0.0.0:4739",
 			"generators": [%s]
 		}
 		`, getTemplate261(&template261Params))
@@ -1958,11 +1834,9 @@ func TestPluginIPFix14(t *testing.T) {
 		capture:      true,
 		initJSON:     [][]byte{[]byte(initJson)},
 		duration:     10 * time.Second,
-		clientsToSim: 2,
-		simEnv:       1,
+		clientsToSim: 1,
 	}
 	a.Run(t, true)
-
 }
 
 func TestPluginIPFix15(t *testing.T) {
@@ -1971,10 +1845,7 @@ func TestPluginIPFix15(t *testing.T) {
 	initJson := fmt.Sprintf(`
 	{
 		"netflow_version": 10,
-		"dst_ipv4": [48, 0, 0, 0],
-		"dst_mac": [0, 0, 2, 0, 0, 0],
-		"dst_ipv6": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-		"src_port": 30334,
+		"dst": "48.0.0.0:4739",
 		"domain_id": 7777,
 		"generators": [
 			{
@@ -2023,10 +1894,7 @@ func TestPluginIPFix16(t *testing.T) {
 	initJson := fmt.Sprintf(`
 		{
 			"netflow_version": 10,
-			"dst_ipv4": [48, 0, 0, 0],
-			"dst_mac": [0, 0, 2, 0, 0, 0],
-			"dst_ipv6": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-			"src_port": 30334,
+			"dst": "48.0.0.0:4739",
 			"domain_id": 2358,
 			"generators": [
 				{
@@ -2122,10 +1990,7 @@ func TestPluginIPFix17(t *testing.T) {
 	initJson := `
 		{
 			"netflow_version": 9,
-			"dst_ipv4": [48, 0, 0, 0],
-			"dst_mac": [0, 0, 2, 0, 0, 0],
-			"dst_ipv6": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-			"src_port": 30334,
+			"dst": "48.0.0.0:4739",
 			"domain_id": 6,
 			"generators": [
 				{
@@ -2244,10 +2109,7 @@ func getVariableLengthJson(rate float32, data_records_num uint16) string {
 	initJson := fmt.Sprintf(`
 	{
 		"netflow_version": 10,
-		"dst_ipv4": [48, 0, 0, 0],
-		"dst_mac": [0, 0, 2, 0, 0, 0],
-		"dst_ipv6": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-		"src_port": 30334,
+		"dst": "48.0.0.0:4739",
 		"domain_id": 6,
 		"generators": [
 			{
@@ -2469,10 +2331,7 @@ func TestPluginIPFix22(t *testing.T) {
 	initJson := `
 	{
 		"netflow_version": 10,
-		"dst_ipv4": [48, 0, 0, 0],
-		"dst_mac": [0, 0, 2, 0, 0, 0],
-		"dst_ipv6": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-		"src_port": 30334,
+		"dst": "48.0.0.0:4739",
 		"domain_id": 6,
 		"generators": [
 			{

@@ -19,6 +19,7 @@ TRex EMU emulates the aforementioned flow exporter for https://tools.ietf.org/ht
 
 import (
 	"emu/core"
+	"emu/plugins/transport"
 	"encoding/binary"
 	"external/google/gopacket/layers"
 	"external/osamingo/jsonrpc"
@@ -33,8 +34,6 @@ import (
 const (
 	IPFIX_PLUG               = "ipfix" // IPFix Plugin name
 	DefaultIPFixVersion      = 10      // Default Netflow Version
-	DefaultIPFixSrcPort      = 30334   // Default Source Port
-	DefaultIPFixDstPort      = 4739    // Default Destination Port
 	DefaultIPFixTemplateRate = 1       // Template PPS
 	DefaultIPFixDataRate     = 3       // Data PPS
 )
@@ -106,8 +105,8 @@ type IPFixGen struct {
 	dataPktsPerInterval    uint32              // How many data packets to send each interval
 	templateTicks          uint32              // Ticks between 2 consequent Template Set packets.
 	dataBuffer             []byte              // Data Buffer containing the field values.
-	templatePkt            []byte              // A complete Template Packet.
-	dataPkt                []byte              // A complete Data Packet from L2 to IPFix Data Sets (L7)
+	templatePayload        []byte              // A L7 payload for template packets.
+	dataPayload            []byte              // A L7 payload for data packets.
 	fields                 []*IPFixField       // IPFixFields as parsed from the JSON.
 	templateFields         layers.IPFixFields  // IPFixFields in layers.
 	fieldNames             map[string]bool     // Set of field names.
@@ -234,11 +233,11 @@ func NewIPFixGen(ipfix *PluginIPFixClient, initJson *fastjson.RawMessage) (*IPFi
 	o.templateTicks = o.timerw.DurationToTicks(time.Duration(float32(time.Second) / o.templateRate))
 	o.dataTicks, o.dataPktsPerInterval = o.timerw.DurationToTicksBurst(time.Duration(float32(time.Second) / o.dataRate))
 
-	ok := o.prepareTemplatePkt()
+	ok := o.prepareTemplatePayload()
 	if !ok {
 		return nil, false
 	}
-	// Preparing the data packet is not needed as SendPkt prepares it by itself. This packet changes every iteration.
+	// Preparing the data payload is not needed as SendPkt prepares it by itself. This packet changes every iteration.
 
 	o.calcAvailableRecordPayload()
 	var maxRecords uint32
@@ -299,17 +298,15 @@ func (o *IPFixGen) OnEvent(a, b interface{}) {
 	} else {
 		o.sendDataPkt()
 	}
-
 }
 
 // calcAvailableRecordPayload calculates the amount of bytes available for record payloads.
 func (o *IPFixGen) calcAvailableRecordPayload() {
-	basePktLen := len(o.ipfixPlug.basePkt) - int(o.ipfixPlug.l3Offset) // length of packet L3-L4
 	ipfixHeaderLen := layers.IpfixHeaderLenVer10
 	if o.ipfixPlug.ver == 9 {
 		ipfixHeaderLen = layers.IpfixHeaderLenVer9
 	}
-	o.availableRecordPayload = o.ipfixPlug.Client.MTU - uint16(basePktLen+ipfixHeaderLen+4) // set header length is 4
+	o.availableRecordPayload = o.ipfixPlug.availableL7MTU - uint16(ipfixHeaderLen+4) // set header length is 4
 }
 
 // calcShortestRecord calculates the length of the shortest possible record in case of variable length.
@@ -359,18 +356,21 @@ func (o *IPFixGen) calcMaxRecordsVarLength() uint32 {
 /*======================================================================================================
 										Send packet
 ======================================================================================================*/
+
 // sendTemplatePkt sends a Template packet
 func (o *IPFixGen) sendTemplatePkt() {
-	o.ipfixPlug.trySettingDstMac()
-	canSent := o.enabled && o.ipfixPlug.dstMacResolved
-	if canSent {
+	if o.enabled {
 		ipfixVer := o.ipfixPlug.ver
-		pkt := o.templatePkt
-		o.fixPkt(pkt)
-		o.sendPkt(pkt)
-		o.ipfixPlug.stats.pktTempSent++
-		if ipfixVer == 9 {
-			o.ipfixPlug.flowSeqNum++
+		payload := o.templatePayload
+		o.fixPayload(payload)
+		err, _ := o.ipfixPlug.socket.Write(payload)
+		if err != transport.SeOK {
+			o.ipfixPlug.stats.socketWriteError++
+		} else {
+			o.ipfixPlug.stats.pktTempSent++
+			if ipfixVer == 9 {
+				o.ipfixPlug.flowSeqNum++
+			}
 		}
 	}
 	o.timerw.StartTicks(&o.templateTimer, o.templateTicks)
@@ -378,42 +378,41 @@ func (o *IPFixGen) sendTemplatePkt() {
 
 // sendDataPkt sends a burst of data packets (burst can be of size 1)
 func (o *IPFixGen) sendDataPkt() {
-	o.ipfixPlug.trySettingDstMac()
-	canSent := o.enabled && o.ipfixPlug.dstMacResolved
-	if canSent {
+	if o.enabled {
 		ipfixVer := o.ipfixPlug.ver
 		// Only Data Packets can have bursts.
-		o.ipfixPlug.stats.pktDataSent += uint64(o.dataPktsPerInterval)
 		for i := 0; i < int(o.dataPktsPerInterval); i++ {
-			records := o.prepareDataPkt()
-			pkt := o.dataPkt
-			o.fixPkt(pkt)
-			o.sendPkt(pkt)
-			// updating the flow sequence number must be inside the loop because fixPkt uses the value.
-			if ipfixVer == 9 {
-				o.ipfixPlug.flowSeqNum++
-			} else if ipfixVer == 10 {
-				o.ipfixPlug.flowSeqNum += records
-			}
-			if o.recordsNum > records {
-				mtuMissedRecords := o.recordsNum - records
-				o.ipfixPlug.stats.recordsMtuMissErr += uint64(mtuMissedRecords)
+			records := o.prepareDataPayload()
+			payload := o.dataPayload
+			o.fixPayload(payload)
+			err, _ := o.ipfixPlug.socket.Write(payload)
+			if err != transport.SeOK {
+				o.ipfixPlug.stats.socketWriteError++
+			} else {
+				o.ipfixPlug.stats.pktDataSent++
+				// updating the flow sequence number must be inside the loop because fixPayload uses the value.
+				if ipfixVer == 9 {
+					o.ipfixPlug.flowSeqNum++
+				} else if ipfixVer == 10 {
+					o.ipfixPlug.flowSeqNum += records
+				}
+				if o.recordsNum > records {
+					mtuMissedRecords := o.recordsNum - records
+					o.ipfixPlug.stats.recordsMtuMissErr += uint64(mtuMissedRecords)
+				}
 			}
 		}
 	}
 	o.timerw.StartTicks(&o.dataTimer, o.dataTicks)
 }
 
-// fixPkt makes the differential fixes in each packet, like FlowSeq, Timestamp, Checksums, Length, etc.
-func (o *IPFixGen) fixPkt(pkt []byte) {
-	l3Offset := o.ipfixPlug.l3Offset
-	l4Offset := o.ipfixPlug.l4Offset
-	ipfixOffset := o.ipfixPlug.ipfixOffset
+// fixPayload makes the differential fixes in each packet, like FlowSeq, Timestamp, Length, etc.
+func (o *IPFixGen) fixPayload(pkt []byte) {
 	ipfixVer := o.ipfixPlug.ver
-	ipFixHeader := layers.IPFixHeader(pkt[ipfixOffset:])
+	ipFixHeader := layers.IPFixHeader(pkt)
 
 	if ipfixVer == 10 {
-		ipFixHeader.SetLength(uint16(len(pkt[ipfixOffset:])))
+		ipFixHeader.SetLength(uint16(len(pkt)))
 	}
 
 	if ipfixVer == 9 {
@@ -428,31 +427,6 @@ func (o *IPFixGen) fixPkt(pkt []byte) {
 	if !Simulation {
 		ipFixHeader.SetTimestamp(uint32(o.ipfixPlug.unixTimeNow))
 	}
-
-	// L3 & L4 length & checksum fix
-	binary.BigEndian.PutUint16(pkt[l4Offset+4:l4Offset+6], uint16(len(pkt[l4Offset:])))
-	l3Len := uint16(len(pkt[l3Offset:]))
-	isIpv6 := o.ipfixPlug.isIpv6
-
-	if !isIpv6 {
-		// IPv4 Packet
-		ipv4 := layers.IPv4Header(pkt[l3Offset : l3Offset+20])
-		ipv4.SetLength(l3Len)
-		ipv4.UpdateChecksum()
-		binary.BigEndian.PutUint16(pkt[l4Offset+6:l4Offset+8], 0)
-	} else {
-		// IPv6 Packet
-		ipv6 := layers.IPv6Header(pkt[l3Offset : l3Offset+40])
-		ipv6.SetPyloadLength(uint16(len(pkt[l4Offset:])))
-		ipv6.FixUdpL4Checksum(pkt[l4Offset:], 0)
-	}
-}
-
-// sendPkt sends an actual packet.
-func (o *IPFixGen) sendPkt(pkt []byte) {
-	m := o.ipfixPlug.Ns.AllocMbuf(uint16(len(pkt)))
-	m.Append(pkt)
-	o.ipfixPlug.Tctx.Veth.Send(m)
 }
 
 /*======================================================================================================
@@ -512,10 +486,10 @@ func (o *IPFixGen) getDataTemplateSets() layers.IPFixSets {
 	}
 }
 
-// prepareTemplatePkt create the Template packet which is send by default each second to the collector.
+// prepareTemplatePayload create the Template packet which is send by default each second to the collector.
 // This packet teaches the controller how to read the data packets. Template packets can be Data-Templates
 // or Option Templates.
-func (o *IPFixGen) prepareTemplatePkt() bool {
+func (o *IPFixGen) prepareTemplatePayload() bool {
 	ipfixPlug := o.ipfixPlug
 	var sets layers.IPFixSets
 	if o.optionsTemplate {
@@ -533,14 +507,12 @@ func (o *IPFixGen) prepareTemplatePkt() bool {
 			Sets:      sets,
 		},
 	)
-	o.templatePkt = append(ipfixPlug.basePkt, ipFixHeader...)
-
-	templatePktLenNoL2 := len(o.templatePkt) - int(o.ipfixPlug.l3Offset) // length of packet L3-L7
-
-	if templatePktLenNoL2 > int(o.ipfixPlug.Client.MTU) {
+	if len(ipFixHeader) > int(o.ipfixPlug.availableL7MTU) {
 		o.ipfixPlug.stats.templatePktLongerThanMTU++
 		return false
 	}
+
+	o.templatePayload = ipFixHeader
 	return true
 }
 
@@ -658,13 +630,13 @@ func (o *IPFixGen) getDataSets() (layers.IPFixSets, uint32) {
 	}, uint32(len(setEntries))
 }
 
-// prepareDataPkt prepares the Data packet by generating the IPFix L7 Data and attaching the newly created
+// prepareDataPayload prepares the Data packet by generating the IPFix L7 Data and attaching the newly created
 // L7 to the base packet created the IPFix Client Plugin.
 // Returns the number of records it added to the data set.
-func (o *IPFixGen) prepareDataPkt() (records uint32) {
-	if o.dataPkt != nil {
-		// Clear the Data Packet as we are about to create a new one.
-		o.dataPkt = o.dataPkt[:0]
+func (o *IPFixGen) prepareDataPayload() (records uint32) {
+	if o.dataPayload != nil {
+		// Clear the Data Payload as we are about to create a new one.
+		o.dataPayload = o.dataPayload[:0]
 	}
 	ipfixPlug := o.ipfixPlug
 	sets, records := o.getDataSets()
@@ -679,7 +651,7 @@ func (o *IPFixGen) prepareDataPkt() (records uint32) {
 		},
 	)
 
-	o.dataPkt = append(ipfixPlug.basePkt, ipFixHeader...)
+	o.dataPayload = ipFixHeader
 	return records
 }
 
@@ -730,15 +702,15 @@ type IPFixStats struct {
 	templatePktLongerThanMTU uint64 // Template Packet Length is longer than MTU, hence we can't send Template packets or any packets for that matter.
 	recordsMtuMissErr        uint64 // How many Data records dropped cause the record num is too big for MTU
 	dataIncorrectLength      uint64 // Data entry of field is not the same as the length provided in the same field.
+	invalidSocket            uint64 // Error while creating socket
+	socketWriteError         uint64 // Error while writing on a socket.
 	invalidJson              uint64 // Json could not be unmarshalled or validated correctly.
-	invalidParams            uint64 // Invalid init JSON params provided.
+	invalidDst               uint64 // Invalid Dst provided.
 	failedCreatingGen        uint64 // Failed creating a generator with the generator's provided JSON.
-	badCopy                  uint64 // Copying elements didn't complete successfully.
 	enterpriseFieldv9        uint64 // Enterprise Fields are not supported for V9.
 	variableLengthFieldv9    uint64 // Variable length Fields are not supported for V9.
 	variableLengthNoEngine   uint64 // Variable length field without engine provided.
 	badOrNoInitJson          uint64 // Init Json was either not provided or invalid.
-	unsuccessfulMacResolve   uint64 // Tried to resolve MAC of DG and failed.
 	duplicateGenName         uint64 // Generator with the same name already registered.
 	duplicateTemplateID      uint64 // Two generators with the same template ID.
 	invalidTemplateID        uint64 // Invalid Template ID, smaller than 255.
@@ -786,7 +758,23 @@ func NewIPFixStatsDb(o *IPFixStats) *core.CCounterDb {
 	db.Add(&core.CCounterRec{
 		Counter:  &o.dataIncorrectLength,
 		Name:     "dataIncorrectLength",
-		Help:     "Data entry of field is not the same as the length provided in the same field.",
+		Help:     "Field data of invalid length.",
+		Unit:     "ops",
+		DumpZero: false,
+		Info:     core.ScERROR})
+
+	db.Add(&core.CCounterRec{
+		Counter:  &o.invalidSocket,
+		Name:     "invalidSocket",
+		Help:     "Error creating socket.",
+		Unit:     "ops",
+		DumpZero: false,
+		Info:     core.ScERROR})
+
+	db.Add(&core.CCounterRec{
+		Counter:  &o.socketWriteError,
+		Name:     "socketWriteError",
+		Help:     "Error writing in socket.",
 		Unit:     "ops",
 		DumpZero: false,
 		Info:     core.ScERROR})
@@ -808,17 +796,9 @@ func NewIPFixStatsDb(o *IPFixStats) *core.CCounterDb {
 		Info:     core.ScERROR})
 
 	db.Add(&core.CCounterRec{
-		Counter:  &o.badCopy,
-		Name:     "badCopy",
-		Help:     "Unsuccesful copy.",
-		Unit:     "ops",
-		DumpZero: false,
-		Info:     core.ScERROR})
-
-	db.Add(&core.CCounterRec{
-		Counter:  &o.invalidParams,
-		Name:     "invalidParams",
-		Help:     "Invalid Init JSON Params provided.",
+		Counter:  &o.invalidDst,
+		Name:     "invalidDst",
+		Help:     "Invalid destination provided.",
 		Unit:     "ops",
 		DumpZero: false,
 		Info:     core.ScERROR})
@@ -826,7 +806,7 @@ func NewIPFixStatsDb(o *IPFixStats) *core.CCounterDb {
 	db.Add(&core.CCounterRec{
 		Counter:  &o.enterpriseFieldv9,
 		Name:     "enterpriseFieldv9",
-		Help:     "Enterpise field specified for Netflow v9 is not supported.",
+		Help:     "Enterpise fields not supported in Netflow v9.",
 		Unit:     "ops",
 		DumpZero: false,
 		Info:     core.ScERROR})
@@ -834,7 +814,7 @@ func NewIPFixStatsDb(o *IPFixStats) *core.CCounterDb {
 	db.Add(&core.CCounterRec{
 		Counter:  &o.variableLengthFieldv9,
 		Name:     "variableLengthFieldv9",
-		Help:     "Variable length field specified for Netflow v9 is not supported.",
+		Help:     "Variable length fields not supported in Netflow v9.",
 		Unit:     "ops",
 		DumpZero: false,
 		Info:     core.ScERROR})
@@ -856,14 +836,6 @@ func NewIPFixStatsDb(o *IPFixStats) *core.CCounterDb {
 		Info:     core.ScERROR})
 
 	db.Add(&core.CCounterRec{
-		Counter:  &o.unsuccessfulMacResolve,
-		Name:     "unsuccessfulMacResolve",
-		Help:     "Tried to resolve MAC address of Default Gateway and failed.",
-		Unit:     "ops",
-		DumpZero: false,
-		Info:     core.ScERROR})
-
-	db.Add(&core.CCounterRec{
 		Counter:  &o.duplicateGenName,
 		Name:     "duplicateGenName",
 		Help:     "Generator with the same name already registered.",
@@ -874,7 +846,7 @@ func NewIPFixStatsDb(o *IPFixStats) *core.CCounterDb {
 	db.Add(&core.CCounterRec{
 		Counter:  &o.duplicateTemplateID,
 		Name:     "duplicateTemplateID",
-		Help:     "Another generator has the same template ID. Can't have 2 generators with the same template ID.",
+		Help:     "Duplicate template ID. Can't have 2 generators with the same template ID.",
 		Unit:     "ops",
 		DumpZero: false,
 		Info:     core.ScERROR})
@@ -882,7 +854,7 @@ func NewIPFixStatsDb(o *IPFixStats) *core.CCounterDb {
 	db.Add(&core.CCounterRec{
 		Counter:  &o.invalidTemplateID,
 		Name:     "invalidTemplateID",
-		Help:     "Invalid template ID, template ID must be bigger than 255.",
+		Help:     "Invalid template ID. Template ID must be bigger than 255.",
 		Unit:     "ops",
 		DumpZero: false,
 		Info:     core.ScERROR})
@@ -906,7 +878,7 @@ func NewIPFixStatsDb(o *IPFixStats) *core.CCounterDb {
 	db.Add(&core.CCounterRec{
 		Counter:  &o.invalidScopeCount,
 		Name:     "invalidScopeCount",
-		Help:     "Invalid scope count, in case of Options Template, scope count must be specified and > 0.",
+		Help:     "Invalid scope count. Options template have scope counts > 0.",
 		Unit:     "ops",
 		DumpZero: false,
 		Info:     core.ScERROR})
@@ -921,11 +893,7 @@ func NewIPFixStatsDb(o *IPFixStats) *core.CCounterDb {
 // IPFixClientParams defines the json structure for Ipfix plugin.
 type IPFixClientParams struct {
 	Ver        uint16                 `json:"netflow_version"`                // NetFlow version 9 or 10
-	Ipv4       core.Ipv4Key           `json:"dst_ipv4"`                       // Collector IPv4 address
-	Ipv6       core.Ipv6Key           `json:"dst_ipv6"`                       // Collector IPv6 address
-	Mac        core.MACKey            `json:"dst_mac"`                        // Collector MAC address
-	DstPort    uint16                 `json:"dst_port"`                       // Dst UDP port, Collector port
-	SrcPort    uint16                 `json:"src_port"`                       // Source UDP port, Exporter port
+	Dst        string                 `json:"dst" validate:"required"`        // Destination Address. Combination of Host:Port.
 	DomainID   uint32                 `json:"domain_id"`                      // Observation Domain ID
 	Generators []*fastjson.RawMessage `json:"generators" validate:"required"` // Ipfix Generators (Template or Data)
 }
@@ -938,33 +906,26 @@ type IPFixTimerCallback struct{}
 // PluginIPFixClient represents an IPFix client, someone that owns one or multiple exporting processes.
 // Each IPFixGen is an exporting process.
 type PluginIPFixClient struct {
-	core.PluginBase                      // Plugin Base
-	ver             uint16               // NetFlow version 9 or 10
-	dstIpv4         core.Ipv4Key         // Collector IPv4 address
-	dstIpv6         core.Ipv6Key         // Collector IPv6 address
-	dstMac          core.MACKey          // Forced Collector MAC, not using DG Mac.
-	dstPort         uint16               // Destination UDP port, Collector port
-	srcPort         uint16               // Source UDP port, Exporter port
-	sysStartTime    time.Time            // Start time of the system in order to calculate uptime.
-	sysUpTime       uint32               // System Up Time (Only in Ver 9) in resolution of milliseconds.
-	unixTimeNow     int64                // Unix Time Now for Unix Time in Header, should be on resolution of seconds.
-	domainID        uint32               // Observation Domain ID
-	flowSeqNum      uint32               // Flow sequence number must be common for all IPFix Gen.
-	isIpv6          bool                 // True if dstIPv6 supplied
-	dstMacResolved  bool                 // True if the destination MAC address is resolved.
-	basePkt         []byte               // Base Pkt L2-L4
-	l3Offset        uint16               // Offset to L3
-	l4Offset        uint16               // Offset to L4
-	ipfixOffset     uint16               // IPFix Offset
-	timerw          *core.TimerCtx       // Timer Wheel
-	timer           core.CHTimerObj      // Timer Object for calculating Unix time every tick
-	timerCb         IPFixTimerCallback   // Timer Callback object
-	stats           IPFixStats           // IPFix statistics
-	cdb             *core.CCounterDb     // Counters Database
-	cdbv            *core.CCounterDbVec  // Counters Database Vector
-	generators      []*IPFixGen          // List of Generators
-	generatorsMap   map[string]*IPFixGen // Generator Map for fast lookup with generator name.
-	templateIDSet   map[uint16]bool      // Set of Template IDs.
+	core.PluginBase                         // Plugin Base
+	ver             uint16                  // NetFlow version 9 or 10
+	dstAddress      string                  // Destination Address. Combination of Host:Port.
+	sysStartTime    time.Time               // Start time of the system in order to calculate uptime.
+	sysUpTime       uint32                  // System Up Time (Only in Ver 9) in resolution of milliseconds.
+	unixTimeNow     int64                   // Unix Time Now for Unix Time in Header, should be on resolution of seconds.
+	domainID        uint32                  // Observation Domain ID
+	flowSeqNum      uint32                  // Flow sequence number must be common for all IPFix Gen.
+	transportCtx    *transport.TransportCtx // Transport Layer Context
+	socket          transport.SocketApi     // Socket API
+	availableL7MTU  uint16                  // Available L7 MTU
+	timerw          *core.TimerCtx          // Timer Wheel
+	timer           core.CHTimerObj         // Timer Object for calculating Unix time every tick
+	timerCb         IPFixTimerCallback      // Timer Callback object
+	stats           IPFixStats              // IPFix statistics
+	cdb             *core.CCounterDb        // Counters Database
+	cdbv            *core.CCounterDbVec     // Counters Database Vector
+	generators      []*IPFixGen             // List of Generators
+	generatorsMap   map[string]*IPFixGen    // Generator Map for fast lookup with generator name.
+	templateIDSet   map[uint16]bool         // Set of Template IDs.
 }
 
 var ipfixEvents = []string{}
@@ -979,8 +940,7 @@ func NewIPFixClient(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
 	o.OnCreate()
 
 	// Parse the Init JSON.
-	init := IPFixClientParams{Ver: DefaultIPFixVersion, DstPort: DefaultIPFixDstPort, SrcPort: DefaultIPFixSrcPort,
-		DomainID: o.domainID}
+	init := IPFixClientParams{Ver: DefaultIPFixVersion, DomainID: o.domainID}
 	err := o.Tctx.UnmarshalValidate(initJson, &init)
 
 	if err != nil {
@@ -989,22 +949,24 @@ func NewIPFixClient(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
 	}
 
 	// Init Json was provided and successfully unmarshalled.
-	if (!init.Ipv4.IsZero() && !init.Ipv6.IsZero()) || (init.Ipv4.IsZero() && init.Ipv6.IsZero()) {
-		o.stats.invalidParams++
+	if _, _, err = net.SplitHostPort(init.Dst); err != nil {
+		o.stats.invalidDst++
 		return &o.PluginBase
 	}
+
 	o.ver = init.Ver
-	o.dstMac = init.Mac
-	o.dstIpv4 = init.Ipv4
-	if !init.Ipv6.IsZero() {
-		o.dstIpv6 = init.Ipv6
-		o.isIpv6 = true
-	}
-	o.dstPort = init.DstPort
-	o.srcPort = init.SrcPort
+	o.dstAddress = init.Dst
 	o.domainID = init.DomainID
+
+	o.transportCtx = transport.GetTransportCtx(o.Client)
+	o.socket, err = o.transportCtx.Dial("udp", o.dstAddress, o, nil)
+	if err != nil {
+		o.stats.invalidSocket++
+		return &o.PluginBase
+	}
+	o.availableL7MTU = o.socket.GetL7MTU()
+
 	if len(init.Generators) > 0 {
-		o.prepareBasePacket()
 		o.generatorsMap = make(map[string]*IPFixGen, len(init.Generators))
 		o.templateIDSet = make(map[uint16]bool, len(init.Generators))
 		for i := range init.Generators {
@@ -1058,6 +1020,7 @@ func (o *PluginIPFixClient) OnRemove(ctx *core.PluginCtx) {
 	for _, gen := range o.generators {
 		gen.OnRemove()
 	}
+	o.socket.Close()
 }
 
 // OnEvent callback of the IPFix client plugin.
@@ -1076,106 +1039,21 @@ func (o *IPFixTimerCallback) OnEvent(a, b interface{}) {
 	ipfixPlug.unixTimeNow = timeNow.Unix()
 	// Restart call
 	ipfixPlug.timerw.StartTicks(&ipfixPlug.timer, 1)
-
 }
 
-// resolvedDstMac tries to resolve the destination MAC of the default gateway
-// depending on IPv4 or IPv6 destination.
-func (o *PluginIPFixClient) resolveDstMac() (mac core.MACKey, ok bool) {
-	if !o.isIpv6 {
-		mac, ok = o.Client.ResolveIPv4DGMac()
-	} else {
-		mac, ok = o.Client.ResolveIPv6DGMac()
-	}
-	return mac, ok
+// OnRxEvent function to complete the ISocketCb interface.
+func (o *PluginIPFixClient) OnRxEvent(event transport.SocketEventType) {
+	// no rx expected in IPFix
 }
 
-// trySettingDstMac tries resolving the dst mac and setting it in the base packet, or increments an error counter.
-func (o *PluginIPFixClient) trySettingDstMac() {
-	if !o.dstMacResolved {
-		dstMac, ok := o.resolveDstMac()
-		if ok {
-			o.dstMacResolved = true
-			layers.EthernetHeader(o.basePkt).SetDestAddress(dstMac[:])
-			for i := range o.generators {
-				gen := o.generators[i]
-				if len(gen.templatePkt) > 0 {
-					layers.EthernetHeader(gen.templatePkt).SetDestAddress(dstMac[:])
-				}
-				if len(gen.dataPkt) > 0 {
-					layers.EthernetHeader(gen.dataPkt).SetDestAddress(dstMac[:])
-				}
-
-			}
-		} else {
-			o.stats.unsuccessfulMacResolve++
-		}
-	}
-
+// OnRxData function to complete the ISocketCb interface.
+func (o *PluginIPFixClient) OnRxData(d []byte) {
+	// no rx expected in IPFix
 }
 
-// prepareBasePacket prepares L2, L3, L4 of the IPfix packets.
-// L7 is added later depending on the type of packet we want to send.
-func (o *PluginIPFixClient) prepareBasePacket() {
-
-	var l2Type layers.EthernetType
-	if o.isIpv6 {
-		l2Type = layers.EthernetTypeIPv6
-	} else {
-		l2Type = layers.EthernetTypeIPv4
-	}
-
-	// L2
-	pkt := o.Client.GetL2Header(false, uint16(l2Type))
-	layers.EthernetHeader(pkt).SetSrcAddress(o.Client.Mac[:])
-	if !o.dstMac.IsZero() {
-		// Forced MAC
-		layers.EthernetHeader(pkt).SetDestAddress(o.dstMac[:])
-		o.dstMacResolved = true
-	} else {
-		// Default Gateway MAC
-		var dstMac core.MACKey
-		dstMac, o.dstMacResolved = o.resolveDstMac()
-		if o.dstMacResolved {
-			layers.EthernetHeader(pkt).SetDestAddress(dstMac[:])
-		} else {
-			o.stats.unsuccessfulMacResolve++
-		}
-	}
-
-	o.l3Offset = uint16(len(pkt))
-
-	// L3
-	var ipHeader []byte
-	if !o.isIpv6 {
-		ipHeader = core.PacketUtlBuild(
-			&layers.IPv4{Version: 4, IHL: 5, TTL: 128, Id: 0xcc,
-				SrcIP:    net.IP(o.Client.Ipv4[:]),
-				DstIP:    net.IP(o.dstIpv4[:]),
-				Protocol: layers.IPProtocolUDP})
-	} else {
-		ipHeader = core.PacketUtlBuild(
-			&layers.IPv6{
-				Version:      6,
-				TrafficClass: 0,
-				FlowLabel:    0,
-				NextHeader:   layers.IPProtocolUDP,
-				HopLimit:     255,
-				SrcIP:        net.IP(o.Client.Ipv6[:]),
-				DstIP:        net.IP(o.dstIpv6[:]),
-			})
-	}
-
-	pkt = append(pkt, ipHeader...)
-	o.l4Offset = uint16(len(pkt))
-
-	// L4
-	udpHeader := core.PacketUtlBuild(
-		&layers.UDP{SrcPort: layers.UDPPort(o.srcPort),
-			DstPort: layers.UDPPort(o.dstPort)})
-
-	o.basePkt = append(pkt, udpHeader...)
-	o.ipfixOffset = uint16(len(o.basePkt))
+// OnTxEvent function
+func (o *PluginIPFixClient) OnTxEvent(event transport.SocketEventType) {
+	// No Tx Events expected.
 }
 
 /*======================================================================================================
