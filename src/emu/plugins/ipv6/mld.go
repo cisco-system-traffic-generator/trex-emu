@@ -880,8 +880,11 @@ func (o *mldNsCtx) HandleRxMldCmn(isGenQuery bool, mldAddr core.Ipv6Key) int {
 		}
 
 	} else {
-		vec := []core.Ipv6Key{mldAddr}
-		o.SendMcPacket(vec, false, true)
+		_, ok := o.tbl.mapIgmp[mldAddr]
+		if ok {
+			vec := []core.Ipv6Key{mldAddr}
+			o.SendMcPacket(vec, false, true)
+		}
 	}
 	return 0
 }

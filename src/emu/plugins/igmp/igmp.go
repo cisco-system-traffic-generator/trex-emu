@@ -789,8 +789,13 @@ func (o *PluginIgmpNs) HandleRxIgmpCmn(isGenQuery bool, igmpAddr uint32) int {
 		}
 
 	} else {
-		vec := []uint32{igmpAddr}
-		o.SendMcPacket(vec, false, true)
+		var key core.Ipv4Key
+		key.SetUint32(igmpAddr)
+		_, ok := o.tbl.mapIgmp[key]
+		if ok {
+			vec := []uint32{igmpAddr}
+			o.SendMcPacket(vec, false, true)
+		}
 	}
 	return 0
 }
