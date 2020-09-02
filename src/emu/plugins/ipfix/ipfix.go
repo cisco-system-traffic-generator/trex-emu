@@ -26,6 +26,7 @@ import (
 	"fmt"
 	"math/rand"
 	"net"
+	"strings"
 	"time"
 
 	"github.com/intel-go/fastjson"
@@ -233,33 +234,13 @@ func NewIPFixGen(ipfix *PluginIPFixClient, initJson *fastjson.RawMessage) (*IPFi
 	o.templateTicks = o.timerw.DurationToTicks(time.Duration(float32(time.Second) / o.templateRate))
 	o.dataTicks, o.dataPktsPerInterval = o.timerw.DurationToTicksBurst(time.Duration(float32(time.Second) / o.dataRate))
 
-	ok := o.prepareTemplatePayload()
-	if !ok {
-		return nil, false
+	if o.ipfixPlug.dgMacResolved {
+		// If resolved before the generators were created, we call on resolve explictly.
+		if ok := o.OnResolve(); !ok {
+			return nil, false
+		}
+
 	}
-	// Preparing the data payload is not needed as SendPkt prepares it by itself. This packet changes every iteration.
-
-	o.calcAvailableRecordPayload()
-	var maxRecords uint32
-
-	if !o.variableLengthFields {
-		// in case we are working with fixed size records we know ahed of time how many records we can send.
-		maxRecords = o.calcMaxRecords()
-	} else {
-		// Upper bound on the maximum number of records
-		maxRecords = o.calcMaxRecordsVarLength()
-	}
-
-	if o.recordsNum == 0 || o.recordsNum > maxRecords {
-		// number of records wasn't supplied or it is bigger then what the MTU allows.
-		o.recordsNumToSent = maxRecords
-	} else {
-		o.recordsNumToSent = o.recordsNum
-	}
-
-	// Attempt to send the first packets inorder.
-	o.sendTemplatePkt() // template packet
-	o.sendDataPkt()     // data packet
 
 	return o, true
 }
@@ -298,6 +279,39 @@ func (o *IPFixGen) OnEvent(a, b interface{}) {
 	} else {
 		o.sendDataPkt()
 	}
+}
+
+// OnResolve is called when the client succesfully resolves the mac address of the default gateway
+// and we can create a socket.
+func (o *IPFixGen) OnResolve() bool {
+	ok := o.prepareTemplatePayload()
+	if !ok {
+		return false
+	}
+	// Preparing the data payload is not needed as SendPkt prepares it by itself. This packet changes every iteration.
+
+	o.calcAvailableRecordPayload()
+	var maxRecords uint32
+
+	if !o.variableLengthFields {
+		// in case we are working with fixed size records we know ahed of time how many records we can send.
+		maxRecords = o.calcMaxRecords()
+	} else {
+		// Upper bound on the maximum number of records
+		maxRecords = o.calcMaxRecordsVarLength()
+	}
+
+	if o.recordsNum == 0 || o.recordsNum > maxRecords {
+		// number of records wasn't supplied or it is bigger then what the MTU allows.
+		o.recordsNumToSent = maxRecords
+	} else {
+		o.recordsNumToSent = o.recordsNum
+	}
+
+	// Attempt to send the first packets inorder.
+	o.sendTemplatePkt() // template packet
+	o.sendDataPkt()     // data packet
+	return true
 }
 
 // calcAvailableRecordPayload calculates the amount of bytes available for record payloads.
@@ -909,6 +923,7 @@ type PluginIPFixClient struct {
 	core.PluginBase                         // Plugin Base
 	ver             uint16                  // NetFlow version 9 or 10
 	dstAddress      string                  // Destination Address. Combination of Host:Port.
+	isIpv6          bool                    // Is destination address IPv6 or IPv4 address
 	sysStartTime    time.Time               // Start time of the system in order to calculate uptime.
 	sysUpTime       uint32                  // System Up Time (Only in Ver 9) in resolution of milliseconds.
 	unixTimeNow     int64                   // Unix Time Now for Unix Time in Header, should be on resolution of seconds.
@@ -916,6 +931,7 @@ type PluginIPFixClient struct {
 	flowSeqNum      uint32                  // Flow sequence number must be common for all IPFix Gen.
 	transportCtx    *transport.TransportCtx // Transport Layer Context
 	socket          transport.SocketApi     // Socket API
+	dgMacResolved   bool                    // Is the default gateway MAC address resolved?
 	availableL7MTU  uint16                  // Available L7 MTU
 	timerw          *core.TimerCtx          // Timer Wheel
 	timer           core.CHTimerObj         // Timer Object for calculating Unix time every tick
@@ -928,15 +944,15 @@ type PluginIPFixClient struct {
 	templateIDSet   map[uint16]bool         // Set of Template IDs.
 }
 
-var ipfixEvents = []string{}
+var ipfixEvents = []string{core.MSG_DG_MAC_RESOLVED}
 
 // NewIPFixClient creates an IPFix client plugin. An IPFix client can own multiple generators
 // (exporting processes).
 func NewIPFixClient(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
 
 	o := new(PluginIPFixClient)
-	o.InitPluginBase(ctx, o)              /* init base object*/
-	o.RegisterEvents(ctx, ipfixEvents, o) /* register events, only if they exist*/
+	o.InitPluginBase(ctx, o)              // Init base object
+	o.RegisterEvents(ctx, ipfixEvents, o) // Register events, only if they exist
 	o.OnCreate()
 
 	// Parse the Init JSON.
@@ -949,22 +965,18 @@ func NewIPFixClient(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
 	}
 
 	// Init Json was provided and successfully unmarshalled.
-	if _, _, err = net.SplitHostPort(init.Dst); err != nil {
+	var host string
+	if host, _, err = net.SplitHostPort(init.Dst); err != nil {
 		o.stats.invalidDst++
 		return &o.PluginBase
 	}
+	o.isIpv6 = strings.Contains(host, ":")
 
 	o.ver = init.Ver
 	o.dstAddress = init.Dst
 	o.domainID = init.DomainID
 
 	o.transportCtx = transport.GetTransportCtx(o.Client)
-	o.socket, err = o.transportCtx.Dial("udp", o.dstAddress, o, nil)
-	if err != nil {
-		o.stats.invalidSocket++
-		return &o.PluginBase
-	}
-	o.availableL7MTU = o.socket.GetL7MTU()
 
 	if len(init.Generators) > 0 {
 		o.generatorsMap = make(map[string]*IPFixGen, len(init.Generators))
@@ -1009,6 +1021,26 @@ func (o *PluginIPFixClient) OnCreate() {
 	o.cdbv.Add(o.cdb)
 }
 
+// OnResolve is called when the default gateway mac address is resolved. Here we can start the dial.
+func (o *PluginIPFixClient) OnResolve() {
+	o.dgMacResolved = true
+	if o.transportCtx != nil {
+		var err error
+		o.socket, err = o.transportCtx.Dial("udp", o.dstAddress, o, nil)
+		if err != nil {
+			o.stats.invalidSocket++
+			return
+		}
+		o.availableL7MTU = o.socket.GetL7MTU()
+
+		for i, _ := range o.generators {
+			// Created generators can now proceed.
+			o.generators[i].OnResolve()
+		}
+	}
+
+}
+
 // OnRemove is called when we are trying to remove this IPFix client.
 func (o *PluginIPFixClient) OnRemove(ctx *core.PluginCtx) {
 	ctx.UnregisterEvents(&o.PluginBase, ipfixEvents)
@@ -1020,11 +1052,31 @@ func (o *PluginIPFixClient) OnRemove(ctx *core.PluginCtx) {
 	for _, gen := range o.generators {
 		gen.OnRemove()
 	}
-	o.socket.Close()
+	if o.socket != nil {
+		o.socket.Close()
+	}
 }
 
 // OnEvent callback of the IPFix client plugin.
 func (o *PluginIPFixClient) OnEvent(msg string, a, b interface{}) {
+	switch msg {
+	case core.MSG_DG_MAC_RESOLVED:
+		bitMask, ok := a.(uint8)
+		if !ok {
+			// failed at type assertion
+			return
+		}
+		if o.dgMacResolved {
+			// already resolved, nothing to do
+			// shouldn't call OnResolve twice
+			return
+		}
+		resolvedIPv4 := (bitMask & core.RESOLVED_IPV4_DG_MAC) == core.RESOLVED_IPV4_DG_MAC
+		resolvedIPv6 := (bitMask & core.RESOLVED_IPV6_DG_MAC) == core.RESOLVED_IPV6_DG_MAC
+		if (o.isIpv6 && resolvedIPv6) || (!o.isIpv6 && resolvedIPv4) {
+			o.OnResolve()
+		}
+	}
 }
 
 // OnEvent callback of the IPFixTimerCallback

@@ -32,6 +32,7 @@ const (
 	SeENOBUFS              SocketErr = 6
 	SeCONNECTION_IS_CLOSED SocketErr = 7
 	SeWRITE_WHILE_DRAIN    SocketErr = 8
+	SeUNRESOLVED           SocketErr = 9
 )
 
 // String shows the register type nicely formatted
@@ -57,6 +58,8 @@ func (tt SocketErr) String() string {
 		return "Socket is already closed"
 	case SeWRITE_WHILE_DRAIN:
 		return "Socket queue is full, wait for tx event"
+	case SeUNRESOLVED:
+		return "Socket destination MAC address unresolved."
 	}
 }
 
@@ -142,6 +145,7 @@ type SocketApi interface {
 	*/
 	Write(buf []byte) (err SocketErr, queued bool)
 	GetL7MTU() uint16       // Returns the L7 MTU.
+	IsIPv6() bool           // Returns True if the IP layer is IPv6, False if it is IPv4.
 	GetSocket() interface{} // return internal raw socket *TcpSocket for testing
 }
 

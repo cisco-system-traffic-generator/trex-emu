@@ -346,6 +346,9 @@ func (h ApiClientAddHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawM
 				}
 			}
 		}
+
+		// After creating the clients and adding the plugins, we can try to attempt resolving.
+		client.AttemptResolve()
 	}
 	return nil, nil
 }

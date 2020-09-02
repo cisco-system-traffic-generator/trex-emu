@@ -10,6 +10,7 @@ import (
 	"external/google/gopacket/layers"
 	"fmt"
 	"net"
+	"time"
 	"unsafe"
 )
 
@@ -92,6 +93,11 @@ type CClient struct {
 
 	transport interface{} // pointer to transport, allocated only if needed
 
+	timerw             *TimerCtx  // Timer Wheel
+	timer              CHTimerObj // Timer Object for notifying in case DG MAC resolved.
+	bitMask            uint8      // Bit mask for resolving message
+	resolveAttempts    uint8      // Counter counting how many times have we tried to resolve
+	maxResolveAttempts uint8      // Maximum amount of resolves allowed
 }
 
 type CClientCmd struct {
@@ -178,9 +184,57 @@ func NewClientCmd(ns *CNSCtx, cmd *CClientCmd) *CClient {
 	return c
 }
 
+// AttemptResolve tells the client to start attempting to resolve.
+func (o *CClient) AttemptResolve() {
+	o.maxResolveAttempts = 5                // Maximum amount of resolved attempts.
+	o.timerw = o.Ns.ThreadCtx.GetTimerCtx() // Initialize timer wheel
+	o.timer.SetCB(o, 0, 0)                  // Set callback for timer
+	o.OnEvent(0, 0)                         // Call on Event explicitly the first time
+}
+
 /*OnRemove called on before removing the client */
 func (o *CClient) OnRemove() {
+	if o.timer.IsRunning() {
+		o.timerw.Stop(&o.timer)
+	}
 	o.PluginCtx.OnRemove()
+}
+
+// OnEvent serves as a callback for the timer, which every 1 sec verifies if the default gateway
+// mac is resolved. In case of resolve, it will notify the registered plugins.
+func (o *CClient) OnEvent(a, b interface{}) {
+	var broadcast bool
+	ipv4DGResolved := (o.bitMask & RESOLVED_IPV4_DG_MAC) == RESOLVED_IPV4_DG_MAC
+	ipv6DGResolved := (o.bitMask & RESOLVED_IPV6_DG_MAC) == RESOLVED_IPV6_DG_MAC
+	if !ipv4DGResolved {
+		_, ipv4DGResolved = o.ResolveIPv4DGMac()
+		if ipv4DGResolved {
+			// Set bit mask that IPv4 was resolved.
+			o.bitMask |= RESOLVED_IPV4_DG_MAC
+			// A new resolve, we should broadcast
+			broadcast = true
+		}
+	}
+	if !ipv6DGResolved {
+		_, ipv6DGResolved = o.ResolveIPv6DGMac()
+		if ipv6DGResolved {
+			// Set bit mask that IPv6 was resolved.
+			o.bitMask |= RESOLVED_IPV6_DG_MAC
+			// A new resolve, we should broadcast
+			broadcast = true
+		}
+	}
+	if broadcast {
+		// Should broadcast as something new was resolved.
+		o.PluginCtx.BroadcastMsg(nil, MSG_DG_MAC_RESOLVED, o.bitMask, 0)
+	}
+	if (o.resolveAttempts < o.maxResolveAttempts) && (!ipv4DGResolved || !ipv6DGResolved) {
+		// restart ticks as at least of IPv4/IPv6 isn't resolved and we didn't pass the
+		// allowed resolve attempts.
+		o.resolveAttempts++
+		ticks := o.timerw.DurationToTicks(time.Second)
+		o.timerw.StartTicks(&o.timer, ticks)
+	}
 }
 
 // fix this
@@ -376,8 +430,7 @@ func (o *CClient) GetInfo() *CClientInfo {
 func (o *CClient) ResolveIPv4DGMac() (mac MACKey, ok bool) {
 	if o.ForceDGW {
 		mac, ok = o.Ipv4ForcedgMac, true
-	}
-	if o.DGW != nil && o.DGW.IpdgResolved {
+	} else if o.DGW != nil && o.DGW.IpdgResolved {
 		mac, ok = o.DGW.IpdgMac, true
 	}
 	return mac, ok
@@ -386,11 +439,9 @@ func (o *CClient) ResolveIPv4DGMac() (mac MACKey, ok bool) {
 func (o *CClient) ResolveIPv6DGMac() (mac MACKey, ok bool) {
 	if o.Ipv6ForceDGW {
 		mac, ok = o.Ipv6ForcedgMac, true
-	}
-	if o.Ipv6DGW != nil && o.Ipv6DGW.IpdgResolved {
+	} else if o.Ipv6DGW != nil && o.Ipv6DGW.IpdgResolved {
 		mac, ok = o.Ipv6DGW.IpdgMac, true
-	}
-	if o.Ipv6Router != nil {
+	} else if o.Ipv6Router != nil {
 		mac, ok = o.Ipv6Router.DgMac, true
 	}
 	return mac, ok
@@ -464,7 +515,12 @@ func (o *CClient) ResolveDGv6() (ipv6 Ipv6Key, mac MACKey, ok bool) {
 func (o *CClient) GetIPv6MTU() (mtu uint16) {
 	if o.Ipv6Router != nil {
 		// Router Advertisment received from the router.
-		mtu = o.Ipv6Router.MTU
+		if o.Ipv6Router.MTU != 0 {
+			mtu = o.Ipv6Router.MTU
+		} else {
+			// Router Selicitation not received yet.
+			mtu = 1500
+		}
 	} else {
 		// Unless set, the MTU is the standard MTU of 1500
 		mtu = 1500

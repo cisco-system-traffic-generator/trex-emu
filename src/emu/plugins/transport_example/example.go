@@ -14,7 +14,6 @@ example of transport
 import (
 	"emu/core"
 	"emu/plugins/transport"
-	"time"
 )
 
 const (
@@ -35,14 +34,6 @@ func NewTransportEStatsDb(o *TransportEStats) *core.CCounterDb {
 	return db
 }
 
-type PluginTClientTimer struct {
-}
-
-func (o *PluginTClientTimer) OnEvent(a, b interface{}) {
-	pi := a.(*PluginTransportEClient)
-	pi.onTimerEvent()
-}
-
 //PluginDhcpClient information per client
 type PluginTransportEClient struct {
 	core.PluginBase
@@ -50,12 +41,9 @@ type PluginTransportEClient struct {
 	ctx        *transport.TransportCtx
 	s          transport.SocketApi
 	cfg        TransEInit
-	timerw     *core.TimerCtx
-	timer      core.CHTimerObj
-	timerCb    PluginTClientTimer
 }
 
-var events = []string{}
+var events = []string{core.MSG_DG_MAC_RESOLVED}
 
 /*NewDhcpClient create plugin */
 func NewTransportEClient(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
@@ -69,24 +57,7 @@ func NewTransportEClient(ctx *core.PluginCtx, initJson []byte) *core.PluginBase 
 	o.cfg = TransEInit{Addr: "48.0.0.1:80", DataSize: 10}
 	ctx.Tctx.UnmarshalValidate(initJson, &o.cfg)
 
-	o.OnCreate()
-
 	return &o.PluginBase
-}
-
-func (o *PluginTransportEClient) OnCreate() {
-	o.timerw = o.Tctx.GetTimerCtx()
-	o.timer.SetCB(&o.timerCb, o, 0) // set the callback to OnEvent
-	o.timerw.Start(&o.timer, time.Duration(10)*time.Second)
-	o.ctx = transport.GetTransportCtx(o.Client)
-}
-
-func (o *PluginTransportEClient) onTimerEvent() {
-	s, err := o.ctx.Dial("tcp", o.cfg.Addr, o, nil)
-	if err != nil {
-		return
-	}
-	o.s = s
 }
 
 func (o *PluginTransportEClient) OnRxEvent(event transport.SocketEventType) {
@@ -122,16 +93,29 @@ func (o *PluginTransportEClient) OnTxEvent(event transport.SocketEventType) {
 	}
 }
 
-/*OnEvent support event change of IP  */
+/*OnEvent support of messages */
 func (o *PluginTransportEClient) OnEvent(msg string, a, b interface{}) {
-
+	switch msg {
+	case core.MSG_DG_MAC_RESOLVED:
+		bitMask, ok := a.(uint8)
+		if !ok {
+			// failed at type assertion
+			return
+		}
+		resolvedIPv4 := (bitMask & core.RESOLVED_IPV4_DG_MAC) == core.RESOLVED_IPV4_DG_MAC
+		if resolvedIPv4 {
+			// now we can dial
+			s, err := o.ctx.Dial("tcp", o.cfg.Addr, o, nil)
+			if err != nil {
+				return
+			}
+			o.s = s
+		}
+	}
 }
 
 func (o *PluginTransportEClient) OnRemove(ctx *core.PluginCtx) {
-	/* force removing the link to the client */
-	if o.timer.IsRunning() {
-		o.timerw.Stop(&o.timer)
-	}
+
 }
 
 // PluginTransportENs icmp information per namespace

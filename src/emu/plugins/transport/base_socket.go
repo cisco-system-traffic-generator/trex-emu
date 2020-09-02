@@ -226,3 +226,7 @@ func (o *baseSocket) removeFlowAssociation(udp bool, flow interface{}) {
 		o.ctx.removeFlowv4(&tuple, flow)
 	}
 }
+
+func (o *baseSocket) IsIPv6() bool {
+	return o.ipv6
+}

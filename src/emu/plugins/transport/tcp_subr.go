@@ -279,6 +279,9 @@ func (o *TcpSocket) Write(buf []byte) (res SocketErr, queued bool) {
 		if s == 0 && r > 0 {
 			o.doOutput()
 		}
+		if !o.resolved {
+			return SeUNRESOLVED, false
+		}
 		if r == len(buf) {
 			return SeOK, true
 		}

@@ -140,6 +140,9 @@ func createSimulationEnv(simRx *core.VethIFSim, t *IPFixTestBase) (*core.CThread
 		ns.AddClient(client)
 		client.PluginCtx.CreatePlugins([]string{IPFIX_PLUG}, t.initJSON)
 
+		// After adding the plugins, we can try to resolve.
+		client.AttemptResolve()
+
 		cPlg := client.PluginCtx.Get(IPFIX_PLUG)
 		if cPlg == nil {
 			panic(" can't find plugin")

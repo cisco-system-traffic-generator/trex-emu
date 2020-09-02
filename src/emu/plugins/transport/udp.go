@@ -102,6 +102,9 @@ func (o *UdpSocket) Write(buf []byte) (res SocketErr, queued bool) {
 	}
 
 	if o.buildDpkt(&pkt, buf) < 0 {
+		if !o.resolved {
+			return SeUNRESOLVED, false
+		}
 		return SeENOBUFS, false
 	}
 	o.ctx.udpStats.udp_sndpack++
@@ -141,7 +144,7 @@ func (o *UdpSocket) send(pkt *udpPkt) int {
 		l3 := o.l3Offset
 		l4 := o.l4Offset
 		ipv4 := layers.IPv4Header(p[l3 : l3+20])
-		/* update checsum */
+		/* update checksum */
 		binary.BigEndian.PutUint16(p[l4+6:l4+8], 0)
 		cs := layers.PktChecksumTcpUdp(p[l4:], 0, ipv4)
 		binary.BigEndian.PutUint16(p[l4+6:l4+8], cs)
