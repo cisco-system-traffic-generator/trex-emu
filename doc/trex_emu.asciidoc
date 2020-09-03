@@ -1102,7 +1102,7 @@ pktRxIcmpResponse | 10000
 
 *Goal*:: Add a few clients and some multicast address
 
-TRex supports IGMPv2/v3 (RFC3376) and can maintain (add/remove) scale of multicast IPs. 
+TRex supports IGMPv2/v3 (RFC3376) and can maintain (add/remove) scale of multicast IPs. For IGMPv3 it supports (s,g) filter using add (s,g) and remove (s,g)
 
 .Python Profile
 [source, python]
@@ -1153,7 +1153,10 @@ In this example we took the first client MAC (`00:00:00:70:00:01`).
 .Console 
 [source,bash]
 ----
+
     trex>portattr -a --prom on
+    trex>emu_load_profile -f emu/simple_igmp.py -t --ns 1 --clients 10
+
     trex>emu_igmp_add_mc -p 0 --4 227.0.1.1 --4 -count 10 #<1>
     124.90 [ms]
 
@@ -1184,6 +1187,7 @@ In this example we took the first client MAC (`00:00:00:70:00:01`).
 <1> Add 227.0.1.1 to 227.0.1.11 multicast addresses (count is 10)
 <2> The table could be seen using `emu_igmp_show_mc`
 <3> The IGMP packets will be sent from client 00:00:00:70:00:01 
+
 
 
 *ASR1K configuration*:: 
@@ -1224,6 +1228,43 @@ Group Address    Interface                Uptime    Expires   Last Reporter
 227.0.1.11       TenGigabitEthernet1/0/0  00:00:28  00:00:29  1.1.5.2       
 224.0.1.40       TenGigabitEthernet1/0/0  1w0d      00:00:22  1.1.5.1       
 ----
+
+
+
+.IGMPv3 (S,G)
+[source,bash]
+----
+
+  trex>emu_igmp_add_mc_sg --4g 239.0.0.1 --4s 10.0.0.1 -p 0
+  trex>emu_igmp_add_mc_sg --4g 239.0.0.1 --4s 10.0.0.2 -p 0
+  trex>emu_igmp_add_mc_sg --4g 239.0.0.1 --4s 10.0.0.3 -p 0
+----
+
+.Show the groups 
+[source,bash]
+----
+
+ >show ip igmp groups 239.0.0.1 detail 
+
+    Flags: L - Local, U - User, SG - Static Group, VG - Virtual Group,
+        SS - Static Source, VS - Virtual Source,
+        Ac - Group accounted towards access control limit
+
+    Interface:      TenGigabitEthernet1/0/0
+    Group:          239.0.0.1
+    Flags:          Ac 
+    Uptime:         00:01:38
+    Group mode:     INCLUDE <<
+    Last reporter:  1.1.5.2
+    Group source list: (C - Cisco Src Report, U - URD, R - Remote, S - Static,
+                        V - Virtual, M - SSM Mapping, L - Local,
+                        Ac - Channel accounted towards access control limit)
+    Source Address   Uptime    v3 Exp   CSR Exp   Fwd  Flags
+    10.0.0.1         00:01:38  00:01:27  stopped   Yes  R
+    10.0.0.2         00:01:38  00:01:27  stopped   Yes  R
+    10.0.0.3         00:01:38  00:01:27  stopped   Yes  R
+----
+
 
 === Tutorial: DHCPv4 
 

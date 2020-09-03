@@ -7,11 +7,17 @@ package igmp
 
 /*
 Support a simplified version of IPv4 IGMP v3/v2/v1 RFC3376
-v3 does not support EXCLUDE/INCLUDE per client
+v3 supports per ip mc addr either
+  1. Exclude {}, meaning include all (*) all sources
+  2. Include a vector of sources of address, the API is [(s1,g),(s2,g)] meaning include to mc-group g a source s1 and s2
+	 the mode would be INCLUDE {s1,s2}
+  to change mode (include all [1] and include sources [2]) there is a need to remove and add again
+
 The implementation is in the namespace domain (shared for all the clients on the same network)
 One client ipv4/mac is the designator to answer the queries for all the clients.
 However this implementation can scale
-
+1. unlimited number of groups
+2. ~1k sources per group (in case of INCLUDE)
 
 inijson :
 	type IgmpNsInit struct {
@@ -31,31 +37,33 @@ import (
 	"math"
 	"math/rand"
 	"net"
+	"sort"
 	"unsafe"
 
 	"github.com/intel-go/fastjson"
 )
 
 const (
-	IGMP_PLUG                      = "igmp"
-	IGMP_VERSION_1                 = 1
-	IGMP_VERSION_2                 = 2
-	IGMP_VERSION_3                 = 3 /* Default */
-	IGMP_TYPE_DVMRP                = 0x13
-	IGMP_HEADER_MINLEN             = 8
-	IGMP_V3_QUERY_MINLEN           = 12
-	IGMP_MC_ADDR_MASK              = 0xE0000000
-	IGMP_MC_DEST_HOST              = 0xE0000001
-	IGMP_NULL_HOST                 = 0x00000000
-	IGMP_GRPREC_HDRLEN             = 8
-	IGMP_V3_REPORT_MINLEN          = 8
-	IGMP_DO_NOTHING                = 0    /* don't send a record */
-	IGMP_MODE_IS_INCLUDE           = 1    /* MODE_IN */
-	IGMP_MODE_IS_EXCLUDE           = 2    /* MODE_EX */
-	IGMP_CHANGE_TO_INCLUDE_MODE    = 3    /* TO_IN */
-	IGMP_CHANGE_TO_EXCLUDE_MODE    = 4    /* TO_EX */
-	IGMP_ALLOW_NEW_SOURCES         = 5    /* ALLOW_NEW */
-	IGMP_BLOCK_OLD_SOURCES         = 6    /* BLOCK_OLD */
+	IGMP_PLUG                   = "igmp"
+	IGMP_VERSION_1              = 1
+	IGMP_VERSION_2              = 2
+	IGMP_VERSION_3              = 3 /* Default */
+	IGMP_TYPE_DVMRP             = 0x13
+	IGMP_HEADER_MINLEN          = 8
+	IGMP_V3_QUERY_MINLEN        = 12
+	IGMP_MC_ADDR_MASK           = 0xE0000000
+	IGMP_MC_DEST_HOST           = 0xE0000001
+	IGMP_NULL_HOST              = 0x00000000
+	IGMP_GRPREC_HDRLEN          = 8
+	IGMP_V3_REPORT_MINLEN       = 8
+	IGMP_DO_NOTHING             = 0 /* don't send a record */
+	IGMP_MODE_IS_INCLUDE        = 1 /* MODE_IN */
+	IGMP_MODE_IS_EXCLUDE        = 2 /* MODE_EX */
+	IGMP_CHANGE_TO_INCLUDE_MODE = 3 /* TO_IN */
+	IGMP_CHANGE_TO_EXCLUDE_MODE = 4 /* TO_EX */
+	IGMP_ALLOW_NEW_SOURCES      = 5 /* ALLOW_NEW */
+	IGMP_BLOCK_OLD_SOURCES      = 6 /* BLOCK_OLD */
+
 	IGMP_HOST_LEAVE_MESSAGE        = 0x17 /* Leave-group message     */
 	IGMP_v2_HOST_MEMBERSHIP_REPORT = 0x16 /* Ver. 2 membership report */
 	IPV4_HEADER_SIZE               = 24   /* plus router alert */
@@ -114,8 +122,13 @@ func calcTimerInfo(totalrecords uint32,
 type IgmpNsInit struct {
 	Mtu           uint16         `json:"mtu" validate:"required,gte=256,lte=9000"`
 	DesignatorMac core.MACKey    `json:"dmac"`
-	Vec           []core.Ipv4Key `json:"vec"`     // add mc
+	Vec           []core.Ipv4Key `json:"vec"`     // add mc (*) include all mask (EXCLUDE {}) to add (s,g) use RPC
 	Version       uint16         `json:"version"` // the init version of IGMP, it will learn from Query
+}
+
+type IgmpSGRecord struct {
+	G core.Ipv4Key `json:"g"`
+	S core.Ipv4Key `json:"s"`
 }
 
 type IgmpNsStats struct {
@@ -147,16 +160,58 @@ type IgmpNsStats struct {
 	pktNoDesignatorClient     uint64 /* There is no designator client with this MAC addr */
 	pktNoDesignatorClientIPv4 uint64 /* there designator client does not have valid IPv4 addr */
 
-	opsAdd       uint64 /* add mc addr*/
-	opsRemove    uint64 /* add mc addr*/
+	opsAdd       uint64 /* add mc addr (*) */
+	opsRemove    uint64 /* add mc addr (*) */
 	opsAddErr    uint64
 	opsRemoveErr uint64
 
+	opsAddSG       uint64 /* add mc (s,g)*/
+	opsRemoveSG    uint64 /* remove mc (s,g)*/
+	opsAddErrSG    uint64 /* add erro (s,g) */
+	opsRemoveErrSG uint64 /* emove error (s,g)*/
+
 	opsRateIsTooHigh uint64
+
+	pktRxSndReportsSGChangeToInclude uint64 /* sent change to include state */ /*TBD*/
+	pktRxSndReportsSGAdd             uint64
+	pktRxSndReportsSGRemove          uint64
+	pktRxSndReportsSGQuery           uint64
 }
 
 func NewIgmpNsStatsDb(o *IgmpNsStats) *core.CCounterDb {
 	db := core.NewCCounterDb("igmp")
+
+	db.Add(&core.CCounterRec{
+		Counter:  &o.pktRxSndReportsSGQuery,
+		Name:     "pktRxSndReportsSGQuery",
+		Help:     "(s,g)- query records",
+		Unit:     "pkts",
+		DumpZero: false,
+		Info:     core.ScINFO})
+
+	db.Add(&core.CCounterRec{
+		Counter:  &o.pktRxSndReportsSGRemove,
+		Name:     "pktRxSndReportsSGRemove",
+		Help:     "(s,g)- remove records",
+		Unit:     "pkts",
+		DumpZero: false,
+		Info:     core.ScINFO})
+
+	db.Add(&core.CCounterRec{
+		Counter:  &o.pktRxSndReportsSGAdd,
+		Name:     "pktRxSndReportsSGAdd",
+		Help:     "(s,g)- add records",
+		Unit:     "pkts",
+		DumpZero: false,
+		Info:     core.ScINFO})
+
+	db.Add(&core.CCounterRec{
+		Counter:  &o.pktRxSndReportsSGChangeToInclude,
+		Name:     "pktRxSndReportsSGChangeToInclude",
+		Help:     "(s,g)- change to include",
+		Unit:     "pkts",
+		DumpZero: false,
+		Info:     core.ScINFO})
 
 	db.Add(&core.CCounterRec{
 		Counter:  &o.pktRxTotal,
@@ -297,6 +352,39 @@ func NewIgmpNsStatsDb(o *IgmpNsStats) *core.CCounterDb {
 		Unit:     "pkts",
 		DumpZero: false,
 		Info:     core.ScINFO})
+
+	db.Add(&core.CCounterRec{
+		Counter:  &o.opsAddSG,
+		Name:     "opsAddSG",
+		Help:     "add mc (s,g) ",
+		Unit:     "ops",
+		DumpZero: false,
+		Info:     core.ScINFO})
+
+	db.Add(&core.CCounterRec{
+		Counter:  &o.opsRemoveSG,
+		Name:     "opsRemoveSG",
+		Help:     "remove mc (s,g) ",
+		Unit:     "ops",
+		DumpZero: false,
+		Info:     core.ScINFO})
+
+	db.Add(&core.CCounterRec{
+		Counter:  &o.opsAddErrSG,
+		Name:     "opsAddErrSG",
+		Help:     "error add mc (s,g) ",
+		Unit:     "ops",
+		DumpZero: false,
+		Info:     core.ScERROR})
+
+	db.Add(&core.CCounterRec{
+		Counter:  &o.opsRemoveErrSG,
+		Name:     "opsRemoveErrSG",
+		Help:     "error remove mc (s,g) ",
+		Unit:     "ops",
+		DumpZero: false,
+		Info:     core.ScERROR})
+
 	db.Add(&core.CCounterRec{
 		Counter:  &o.opsAdd,
 		Name:     "opsAdd",
@@ -304,6 +392,7 @@ func NewIgmpNsStatsDb(o *IgmpNsStats) *core.CCounterDb {
 		Unit:     "ops",
 		DumpZero: false,
 		Info:     core.ScINFO})
+
 	db.Add(&core.CCounterRec{
 		Counter:  &o.opsRemove,
 		Name:     "opsRemove",
@@ -356,11 +445,98 @@ func covertToIgmpEntry(dlist *core.DList) *IgmpEntry {
 	return (*IgmpEntry)(unsafe.Pointer(dlist))
 }
 
+type MapIgmpS map[core.Ipv4Key]bool
+
+const (
+	IGMP_ENTRY_MODE_INCLUDE_ALL = 1 // mode EXCLUDE {}, (*)
+	IGMP_ENTRY_MODE_INCLUDE_S   = 2 // include [s1,s2,s3]
+)
+
+type IgmpEntryJson struct {
+	G    core.Ipv4Key    `json:"g"`
+	Mode uint8           `json:"mode"`
+	S    *[]core.Ipv4Key `json:"sv,omitempty"`
+}
+
 //IgmpEntry includes one ipv4 mc addr
 type IgmpEntry struct {
 	dlist     core.DList // must be first
 	Ipv4      core.Ipv4Key
 	epocQuery uint32
+	maps      MapIgmpS // map for source
+}
+
+func (o *IgmpEntry) getJson() *IgmpEntryJson {
+	var j IgmpEntryJson
+	j.G = o.Ipv4
+	j.Mode = o.getMode()
+	j.S = nil
+	if o.getMode() == IGMP_ENTRY_MODE_INCLUDE_S {
+		j.S = new([]core.Ipv4Key)
+		for k := range o.maps {
+			*j.S = append(*j.S, k)
+		}
+	}
+	return &j
+}
+
+func (o *IgmpEntry) getMode() uint8 {
+	if o.maps == nil {
+		return IGMP_ENTRY_MODE_INCLUDE_ALL
+	} else {
+		return IGMP_ENTRY_MODE_INCLUDE_S
+	}
+}
+
+func (o *IgmpEntry) getSourceVec() []uint32 {
+	var vec []uint32
+	for k := range o.maps {
+		vec = append(vec, k.Uint32())
+	}
+	return vec
+}
+
+// return count, size
+func (o *IgmpEntry) calcNumSources(freePyld uint16, srec uint16) (uint16, uint16) {
+	if freePyld < (IGMP_V3_REPORT_MINLEN + 4) {
+		return 0, 0
+	}
+	cnt := (freePyld - IGMP_V3_REPORT_MINLEN) / 4
+	if cnt > srec {
+		cnt = srec
+	}
+	size := IGMP_V3_REPORT_MINLEN + (cnt * 4)
+	return cnt, size
+}
+
+func (o *IgmpEntry) allocMap() {
+	if o.maps == nil {
+		o.maps = make(MapIgmpS)
+	}
+}
+
+func (o *IgmpEntry) addSource(s core.Ipv4Key) error {
+	if o.getMode() == IGMP_ENTRY_MODE_INCLUDE_ALL {
+		return fmt.Errorf(" can't add source for include all mc  %v ", o.Ipv4)
+	}
+	_, ok := o.maps[s]
+	if ok {
+		return fmt.Errorf(" source-ipv4 %v already exist", s)
+	}
+	o.maps[s] = true
+	return nil
+}
+
+func (o *IgmpEntry) removeSource(s core.Ipv4Key) error {
+	if o.getMode() == IGMP_ENTRY_MODE_INCLUDE_ALL {
+		return fmt.Errorf(" can't add source for include all mc  %v ", o.Ipv4)
+	}
+	_, ok := o.maps[s]
+	if !ok {
+		return fmt.Errorf(" source-ipv4 %v does not exist", s)
+	}
+	delete(o.maps, s)
+	return nil
 }
 
 type MapIgmp map[core.Ipv4Key]*IgmpEntry
@@ -373,6 +549,7 @@ type IgmpFlowTbl struct {
 	epoc       uint32      /* operation epoc for add/remove/rpc iterator */
 	epocQuery  uint32
 	stats      *IgmpNsStats
+	sgCount    uint32 // how many entries we have in ICNLUDE (s) state
 }
 
 func NewIgmpTable() *IgmpFlowTbl {
@@ -393,6 +570,51 @@ func (o *IgmpFlowTbl) OnCreate(stats *IgmpNsStats) {
 	o.stats = stats
 }
 
+// add (G,S) -- return
+// 1. first one to add  --> need to send diff packet
+// 2, error in case of an error to add
+func (o *IgmpFlowTbl) addMcSG(ipv4 core.Ipv4Key, s core.Ipv4Key) (bool, error) {
+	r := false
+	e, ok := o.mapIgmp[ipv4]
+	if ok {
+		if e.getMode() != IGMP_ENTRY_MODE_INCLUDE_S {
+			return r, fmt.Errorf(" add(s,g) (%v,%v) in the wrong mode", s, ipv4)
+		}
+	} else {
+		e = new(IgmpEntry)
+		e.Ipv4 = ipv4
+		e.epocQuery = o.epocQuery
+		e.allocMap() // create maps
+		o.mapIgmp[ipv4] = e
+		o.head.AddLast(&e.dlist)
+		r = true
+	}
+	err1 := e.addSource(s)
+	if err1 == nil && r {
+		o.sgCount++
+	}
+	return r, err1
+}
+
+// remove (G,S)
+func (o *IgmpFlowTbl) removeMcSG(ipv4 core.Ipv4Key, s core.Ipv4Key) (bool, error) {
+	r := false
+	e, ok := o.mapIgmp[ipv4]
+	if ok {
+		if e.getMode() != IGMP_ENTRY_MODE_INCLUDE_S {
+			return r, fmt.Errorf(" remove(s,g) (%v,%v) in the wrong mode", s, ipv4)
+		}
+	} else {
+		return r, fmt.Errorf(" add(s,g) (%v) group does not exits", ipv4)
+	}
+	err := e.removeSource(s)
+	if len(e.maps) == 0 {
+		r = true
+	}
+	return r, err
+}
+
+// Add MC(*)
 func (o *IgmpFlowTbl) addMc(ipv4 core.Ipv4Key) error {
 	_, ok := o.mapIgmp[ipv4]
 	if ok {
@@ -407,10 +629,14 @@ func (o *IgmpFlowTbl) addMc(ipv4 core.Ipv4Key) error {
 	return nil
 }
 
+// removeMC(*)
 func (o *IgmpFlowTbl) removeMc(ipv4 core.Ipv4Key) error {
 	e, ok := o.mapIgmp[ipv4]
 	if !ok {
 		return fmt.Errorf(" mc-ipv4 %v does not exist", ipv4)
+	}
+	if e.getMode() == IGMP_ENTRY_MODE_INCLUDE_S {
+		o.sgCount--
 	}
 	delete(o.mapIgmp, ipv4)
 	/* handle the iterator in case of remove */
@@ -472,6 +698,15 @@ type PluginIgmpNsTimer struct {
 func (o *PluginIgmpNsTimer) OnEvent(a, b interface{}) {
 	pigmp := a.(*PluginIgmpNs)
 	pigmp.onTimerUpdate()
+}
+
+type igmpPktBuilder struct {
+	e        *IgmpEntry
+	freePyld uint16
+	maxPyld  uint16
+	pktv     []IgmpEntryJson
+	group    uint32
+	s        []uint32
 }
 
 // PluginIgmpNs icmp information per namespace
@@ -555,8 +790,8 @@ func (o *PluginIgmpNs) IterIsStopped() bool {
 	return !o.iterReady
 }
 
-func (o *PluginIgmpNs) GetNext(n uint16) ([]core.Ipv4Key, error) {
-	r := make([]core.Ipv4Key, 0)
+func (o *PluginIgmpNs) GetNext(n uint16) ([]IgmpEntryJson, error) {
+	r := make([]IgmpEntryJson, 0)
 
 	if !o.iterReady {
 		return r, fmt.Errorf(" Iterator is not ready- reset the iterator")
@@ -576,7 +811,7 @@ func (o *PluginIgmpNs) GetNext(n uint16) ([]core.Ipv4Key, error) {
 			break
 		}
 		ent := covertToIgmpEntry(o.iter.Val())
-		r = append(r, ent.Ipv4)
+		r = append(r, *ent.getJson())
 		o.iter.Next()
 	}
 	return r, nil
@@ -623,6 +858,64 @@ func (o *PluginIgmpNs) onTimerUpdate() {
 		// restart the timer
 		o.timerw.StartTicks(&o.timer, o.ticks)
 	}
+}
+
+//add records IgmpSGRecord
+func (o *PluginIgmpNs) addMcSG(vecIpv4 []*IgmpSGRecord) error {
+	var err error
+	var first bool
+	vec := []*IgmpSGRecord{}
+	fvec := []uint32{}
+	maxIds := int(o.getMaxIPv4IdsSG()) // vector is always smaller than vec so we can send them together as two packets
+	o.tbl.epoc++
+	for _, r := range vecIpv4 {
+		if r != nil {
+			first, err = o.tbl.addMcSG(r.G, r.S)
+			if err != nil {
+				o.stats.opsAddErrSG++
+				o.SendMcPacketSG(fvec, vec, false)
+				return err
+			}
+			o.stats.opsAddSG++
+			if first {
+				fvec = append(fvec, r.G.Uint32()) // add the first group to vector
+			}
+			vec = append(vec, r)
+			if len(vec) == maxIds {
+				o.SendMcPacketSG(fvec, vec, false)
+				vec = vec[:0]
+				fvec = fvec[:0]
+			}
+		}
+	}
+	o.SendMcPacketSG(fvec, vec, false)
+	return nil
+}
+
+//remove IgmpSGRecord
+func (o *PluginIgmpNs) removeMcSG(vecIpv4 []*IgmpSGRecord) error {
+	var err error
+	vec := []*IgmpSGRecord{}
+	o.tbl.epoc++
+	maxIds := int(o.getMaxIPv4IdsSG())
+	for _, r := range vecIpv4 {
+		if r != nil {
+			_, err = o.tbl.removeMcSG(r.G, r.S)
+			if err != nil {
+				o.stats.opsRemoveErr++
+				o.SendMcPacketSG(nil, vec, true)
+				return err
+			}
+			o.stats.opsRemoveSG++
+			vec = append(vec, r)
+			if len(vec) == maxIds {
+				o.SendMcPacketSG(nil, vec, true)
+				vec = vec[:0]
+			}
+		}
+	}
+	o.SendMcPacketSG(nil, vec, true)
+	return nil
 }
 
 func (o *PluginIgmpNs) addMc(vecIpv4 []core.Ipv4Key) error {
@@ -713,7 +1006,11 @@ func (o *PluginIgmpNs) startQueryReport() bool {
 			}
 			o.tbl.activeIter = o.tbl.activeIter.Next()
 		}
-		o.SendMcPacket(vec, false, true)
+		if (o.igmpVersion == IGMP_VERSION_3) && (o.tbl.sgCount > 0) {
+			o.SendMcPacketSGQuery(vec)
+		} else {
+			o.SendMcPacket(vec, false, true)
+		}
 		if finish {
 			break
 		}
@@ -732,15 +1029,34 @@ func (o *PluginIgmpNs) HandleRxIgmpV1Query(ps *core.ParserPacketState) int {
 	return 0
 }
 
+func (o *PluginIgmpNs) getMaxPyload() uint16 {
+	pyload := o.mtu - (14 + 2*4 + IPV4_HEADER_SIZE + IGMP_V3_QUERY_MINLEN + 16)
+	return pyload
+}
+
 func (o *PluginIgmpNs) getPktSize(ids uint16) uint16 {
 	pyload := 14 + IPV4_HEADER_SIZE + 4 + 2*4 + IGMP_V3_QUERY_MINLEN + 16 + ids*IGMP_V3_REPORT_MINLEN
 	return (pyload)
 }
 
+func (o *PluginIgmpNs) getPktSizeSg(ids uint16) uint16 {
+	pyload := 14 + IPV4_HEADER_SIZE + 4 + 2*4 + IGMP_V3_QUERY_MINLEN + 16 + ids*(IGMP_V3_REPORT_MINLEN+4)
+	return (pyload)
+}
+
 func (o *PluginIgmpNs) getMaxIPv4Ids() uint16 {
 	if o.igmpVersion == IGMP_VERSION_3 {
-		pyload := o.mtu - (14 + 2*4 + IPV4_HEADER_SIZE + IGMP_V3_QUERY_MINLEN + 16)
+		pyload := o.getMaxPyload()
 		return pyload / IGMP_GRPREC_HDRLEN
+	} else {
+		return 1
+	}
+}
+
+func (o *PluginIgmpNs) getMaxIPv4IdsSG() uint16 {
+	if o.igmpVersion == IGMP_VERSION_3 {
+		pyload := o.getMaxPyload()
+		return pyload / (IGMP_GRPREC_HDRLEN + 4)
 	} else {
 		return 1
 	}
@@ -771,7 +1087,11 @@ func (o *PluginIgmpNs) HandleRxIgmpCmn(isGenQuery bool, igmpAddr uint32) int {
 
 			if timerticks == 0 {
 				/* only one report is needed */
-				startTick = uint32(rand.Intn(int(maxRespMsec))+1) / o.timerw.MinTickMsec()
+				if o.Tctx.Simulation {
+					startTick = uint32(1) / o.timerw.MinTickMsec()
+				} else {
+					startTick = uint32(rand.Intn(int(maxRespMsec))+1) / o.timerw.MinTickMsec()
+				}
 				o.ticks = 0
 				o.pktPerTick = 1
 			} else {
@@ -791,24 +1111,290 @@ func (o *PluginIgmpNs) HandleRxIgmpCmn(isGenQuery bool, igmpAddr uint32) int {
 	} else {
 		var key core.Ipv4Key
 		key.SetUint32(igmpAddr)
-		_, ok := o.tbl.mapIgmp[key]
+		e, ok := o.tbl.mapIgmp[key]
 		if ok {
-			vec := []uint32{igmpAddr}
-			o.SendMcPacket(vec, false, true)
+			if (e.getMode() == IGMP_ENTRY_MODE_INCLUDE_ALL) ||
+				(o.igmpVersion == IGMP_VERSION_2) {
+				vec := []uint32{igmpAddr}
+				o.SendMcPacket(vec, false, true)
+			} else {
+				vec := []uint32{igmpAddr}
+				o.SendMcPacketSGQuery(vec)
+			}
 		}
 	}
 	return 0
 }
 
-func (o *PluginIgmpNs) SendMcPacket(vec []uint32, remove bool, query bool) {
+func (o *PluginIgmpNs) SendMcPacketSGChangeToInclude(vec []uint32) {
+	o.SendMcPacket(vec, true, false)
+}
 
+func (o *PluginIgmpNs) getdClient() *core.CClient {
 	client := o.Ns.CLookupByMac(&o.designatorMac)
 	if client == nil {
 		o.stats.pktNoDesignatorClient++
-		return
+		return nil
 	}
 	if client.Ipv4.IsZero() {
 		o.stats.pktNoDesignatorClientIPv4++
+		return nil
+	}
+	return client
+}
+
+func (o *PluginIgmpNs) SendMcPacketSG(fvec []uint32, vec []*IgmpSGRecord, remove bool) {
+
+	client := o.getdClient()
+	if client == nil {
+		return
+	}
+
+	if (fvec != nil) && (remove == false) {
+		// change mode to INCLUDE for all the groups
+		o.SendMcPacketSGChangeToInclude(fvec)
+	}
+
+	rcds := len(vec)
+	if rcds == 0 {
+		/* nothing to do */
+		return
+	}
+	if rcds > int(o.getMaxIPv4IdsSG()) {
+		panic(" PluginIgmpNs rcds> o.getMaxIPv4IdsSG() ")
+	}
+
+	if remove {
+		o.stats.pktRxSndReportsSGRemove++
+	} else {
+		o.stats.pktRxSndReportsSGAdd++
+	}
+
+	pktSize := o.getPktSizeSg(uint16(rcds))
+	m := o.Ns.AllocMbuf(pktSize)
+	m.Append(o.ipv4pktTemplate)
+	dst := [6]byte{0x01, 0x00, 0x5e, 0x00, 0x00, 0x16}
+	p := m.GetData()
+	copy(p[0:6], dst[:])
+	copy(p[6:12], o.designatorMac[:])
+
+	ipv4 := layers.IPv4Header(p[o.ipv4Offset : o.ipv4Offset+IPV4_HEADER_SIZE])
+
+	ipv4.SetIPSrc(client.Ipv4.Uint32())
+	ipv4.SetIPDst(0xe0000016)
+
+	pyld := IGMP_V3_REPORT_MINLEN + ((IGMP_V3_REPORT_MINLEN + 4) * rcds)
+	ipv4.SetLength(uint16(IPV4_HEADER_SIZE + pyld))
+	ipv4.UpdateChecksum()
+
+	reportHeader := [8]byte{uint8(layers.IGMPMembershipReportV3),
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
+	binary.BigEndian.PutUint16(reportHeader[6:8], uint16(rcds))
+	m.Append(reportHeader[:])
+	for _, mc := range vec {
+		grouprec := [12]byte{0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00,
+			0x00, 0x00, 0x00, 0x00, 0x00}
+		/* set the type */
+		if remove {
+			grouprec[0] = IGMP_BLOCK_OLD_SOURCES
+		} else {
+			grouprec[0] = IGMP_ALLOW_NEW_SOURCES
+		}
+		binary.BigEndian.PutUint32(grouprec[4:8], uint32(mc.G.Uint32()))
+		binary.BigEndian.PutUint32(grouprec[8:12], uint32(mc.S.Uint32()))
+		m.Append(grouprec[:])
+	}
+	np := m.GetData()
+	cs := layers.PktChecksum(np[o.ipv4Offset+IPV4_HEADER_SIZE:], 0)
+	binary.BigEndian.PutUint16(np[o.ipv4Offset+IPV4_HEADER_SIZE+2:o.ipv4Offset+IPV4_HEADER_SIZE+4], cs)
+	o.Tctx.Veth.Send(m)
+}
+
+func (o *PluginIgmpNs) flushEntries(pb *igmpPktBuilder) {
+	// build packet and send it
+
+	// TBD to remove!!!!!
+	if false {
+		for idx, _ := range pb.pktv {
+			e := &((pb.pktv)[idx])
+			if e.Mode == IGMP_ENTRY_MODE_INCLUDE_ALL {
+				fmt.Printf(" %x-* \n", e.G)
+			} else {
+				fmt.Printf(" %x-[ ", e.G)
+				for _, mc := range *e.S {
+					fmt.Printf(" %v,", mc)
+				}
+				fmt.Printf("] \n")
+			}
+		}
+
+	}
+
+	client := o.getdClient()
+	if client == nil {
+		return
+	}
+
+	o.stats.pktRxSndReportsSGQuery++
+
+	pktSize := o.mtu // take the maximum packet
+	m := o.Ns.AllocMbuf(pktSize)
+	m.Append(o.ipv4pktTemplate)
+	dst := [6]byte{0x01, 0x00, 0x5e, 0x00, 0x00, 0x16}
+	p := m.GetData()
+	copy(p[0:6], dst[:])
+	copy(p[6:12], o.designatorMac[:])
+
+	ipv4 := layers.IPv4Header(p[o.ipv4Offset : o.ipv4Offset+IPV4_HEADER_SIZE])
+
+	ipv4.SetIPSrc(client.Ipv4.Uint32())
+	ipv4.SetIPDst(0xe0000016)
+
+	reportHeader := [8]byte{uint8(layers.IGMPMembershipReportV3)}
+	binary.BigEndian.PutUint16(reportHeader[6:8], uint16(len(pb.pktv)))
+	m.Append(reportHeader[:])
+	bytes := uint16(0)
+	for idx, _ := range pb.pktv {
+		e := &((pb.pktv)[idx])
+		if e.Mode == IGMP_ENTRY_MODE_INCLUDE_ALL {
+			// normal
+			grouprec := [8]byte{}
+			/* set the type */
+			grouprec[0] = IGMP_MODE_IS_EXCLUDE
+			binary.BigEndian.PutUint32(grouprec[4:8], uint32(e.G.Uint32()))
+			m.Append(grouprec[:])
+			bytes += 8
+		} else {
+			grouprec := [8]byte{}
+			/* set the type */
+			grouprec[0] = IGMP_MODE_IS_INCLUDE
+			binary.BigEndian.PutUint32(grouprec[4:8], uint32(e.G.Uint32()))
+			binary.BigEndian.PutUint16(grouprec[2:4], uint16(len(*e.S)))
+			m.Append(grouprec[:])
+			bytes += (8 + 4*uint16(len(*e.S)))
+			for _, mc := range *e.S {
+				source := [4]byte{}
+				binary.BigEndian.PutUint32(source[0:4], mc.Uint32())
+				m.Append(source[:])
+			}
+		}
+	}
+	np := m.GetData()
+	pyld := IGMP_V3_REPORT_MINLEN + bytes
+	ipv4.SetLength(uint16(IPV4_HEADER_SIZE + pyld))
+	ipv4.UpdateChecksum()
+
+	cs := layers.PktChecksum(np[o.ipv4Offset+IPV4_HEADER_SIZE:], 0)
+	binary.BigEndian.PutUint16(np[o.ipv4Offset+IPV4_HEADER_SIZE+2:o.ipv4Offset+IPV4_HEADER_SIZE+4], cs)
+
+	o.Tctx.Veth.Send(m)
+
+	pb.freePyld = pb.maxPyld
+	pb.pktv = pb.pktv[:0]
+}
+
+func (o *PluginIgmpNs) pushEntry(pb *igmpPktBuilder) {
+	if pb.s == nil {
+		//IGMP_ENTRY_MODE_INCLUDE_ALL
+		if pb.freePyld < IGMP_V3_REPORT_MINLEN {
+			o.flushEntries(pb)
+		}
+
+		pb.pktv = append(pb.pktv, *pb.e.getJson())
+		pb.freePyld -= IGMP_V3_REPORT_MINLEN
+	} else {
+		if len(pb.s) == 0 {
+			o.flushEntries(pb)
+		} else {
+			var j IgmpEntryJson
+			j.G = pb.e.Ipv4
+			j.Mode = pb.e.getMode()
+			j.S = new([]core.Ipv4Key)
+			for _, obj := range pb.s {
+				var k core.Ipv4Key
+				k.SetUint32(obj)
+				*j.S = append(*j.S, k)
+			}
+			pb.pktv = append(pb.pktv, j)
+			pb.freePyld -= IGMP_V3_REPORT_MINLEN + uint16(len(pb.s)*4)
+		}
+	}
+}
+
+//
+// each group could be either EXCLUDE or INCLUDE
+// need to build packets on the fly base on the each entry information
+func (o *PluginIgmpNs) SendMcPacketSGQuery(vec []uint32) {
+
+	client := o.getdClient()
+	if client == nil {
+		return
+	}
+
+	rcds := len(vec)
+	if rcds == 0 {
+		/* nothing to do */
+		return
+	}
+	maxPyld := o.getMaxPyload()
+	// free bytes in pyload
+	var pb igmpPktBuilder
+	pb.freePyld = maxPyld
+	pb.maxPyld = maxPyld
+
+	for _, mc := range vec {
+		var key core.Ipv4Key
+		key.SetUint32(mc)
+		e, ok := o.tbl.mapIgmp[key]
+		if ok {
+			if e.getMode() == IGMP_ENTRY_MODE_INCLUDE_ALL {
+				// just push one entry
+				pb.e = e
+				pb.group = e.Ipv4.Uint32()
+				pb.s = nil
+				o.pushEntry(&pb)
+
+			} else {
+				svec := e.getSourceVec()
+
+				if o.Tctx.Simulation {
+					sort.Slice(svec, func(i, j int) bool {
+						return svec[i] < svec[j]
+					})
+				}
+
+				lvec := uint16(len(svec))
+				// in case vector is zero there is nothing to do
+				if lvec > 0 {
+					index := uint16(0)
+					for {
+						if index == lvec {
+							break
+						}
+						cnt, _ := e.calcNumSources(pb.freePyld, lvec-index)
+						pb.e = e
+						pb.group = e.Ipv4.Uint32()
+
+						if cnt == 0 {
+							pb.s = []uint32{}
+							o.pushEntry(&pb)
+						} else {
+							pb.s = svec[index : index+cnt]
+							o.pushEntry(&pb)
+							index += cnt
+						}
+					}
+				}
+			}
+		} //ok
+	} // loop
+	o.flushEntries(&pb)
+}
+
+func (o *PluginIgmpNs) SendMcPacket(vec []uint32, remove bool, query bool) {
+
+	client := o.getdClient()
+	if client == nil {
 		return
 	}
 
@@ -1108,6 +1694,18 @@ func (o PluginIgmpNsReg) NewPlugin(ctx *core.PluginCtx, initJson []byte) *core.P
 type (
 	ApiIgmpNsCntHandler struct{}
 
+	// add(s,g)
+	ApiIgmpNsAddSGHandler struct{}
+	ApiIgmpNsAddSGParams  struct {
+		Vec []*IgmpSGRecord `json:"vec"`
+	}
+
+	// remove(s,g)
+	ApiIgmpNsRemoveSGHandler struct{}
+	ApiIgmpNsRemoveSGParams  struct {
+		Vec []*IgmpSGRecord `json:"vec"`
+	}
+
 	ApiIgmpNsAddHandler struct{}
 	ApiIgmpNsAddParams  struct {
 		Vec []core.Ipv4Key `json:"vec"`
@@ -1124,9 +1722,9 @@ type (
 		Count uint16 `json:"count" validate:"required,gte=0,lte=255"`
 	}
 	ApiIgmpNsIterResult struct {
-		Empty   bool           `json:"empty"`
-		Stopped bool           `json:"stopped"`
-		Vec     []core.Ipv4Key `json:"data"`
+		Empty   bool            `json:"empty"`
+		Stopped bool            `json:"stopped"`
+		Vec     []IgmpEntryJson `json:"data"`
 	}
 
 	ApiIgmpSetHandler struct{}
@@ -1301,6 +1899,70 @@ func (h ApiIgmpNsRemoveHandler) ServeJSONRPC(ctx interface{}, params *fastjson.R
 	return nil, nil
 }
 
+func (h ApiIgmpNsAddSGHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
+	var p ApiIgmpNsAddSGParams
+	tctx := ctx.(*core.CThreadCtx)
+
+	igmpPlug, err := getNsPlugin(ctx, params)
+	if err != nil {
+		return nil, &jsonrpc.Error{
+			Code:    jsonrpc.ErrorCodeInvalidRequest,
+			Message: err.Error(),
+		}
+	}
+
+	err1 := tctx.UnmarshalValidate(*params, &p)
+	if err1 != nil {
+		return nil, &jsonrpc.Error{
+			Code:    jsonrpc.ErrorCodeInvalidRequest,
+			Message: err1.Error(),
+		}
+	}
+
+	err1 = igmpPlug.addMcSG(p.Vec)
+
+	if err1 != nil {
+		return nil, &jsonrpc.Error{
+			Code:    jsonrpc.ErrorCodeInvalidRequest,
+			Message: err1.Error(),
+		}
+	}
+
+	return nil, nil
+}
+
+func (h ApiIgmpNsRemoveSGHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
+	var p ApiIgmpNsRemoveSGParams
+	tctx := ctx.(*core.CThreadCtx)
+
+	igmpPlug, err := getNsPlugin(ctx, params)
+	if err != nil {
+		return nil, &jsonrpc.Error{
+			Code:    jsonrpc.ErrorCodeInvalidRequest,
+			Message: err.Error(),
+		}
+	}
+
+	err1 := tctx.UnmarshalValidate(*params, &p)
+	if err1 != nil {
+		return nil, &jsonrpc.Error{
+			Code:    jsonrpc.ErrorCodeInvalidRequest,
+			Message: err1.Error(),
+		}
+	}
+
+	err1 = igmpPlug.removeMcSG(p.Vec)
+
+	if err1 != nil {
+		return nil, &jsonrpc.Error{
+			Code:    jsonrpc.ErrorCodeInvalidRequest,
+			Message: err1.Error(),
+		}
+	}
+
+	return nil, nil
+}
+
 func (h ApiIgmpNsIterHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
 
 	var p ApiIgmpNsIterParams
@@ -1369,12 +2031,14 @@ func init() {
 	  aa - misc
 	*/
 
-	core.RegisterCB("igmp_ns_cnt", ApiIgmpNsCntHandler{}, false)       // get counters/meta
-	core.RegisterCB("igmp_ns_add", ApiIgmpNsAddHandler{}, false)       // add mc
-	core.RegisterCB("igmp_ns_remove", ApiIgmpNsRemoveHandler{}, false) // remove mc
-	core.RegisterCB("igmp_ns_iter", ApiIgmpNsIterHandler{}, false)     // iterator
-	core.RegisterCB("igmp_ns_get_cfg", ApiIgmpGetHandler{}, false)     // Get
-	core.RegisterCB("igmp_ns_set_cfg", ApiIgmpSetHandler{}, false)     // Set
+	core.RegisterCB("igmp_ns_sg_add", ApiIgmpNsAddSGHandler{}, false)       // add (s,g) mc
+	core.RegisterCB("igmp_ns_sg_remove", ApiIgmpNsRemoveSGHandler{}, false) // remove (s,g) mc
+	core.RegisterCB("igmp_ns_cnt", ApiIgmpNsCntHandler{}, false)            // get counters/meta
+	core.RegisterCB("igmp_ns_add", ApiIgmpNsAddHandler{}, false)            // add mc (*)
+	core.RegisterCB("igmp_ns_remove", ApiIgmpNsRemoveHandler{}, false)      // remove mc(*) or global
+	core.RegisterCB("igmp_ns_iter", ApiIgmpNsIterHandler{}, false)          // iterator
+	core.RegisterCB("igmp_ns_get_cfg", ApiIgmpGetHandler{}, false)          // Get
+	core.RegisterCB("igmp_ns_set_cfg", ApiIgmpSetHandler{}, false)          // Set
 
 	/* register callback for rx side*/
 	core.ParserRegister("igmp", HandleRxIgmpPacket)

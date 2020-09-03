@@ -7,6 +7,7 @@ package igmp
 
 import (
 	"emu/core"
+	"encoding/json"
 	"external/google/gopacket"
 	"external/google/gopacket/layers"
 	"flag"
@@ -455,6 +456,310 @@ func TestPluginIgmp7(t *testing.T) {
 	} else {
 		fmt.Printf(" %+v \n", err.Error())
 	}
+}
+
+type IgmpRpcSGCtx struct {
+	tctx  *core.CThreadCtx
+	timer core.CHTimerObj
+	test  *IgmpTestBase
+	cnt   uint32
+}
+
+func (o *IgmpRpcSGCtx) OnEvent(a, b interface{}) {
+	fmt.Printf("add request %v %v \n", a, b)
+	if a.(int) == 2 && (o.cnt%2 == 0) {
+
+		buf := gopacket.NewSerializeBuffer()
+		opts := gopacket.SerializeOptions{FixLengths: true,
+			ComputeChecksums: true}
+
+		gopacket.SerializeLayers(buf, opts,
+			&layers.Ethernet{
+				SrcMAC:       net.HardwareAddr{0, 0, 0, 2, 0, 0},
+				DstMAC:       net.HardwareAddr{0x01, 0x00, 0x5e, 0x00, 0x00, 0x01},
+				EthernetType: layers.EthernetTypeDot1Q,
+			},
+			&layers.Dot1Q{
+				Priority:       uint8(0),
+				VLANIdentifier: uint16(1),
+				Type:           layers.EthernetTypeDot1Q,
+			},
+			&layers.Dot1Q{
+				Priority:       uint8(0),
+				VLANIdentifier: uint16(2),
+				Type:           layers.EthernetTypeIPv4,
+			},
+
+			&layers.IPv4{Version: 4, IHL: 6, TTL: 1, Id: 0xcc,
+				SrcIP:    net.IPv4(16, 0, 0, 10),
+				DstIP:    net.IPv4(224, 0, 0, 1),
+				Length:   44,
+				Protocol: layers.IPProtocolIGMP,
+				Options: []layers.IPv4Option{{ /* router alert */
+					OptionType:   0x94,
+					OptionData:   []byte{0, 0},
+					OptionLength: 4},
+				}},
+
+			gopacket.Payload([]byte{0x11, 0x18, 0xec, 0xd3, 0x00, 0x00, 0x00, 0x00, 0x02, 0x14, 0x00, 0x00}),
+		)
+		m := o.tctx.MPool.Alloc(uint16(256))
+		m.SetVPort(1)
+		m.Append(buf.Bytes())
+		//core.PacketUtl("arp1", buf.Bytes())
+		o.tctx.Veth.OnRx(m)
+	}
+	if o.cnt == 1 {
+		o.tctx.Veth.AppendSimuationRPC([]byte(`{"jsonrpc": "2.0",
+			"method":"igmp_ns_add",
+			"params": {"tun": {"vport":1,"tci":[1,2]}, "vec": [ [239,0,1,1],[239,0,1,2] ] },
+			"id": 3 }`))
+
+		o.tctx.Veth.AppendSimuationRPC([]byte(`{"jsonrpc": "2.0",
+			"method":"igmp_ns_sg_add",
+			"params": {"tun": {"vport":1,"tci":[1,2]}, "vec": [ {"g":[239,1,1,3],"s":[10,0,0,1] },{"g":[239,1,1,3],"s":[10,0,0,2] } ] },
+			"id": 3 }`))
+
+	}
+
+	if o.cnt == 3 {
+		o.tctx.Veth.AppendSimuationRPC([]byte(`{"jsonrpc": "2.0",
+		"method":"igmp_ns_sg_remove",
+		"params": {"tun": {"vport":1,"tci":[1,2]}, "vec": [ {"g":[239,1,1,3],"s":[10,0,0,1] }] },
+		"id": 3 }`))
+
+		o.tctx.Veth.AppendSimuationRPC([]byte(`{"jsonrpc": "2.0",
+		"method":"igmp_ns_iter",
+		"params": {"tun": {"vport":1,"tci":[1,2]}, "reset": true, "count" : 99},
+		"id": 3 }`))
+		o.tctx.Veth.AppendSimuationRPC([]byte(`{"jsonrpc": "2.0",
+		"method":"igmp_ns_iter",
+		"params": {"tun": {"vport":1,"tci":[1,2]}, "reset": false, "count" : 100},
+		"id": 3 }`))
+
+	}
+	if o.cnt == 5 {
+		o.tctx.Veth.AppendSimuationRPC([]byte(`{"jsonrpc": "2.0",
+		"method":"igmp_ns_remove",
+		"params": {"tun": {"vport":1,"tci":[1,2]}, "vec": [ [239,0,1,1],[239,0,1,2],[239,0,1,3] ] },
+		"id": 3 }`))
+
+		o.tctx.Veth.AppendSimuationRPC([]byte(`{"jsonrpc": "2.0",
+		"method":"igmp_ns_iter",
+		"params": {"tun": {"vport":1,"tci":[1,2]}, "reset": true, "count" : 99},
+		"id": 3 }`))
+		o.tctx.Veth.AppendSimuationRPC([]byte(`{"jsonrpc": "2.0",
+		"method":"igmp_ns_iter",
+		"params": {"tun": {"vport":1,"tci":[1,2]}, "reset": false, "count" : 100},
+		"id": 3 }`))
+
+	}
+
+	timerw := o.tctx.GetTimerCtx()
+	ticks := timerw.DurationToTicks(5 * time.Second)
+	timerw.StartTicks(&o.timer, ticks)
+	o.cnt += 1
+
+}
+
+func rpcQueueSG(tctx *core.CThreadCtx, test *IgmpTestBase) int {
+	timerw := tctx.GetTimerCtx()
+	ticks := timerw.DurationToTicks(10 * time.Second)
+	var arpctx IgmpRpcSGCtx
+	arpctx.timer.SetCB(&arpctx, test.cbArg1, test.cbArg2)
+	arpctx.tctx = tctx
+	arpctx.test = test
+	timerw.StartTicks(&arpctx.timer, ticks)
+	return 0
+}
+
+func TestPluginIgmp10(t *testing.T) {
+	a := &IgmpTestBase{
+		testname:     "igmp10",
+		dropAll:      true,
+		monitor:      false,
+		match:        3,
+		capture:      true,
+		duration:     60 * time.Second,
+		clientsToSim: 1,
+		cb:           rpcQueueSG,
+		cbArg1:       2,
+	}
+	a.Run(t)
+}
+
+func generateSG(g core.Ipv4Key,
+	s core.Ipv4Key,
+	cntg uint16,
+	cnts uint16,
+	rand bool) string {
+	var vec []IgmpSGRecord
+	gu := g.Uint32()
+	su := s.Uint32()
+	for i := 0; i < int(cntg); i++ {
+		for j := 0; j < int(cnts); j++ {
+			var o IgmpSGRecord
+			var k core.Ipv4Key
+			k.SetUint32(gu + uint32(i))
+			o.G = k
+			k.SetUint32(su + uint32(j))
+			o.S = k
+			vec = append(vec, o)
+		}
+	}
+	b, _ := json.Marshal(vec)
+	return string(b)
+}
+
+type IgmpRpcSG1Ctx struct {
+	tctx  *core.CThreadCtx
+	timer core.CHTimerObj
+	test  *IgmpTestBase
+	cnt   uint32
+}
+
+func (o *IgmpRpcSG1Ctx) OnEvent(a, b interface{}) {
+	fmt.Printf("add request %v %v \n", a, b)
+	if a.(int) == 2 && (o.cnt%2 == 0) {
+
+		buf := gopacket.NewSerializeBuffer()
+		opts := gopacket.SerializeOptions{FixLengths: true,
+			ComputeChecksums: true}
+
+		gopacket.SerializeLayers(buf, opts,
+			&layers.Ethernet{
+				SrcMAC:       net.HardwareAddr{0, 0, 0, 2, 0, 0},
+				DstMAC:       net.HardwareAddr{0x01, 0x00, 0x5e, 0x00, 0x00, 0x01},
+				EthernetType: layers.EthernetTypeDot1Q,
+			},
+			&layers.Dot1Q{
+				Priority:       uint8(0),
+				VLANIdentifier: uint16(1),
+				Type:           layers.EthernetTypeDot1Q,
+			},
+			&layers.Dot1Q{
+				Priority:       uint8(0),
+				VLANIdentifier: uint16(2),
+				Type:           layers.EthernetTypeIPv4,
+			},
+
+			&layers.IPv4{Version: 4, IHL: 6, TTL: 1, Id: 0xcc,
+				SrcIP:    net.IPv4(16, 0, 0, 10),
+				DstIP:    net.IPv4(224, 0, 0, 1),
+				Length:   44,
+				Protocol: layers.IPProtocolIGMP,
+				Options: []layers.IPv4Option{{ /* router alert */
+					OptionType:   0x94,
+					OptionData:   []byte{0, 0},
+					OptionLength: 4},
+				}},
+
+			gopacket.Payload([]byte{0x11, 0x18, 0xec, 0xd3, 0x00, 0x00, 0x00, 0x00, 0x02, 0x14, 0x00, 0x00}),
+		)
+		m := o.tctx.MPool.Alloc(uint16(256))
+		m.SetVPort(1)
+		m.Append(buf.Bytes())
+		//core.PacketUtl("arp1", buf.Bytes())
+		o.tctx.Veth.OnRx(m)
+	}
+	if o.cnt == 1 {
+		o.tctx.Veth.AppendSimuationRPC([]byte(`{"jsonrpc": "2.0",
+			"method":"igmp_ns_add",
+			"params": {"tun": {"vport":1,"tci":[1,2]}, "vec": [ [239,0,1,1],[239,0,1,2] ] },
+			"id": 3 }`))
+
+		s1 := `{"jsonrpc": "2.0","method":"igmp_ns_sg_add",
+			 "params": {"tun": {"vport":1,"tci":[1,2]}, "vec":` + generateSG(core.Ipv4Key{239, 1, 1, 1},
+			core.Ipv4Key{10, 0, 0, 1},
+			1,
+			1000,
+			false) + `},
+			"id": 3 }`
+
+		o.tctx.Veth.AppendSimuationRPC([]byte(s1))
+	}
+
+	if o.cnt == 3 {
+		s1 := `{"jsonrpc": "2.0","method":"igmp_ns_sg_remove",
+		"params": {"tun": {"vport":1,"tci":[1,2]}, "vec":` + generateSG(core.Ipv4Key{239, 1, 1, 1},
+			core.Ipv4Key{10, 0, 0, 1},
+			1,
+			1000,
+			false) + `},"id": 3 }`
+
+		o.tctx.Veth.AppendSimuationRPC([]byte(s1))
+
+		o.tctx.Veth.AppendSimuationRPC([]byte(`{"jsonrpc": "2.0",
+		"method":"igmp_ns_iter",
+		"params": {"tun": {"vport":1,"tci":[1,2]}, "reset": true, "count" : 99},
+		"id": 3 }`))
+		o.tctx.Veth.AppendSimuationRPC([]byte(`{"jsonrpc": "2.0",
+		"method":"igmp_ns_iter",
+		"params": {"tun": {"vport":1,"tci":[1,2]}, "reset": false, "count" : 100},
+		"id": 3 }`))
+
+	}
+	if o.cnt == 5 {
+		o.tctx.Veth.AppendSimuationRPC([]byte(`{"jsonrpc": "2.0",
+		"method":"igmp_ns_remove",
+		"params": {"tun": {"vport":1,"tci":[1,2]}, "vec": [ [239,0,1,1],[239,0,1,2],[239,1,1,1] ] },
+		"id": 3 }`))
+
+		o.tctx.Veth.AppendSimuationRPC([]byte(`{"jsonrpc": "2.0",
+		"method":"igmp_ns_iter",
+		"params": {"tun": {"vport":1,"tci":[1,2]}, "reset": true, "count" : 99},
+		"id": 3 }`))
+		o.tctx.Veth.AppendSimuationRPC([]byte(`{"jsonrpc": "2.0",
+		"method":"igmp_ns_iter",
+		"params": {"tun": {"vport":1,"tci":[1,2]}, "reset": false, "count" : 100},
+		"id": 3 }`))
+
+	}
+
+	timerw := o.tctx.GetTimerCtx()
+	ticks := timerw.DurationToTicks(5 * time.Second)
+	timerw.StartTicks(&o.timer, ticks)
+	o.cnt += 1
+
+}
+
+func rpcQueueSG1(tctx *core.CThreadCtx, test *IgmpTestBase) int {
+	timerw := tctx.GetTimerCtx()
+	ticks := timerw.DurationToTicks(10 * time.Second)
+	var arpctx IgmpRpcSG1Ctx
+	arpctx.timer.SetCB(&arpctx, test.cbArg1, test.cbArg2)
+	arpctx.tctx = tctx
+	arpctx.test = test
+	arpctx.cnt = 0
+	timerw.StartTicks(&arpctx.timer, ticks)
+	return 0
+}
+
+func TestPluginIgmp11(t *testing.T) {
+	a := &IgmpTestBase{
+		testname:     "igmp11",
+		dropAll:      true,
+		monitor:      false,
+		match:        4,
+		capture:      true,
+		duration:     60 * time.Second,
+		clientsToSim: 1,
+		cb:           rpcQueueSG1,
+		cbArg1:       2,
+	}
+	a.Run(t)
+}
+
+func TestPluginIgmp20(t *testing.T) {
+	s := `{"jsonrpc": "2.0",
+		"method":"igmp_ns_sg_add",
+		"params": {"tun": {"vport":1,"tci":[1,2]}, "vec":` + string(generateSG(core.Ipv4Key{239, 1, 1, 1},
+		core.Ipv4Key{10, 0, 0, 1},
+		2,
+		5,
+		false)) + `,"id": 3 }`
+
+	fmt.Printf(" %s \n", string(s))
 }
 
 func init() {
