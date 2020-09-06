@@ -607,6 +607,62 @@
 				"mld": {
 					"meta": [
 						{
+							"help": "add mc (s,g) ",
+							"info": 18,
+							"name": "opsAddSG",
+							"unit": "ops",
+							"zero": false
+						},
+						{
+							"help": "remove mc (s,g) ",
+							"info": 18,
+							"name": "opsRemoveSG",
+							"unit": "ops",
+							"zero": false
+						},
+						{
+							"help": "error add mc (s,g) ",
+							"info": 20,
+							"name": "opsAddErrSG",
+							"unit": "ops",
+							"zero": false
+						},
+						{
+							"help": "error remove mc (s,g) ",
+							"info": 20,
+							"name": "opsRemoveErrSG",
+							"unit": "ops",
+							"zero": false
+						},
+						{
+							"help": "(s,g)- query records",
+							"info": 18,
+							"name": "pktRxSndReportsSGQuery",
+							"unit": "pkts",
+							"zero": false
+						},
+						{
+							"help": "(s,g)- remove records",
+							"info": 18,
+							"name": "pktRxSndReportsSGRemove",
+							"unit": "pkts",
+							"zero": false
+						},
+						{
+							"help": "(s,g)- add records",
+							"info": 18,
+							"name": "pktRxSndReportsSGAdd",
+							"unit": "pkts",
+							"zero": false
+						},
+						{
+							"help": "(s,g)- change to include",
+							"info": 18,
+							"name": "pktRxSndReportsSGChangeToInclude",
+							"unit": "pkts",
+							"zero": false
+						},
+						{
 							"help": "total messages received",
 							"info": 18,
 							"name": "pktRxTotal",
@@ -834,6 +890,13 @@
 							"name": "pktRxErrMulticastB",
 							"unit": "ops",
 							"zero": false
+						},
+						{
+							"help": "rx destination unreachable",
+							"info": 18,
+							"name": "pktRxIcmpDstUnreachable",
+							"unit": "ops",
+							"zero": false
 						}
 					],
 					"name": "pingv6"
@@ -1051,6 +1114,7 @@
 							0
 						],
 						"management": true,
+						"mode": 1,
 						"refc": 0
 					},
 					{
@@ -1073,6 +1137,7 @@
 							0
 						],
 						"management": true,
+						"mode": 1,
 						"refc": 0
 					},
 					{
@@ -1095,6 +1160,7 @@
 							0
 						],
 						"management": true,
+						"mode": 1,
 						"refc": 0
 					},
 					{
@@ -1117,6 +1183,7 @@
 							1
 						],
 						"management": false,
+						"mode": 1,
 						"refc": 1
 					},
 					{
@@ -1139,6 +1206,7 @@
 							0
 						],
 						"management": false,
+						"mode": 1,
 						"refc": 1
 					},
 					{
@@ -1161,6 +1229,7 @@
 							2
 						],
 						"management": false,
+						"mode": 1,
 						"refc": 1
 					}
 				],

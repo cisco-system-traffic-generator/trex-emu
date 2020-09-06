@@ -8,6 +8,7 @@ package ipv6
 import (
 	"emu/core"
 	"encoding/binary"
+	"encoding/json"
 	"external/google/gopacket"
 	"external/google/gopacket/layers"
 	"flag"
@@ -1117,6 +1118,28 @@ func (o *ipv6PingCtxRpc) OnEvent(a, b interface{}) {
 	o.cnt++
 }
 
+func generateSG(g core.Ipv6Key,
+	s core.Ipv6Key,
+	cntg uint16,
+	cnts uint16,
+	rand bool) string {
+	u1 := binary.BigEndian.Uint32(g[12:16])
+	s1 := binary.BigEndian.Uint32(s[12:16])
+	var vec []MldSGRecord
+	for i := 0; i < int(cntg); i++ {
+		for j := 0; j < int(cnts); j++ {
+			var o MldSGRecord
+			binary.BigEndian.PutUint32(g[12:16], u1+uint32(i))
+			binary.BigEndian.PutUint32(s[12:16], s1+uint32(j))
+			o.G = g
+			o.S = s
+			vec = append(vec, o)
+		}
+	}
+	b, _ := json.Marshal(vec)
+	return string(b)
+}
+
 func rpc3Queue(tctx *core.CThreadCtx, test *IcmpTestBase) int {
 	timerw := tctx.GetTimerCtx()
 	ticks := timerw.DurationToTicks(2 * time.Second)
@@ -1125,6 +1148,170 @@ func rpc3Queue(tctx *core.CThreadCtx, test *IcmpTestBase) int {
 	tstctx.tctx = tctx
 	timerw.StartTicks(&tstctx.timer, ticks)
 	return 0
+}
+
+type ipv6RpcCtx1 struct {
+	tctx  *core.CThreadCtx
+	timer core.CHTimerObj
+	test  *IcmpTestBase
+	cnt   uint32
+}
+
+func rpcQueue1(tctx *core.CThreadCtx, test *IcmpTestBase) int {
+	timerw := tctx.GetTimerCtx()
+	ticks := timerw.DurationToTicks(10 * time.Second)
+	var tstctx ipv6RpcCtx1
+	tstctx.timer.SetCB(&tstctx, test.cbArg1, test.cbArg2)
+	tstctx.tctx = tctx
+	tstctx.test = test
+	timerw.StartTicks(&tstctx.timer, ticks)
+	return 0
+}
+
+func (o *ipv6RpcCtx1) OnEvent(a, b interface{}) {
+
+	if a.(int) == 2 && (o.cnt%2 == 0) {
+		buf := gopacket.NewSerializeBuffer()
+		opts := gopacket.SerializeOptions{FixLengths: false, ComputeChecksums: false}
+
+		var raw []byte
+
+		gopacket.SerializeLayers(buf, opts,
+			&layers.Ethernet{
+				SrcMAC:       net.HardwareAddr{0, 0, 0, 2, 0, 0},
+				DstMAC:       net.HardwareAddr{0x33, 0x33, 0, 0, 0, 1},
+				EthernetType: layers.EthernetTypeDot1Q,
+			},
+			&layers.Dot1Q{
+				Priority:       uint8(0),
+				VLANIdentifier: uint16(1),
+				Type:           layers.EthernetTypeDot1Q,
+			},
+			&layers.Dot1Q{
+				Priority:       uint8(0),
+				VLANIdentifier: uint16(2),
+				Type:           layers.EthernetTypeIPv6,
+			},
+
+			&layers.IPv6{
+				Version:      6,
+				TrafficClass: 0,
+				FlowLabel:    0,
+				Length:       8,
+				NextHeader:   layers.IPProtocolIPv6HopByHop,
+				HopLimit:     1,
+				SrcIP:        net.IP{0x20, 0x01, 0x0d, 0xb8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0, 0x0, 0x0, 0x00, 0x03},
+				DstIP:        net.IP{0xff, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0, 0x00, 0x00, 0x01},
+			},
+
+			//&layers.ICMPv6{TypeCode: layers.CreateICMPv6TypeCode(layers.ICMPv6TypeMLDv1MulticastListenerQueryMessage, 0)},
+
+			//&layers.MLDv1MulticastListenerQueryMessage{},
+
+			gopacket.Payload([]byte{0x3a, 0x00, 0x05, 0x02, 0x00, 0x00, 0x00, 0x00,
+				0x82, 0x00,
+				0x7a, 0xc1, 0x03, 0xe8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+				0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x14, 0, 0}),
+		)
+
+		pkt := buf.Bytes()
+
+		off := 14 + 8
+		ipv6Optionsize := 8
+		icmppyof := off + 40 + ipv6Optionsize
+
+		ipv6 := layers.IPv6Header(pkt[off : off+40])
+		ipv6.SetPyloadLength(uint16(len(pkt) - off - 40))
+
+		binary.BigEndian.PutUint16(pkt[icmppyof+2:icmppyof+4], 0)
+		cs := layers.PktChecksumTcpUdpV6(pkt[icmppyof:], 0, ipv6, 8, 0x3a)
+		binary.BigEndian.PutUint16(pkt[icmppyof+2:icmppyof+4], cs)
+		raw = pkt
+		if len(raw) > 0 {
+			m := o.tctx.MPool.Alloc(uint16(1024))
+			m.SetVPort(1)
+			m.Append(raw)
+			o.tctx.Veth.OnRx(m)
+		}
+	}
+
+	if o.cnt == 1 {
+		o.tctx.Veth.AppendSimuationRPC([]byte(`{"jsonrpc": "2.0",
+			"method":"ipv6_mld_ns_add",
+			"params": {"tun": {"vport":1,"tci":[1,2]}, "vec": [ [251, 2, 0,0, 0,0,0,0, 0,0,0,0, 0,7,0,0 ] ] },
+			"id": 3 }`))
+
+		o.tctx.Veth.AppendSimuationRPC([]byte(`{"jsonrpc": "2.0",
+			"method":"ipv6_mld_ns_sg_add",
+			"params": {"tun": {"vport":1,"tci":[1,2]}, "vec":` + generateSG(core.Ipv6Key{251, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0},
+			core.Ipv6Key{32, 1, 13, 184, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2},
+			2, uint16(b.(int)), false) + `},
+			"id": 3 }`))
+
+	}
+
+	if o.cnt == 3 {
+		o.tctx.Veth.AppendSimuationRPC([]byte(`{"jsonrpc": "2.0",
+		"method":"ipv6_mld_ns_sg_remove",
+		"params": {"tun": {"vport":1,"tci":[1,2]}, "vec":` +
+			generateSG(core.Ipv6Key{251, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0},
+				core.Ipv6Key{32, 1, 13, 184, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2},
+				2, uint16(b.(int)), false) + `},
+		"id": 3 }`))
+
+		/*o.tctx.Veth.AppendSimuationRPC([]byte(`{"jsonrpc": "2.0",
+		"method":"ipv6_mld_ns_sg_remove",
+		"params": {"tun": {"vport":1,"tci":[1,2]}, "vec": [ {"g":[251, 2, 0,0, 0,0,0,0, 0,0,0,0, 0,2,0,0 ],
+														     "s":[32, 1, 13, 184,0,0,0,0,0,0,0,0,0,0,0,2] }] },
+		"id": 3 }`))*/
+
+		o.tctx.Veth.AppendSimuationRPC([]byte(`{"jsonrpc": "2.0",
+		"method":"ipv6_mld_ns_iter",
+		"params": {"tun": {"vport":1,"tci":[1,2]}, "reset": true, "count" : 99},
+		"id": 3 }`))
+		o.tctx.Veth.AppendSimuationRPC([]byte(`{"jsonrpc": "2.0",
+		"method":"ipv6_mld_ns_iter",
+		"params": {"tun": {"vport":1,"tci":[1,2]}, "reset": false, "count" : 100},
+		"id": 3 }`))
+
+	}
+	if o.cnt == 5 {
+		o.tctx.Veth.AppendSimuationRPC([]byte(`{"jsonrpc": "2.0",
+		"method":"ipv6_mld_ns_remove",
+		"params": {"tun": {"vport":1,"tci":[1,2]}, "vec": [ [251, 2, 0,0, 0,0,0,0, 0,0,0,0, 0,7,0,0 ] ] },
+		"id": 3 }`))
+
+		o.tctx.Veth.AppendSimuationRPC([]byte(`{"jsonrpc": "2.0",
+		"method":"ipv6_mld_ns_iter",
+		"params": {"tun": {"vport":1,"tci":[1,2]}, "reset": true, "count" : 99},
+		"id": 3 }`))
+		o.tctx.Veth.AppendSimuationRPC([]byte(`{"jsonrpc": "2.0",
+		"method":"ipv6_mld_ns_iter",
+		"params": {"tun": {"vport":1,"tci":[1,2]}, "reset": false, "count" : 100},
+		"id": 3 }`))
+	}
+
+	timerw := o.tctx.GetTimerCtx()
+	ticks := timerw.DurationToTicks(5 * time.Second)
+	timerw.StartTicks(&o.timer, ticks)
+	o.cnt += 1
+}
+
+func TestPluginMldv2_10(t *testing.T) {
+
+	a := &IcmpTestBase{
+		testname:     "mld2_10",
+		monitor:      false,
+		match:        3,
+		capture:      true,
+		duration:     1 * time.Minute,
+		clientsToSim: 1,
+		mcToSim:      1,
+		cb:           rpcQueue1,
+		cbArg1:       2,
+		cbArg2:       999,
+	}
+	a.Run(t, true) // the timestamp making a new json due to the timestamp. skip the it
 }
 
 func TestPluginPing(t *testing.T) {

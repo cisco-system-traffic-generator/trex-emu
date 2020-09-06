@@ -591,6 +591,18 @@ func (o PluginIpv6NsReg) NewPlugin(ctx *core.PluginCtx, initJson []byte) *core.P
 type (
 	ApiIpv6NsCntHandler struct{}
 
+	// add (g,s)
+	ApiMldNsAddSGHandler struct{}
+	ApiMldNsAddSGParams  struct {
+		Vec []*MldSGRecord `json:"vec"`
+	}
+
+	// remove(g,s)
+	ApiMldNsRemoveSGHandler struct{}
+	ApiMldNsRemoveSGParams  struct {
+		Vec []*MldSGRecord `json:"vec"`
+	}
+
 	ApiMldNsAddHandler struct{}
 	ApiMldNsAddParams  struct {
 		Vec []core.Ipv6Key `json:"vec"`
@@ -694,6 +706,38 @@ func (h ApiIpv6NsCntHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawM
 	return c.cdbv.GeneralCounters(err, tctx, params, &p)
 }
 
+func (h ApiMldNsAddSGHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
+	var p ApiMldNsAddSGParams
+	tctx := ctx.(*core.CThreadCtx)
+
+	ipv6Ns, err := getNsPlugin(ctx, params)
+	if err != nil {
+		return nil, &jsonrpc.Error{
+			Code:    jsonrpc.ErrorCodeInvalidRequest,
+			Message: err.Error(),
+		}
+	}
+
+	err1 := tctx.UnmarshalValidate(*params, &p)
+	if err1 != nil {
+		return nil, &jsonrpc.Error{
+			Code:    jsonrpc.ErrorCodeInvalidRequest,
+			Message: err1.Error(),
+		}
+	}
+
+	err1 = ipv6Ns.mld.addMcSG(p.Vec)
+
+	if err1 != nil {
+		return nil, &jsonrpc.Error{
+			Code:    jsonrpc.ErrorCodeInvalidRequest,
+			Message: err1.Error(),
+		}
+	}
+
+	return nil, nil
+}
+
 func (h ApiMldNsAddHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
 	var p ApiMldNsAddParams
 	tctx := ctx.(*core.CThreadCtx)
@@ -747,6 +791,38 @@ func (h ApiMldNsRemoveHandler) ServeJSONRPC(ctx interface{}, params *fastjson.Ra
 	}
 
 	err1 = ipv6Ns.mld.RemoveMc(p.Vec)
+
+	if err1 != nil {
+		return nil, &jsonrpc.Error{
+			Code:    jsonrpc.ErrorCodeInvalidRequest,
+			Message: err1.Error(),
+		}
+	}
+
+	return nil, nil
+}
+
+func (h ApiMldNsRemoveSGHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
+	var p ApiMldNsRemoveSGParams
+	tctx := ctx.(*core.CThreadCtx)
+
+	ipv6Ns, err := getNsPlugin(ctx, params)
+	if err != nil {
+		return nil, &jsonrpc.Error{
+			Code:    jsonrpc.ErrorCodeInvalidRequest,
+			Message: err.Error(),
+		}
+	}
+
+	err1 := tctx.UnmarshalValidate(*params, &p)
+	if err1 != nil {
+		return nil, &jsonrpc.Error{
+			Code:    jsonrpc.ErrorCodeInvalidRequest,
+			Message: err1.Error(),
+		}
+	}
+
+	err1 = ipv6Ns.mld.removeMcSG(p.Vec)
 
 	if err1 != nil {
 		return nil, &jsonrpc.Error{
@@ -999,6 +1075,8 @@ func init() {
 	*/
 
 	core.RegisterCB("ipv6_ns_cnt", ApiIpv6NsCntHandler{}, false)               // get counter mld/icmp/nd
+	core.RegisterCB("ipv6_mld_ns_sg_add", ApiMldNsAddSGHandler{}, false)       // add (g,s) mc
+	core.RegisterCB("ipv6_mld_ns_sg_remove", ApiMldNsRemoveSGHandler{}, false) // remove (g,s) mc
 	core.RegisterCB("ipv6_mld_ns_add", ApiMldNsAddHandler{}, false)            // mld add
 	core.RegisterCB("ipv6_mld_ns_remove", ApiMldNsRemoveHandler{}, false)      // mld remove
 	core.RegisterCB("ipv6_mld_ns_iter", ApiMldNsIterHandler{}, false)          // mld iterator
