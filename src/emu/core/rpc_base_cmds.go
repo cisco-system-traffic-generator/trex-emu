@@ -136,7 +136,7 @@ func (h ApiGetVersionHandler) ServeJSONRPC(ctx interface{}, params *fastjson.Raw
 	}, nil
 }
 
-const EMU_MAJOR_VER uint8 = 0
+const EMU_MAJOR_VER uint8 = 1
 const EMU_MINOR_VER uint8 = 1
 const EMU_NAME = "EMU"
 
