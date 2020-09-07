@@ -1463,7 +1463,7 @@ IPv6 client side is based on the following RFCs:
 * RFC 4443
 * RFC 4861
 * RFC 4862
-* MLD1/MLDv2 RFC 3810.
+* MLD1/MLDv2 RFC 3810 - support (g,s) filter for MLD2 version 
 
 It was written from scratch so it might have some issues.
 
@@ -1664,6 +1664,43 @@ ff02::1:ff6b:eb42
 225.61 [ms]
 
 ----
+
+
+.MLD (g,s)
+[source,bash]
+----
+
+    trex>emu_ipv6_remove_mld_sg -p 0 --6g ff07::9 --6s 2001:db8:1::cc --6s-count 5
+    trex>emu_ipv6_add_mld_sg -p 0 --6g ff07::9 --6s 2001:db8:1::cc --6s-count 5   
+
+    trex>emu_ipv6_show_mld -p 0
+    Current Mld:
+
+        IPv6        | Ref.Count | From RPC | Mode | Sources |        S                                    
+    ------------------+-----------+----------+------+---------+--------------
+        ff02::1      |     1     |  False   |  1   |    0    |                                                                                    
+    ff02::1:ff70:1   |     1     |  False   |  1   |    0    |                                                                                    
+    ff02::1:ff00:2   |     1     |  False   |  1   |    0    |                                                                                    
+    ff02::1:ffc5:47da|     1     |  False   |  1   |    0    |                                                                                    
+  >>    ff07::9      |     0     |   True   |  2   |    5    | [2001:db8:1::cf] ..
+
+
+    >#show ipv6 mld groups FF07::9 detail 
+    Interface:      TenGigabitEthernet0/0/0
+    Group:          FF07::9
+    Uptime:         00:00:06
+    Router mode:    INCLUDE
+    Host mode:      INCLUDE
+    Last reporter:  FE80::200:FF:FE70:1
+    Group source list:
+    Source Address                          Uptime    Expires   Fwd  Flags
+    2001:DB8:1::CC                          00:00:06  00:04:13  Yes  Remote 4
+    2001:DB8:1::CD                          00:00:06  00:04:13  Yes  Remote 4
+    2001:DB8:1::CE                          00:00:06  00:04:13  Yes  Remote 4
+    2001:DB8:1::CF                          00:00:06  00:04:13  Yes  Remote 4
+
+----
+
 
 .ASR1K Show Stats
 [source,bash]
