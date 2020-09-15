@@ -826,6 +826,7 @@ func (o *PluginIgmpNs) preparePacketTemplate() {
 		&layers.IPv4{Version: 4, IHL: 6, TTL: 1, Id: 0xcc,
 			SrcIP:    net.IPv4(0, 0, 0, 0),
 			DstIP:    net.IPv4(0, 0, 0, 0),
+			TOS:      0xC0,
 			Length:   44,
 			Protocol: layers.IPProtocolIGMP,
 			Options: []layers.IPv4Option{{ /* router alert */
