@@ -26,7 +26,7 @@ import (
 )
 
 const (
-	VERSION = "0.1"
+	VERSION = "2.84"
 )
 
 func RegisterPlugins(tctx *core.CThreadCtx) {
@@ -89,7 +89,7 @@ func RunCoreZmq(args *MainArgs) {
 	var zmqVeth core.VethIFZmq
 
 	if *args.version {
-		fmt.Printf("tre-emu version is %s \n", VERSION)
+		fmt.Printf("trex-emu version is %s \n", VERSION)
 		os.Exit(0)
 	}
 
