@@ -925,7 +925,7 @@ func (o *mldNsCtx) preparePacketTemplate() {
 	mldv2Header := core.PacketUtlBuild(
 		&layers.IPv6{
 			Version:      6,
-			TrafficClass: 0,
+			TrafficClass: 0xC0,
 			FlowLabel:    0,
 			Length:       8,
 			NextHeader:   layers.IPProtocolIPv6HopByHop,
