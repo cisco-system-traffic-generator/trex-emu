@@ -58,7 +58,7 @@ func (o *CTunnelKey) DumpHex() {
 	fmt.Println(hex.Dump(o[0:]))
 }
 
-func (o CTunnelKey) String() string {
+func (o CTunnelKey) toString(newLine bool) string {
 	var d CTunnelData
 	o.Get(&d)
 	s := fmt.Sprintf("%d,", d.Vport)
@@ -68,8 +68,18 @@ func (o CTunnelKey) String() string {
 			s += fmt.Sprintf(",")
 		}
 	}
-	s += fmt.Sprintf("\n")
+	if newLine {
+		s += fmt.Sprintf("\n")
+	}
 	return s
+}
+
+func (o CTunnelKey) String() string {
+	return o.toString(true)
+}
+
+func (o CTunnelKey) StringRpc() string {
+	return o.toString(false)
 }
 
 func (o *CTunnelKey) Clear() {

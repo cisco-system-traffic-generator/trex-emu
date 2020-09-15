@@ -21,7 +21,7 @@ import (
 
 var monitor int
 
-func TestPluginIgmp1(t *testing.T) {
+/*func TestPluginIgmp1(t *testing.T) {
 	tbl := NewIgmpTable()
 	fmt.Printf("0: %v \n", tbl.addMc([4]byte{1, 0, 0, 1}))
 	fmt.Printf("1: %v \n", tbl.addMc([4]byte{1, 0, 0, 1}))
@@ -48,7 +48,7 @@ func TestPluginIgmp2(t *testing.T) {
 	fmt.Printf("3: %v \n", tbl.removeMc([4]byte{1, 0, 0, 1}))
 	e2 := covertToIgmpEntry(tbl.activeIter)
 	fmt.Printf(" %v \n", e2.Ipv4)
-}
+}*/
 
 func d1(vec *[]uint32) {
 	fmt.Printf(" h %v \n", *vec)

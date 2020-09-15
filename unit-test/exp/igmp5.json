@@ -494,7 +494,7 @@
 		"rpc-res": {
 			"error": {
 				"code": -32600,
-				"message": " mc-ipv4 [239 0 1 1] already exist"
+				"message": " ns:1,{8100:0001},{8100:0002} mc-ipv4 [239 0 1 1] already exist"
 			},
 			"id": 3,
 			"jsonrpc": "2.0"

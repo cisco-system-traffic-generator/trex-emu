@@ -515,25 +515,25 @@ func (o *IgmpEntry) allocMap() {
 	}
 }
 
-func (o *IgmpEntry) addSource(s core.Ipv4Key) error {
+func (o *IgmpEntry) addSource(ns *core.CNSCtx, s core.Ipv4Key) error {
 	if o.getMode() == IGMP_ENTRY_MODE_INCLUDE_ALL {
-		return fmt.Errorf(" can't add source for include all mc  %v ", o.Ipv4)
+		return fmt.Errorf("ns:%v g:%v can't add source s:%v for include all mc ", ns.Key.StringRpc(), o.Ipv4, s)
 	}
 	_, ok := o.maps[s]
 	if ok {
-		return fmt.Errorf(" source-ipv4 %v already exist", s)
+		return fmt.Errorf("ns:%v g:%v source-ipv4 %v already exist", ns.Key.StringRpc(), o.Ipv4, s)
 	}
 	o.maps[s] = true
 	return nil
 }
 
-func (o *IgmpEntry) removeSource(s core.Ipv4Key) error {
+func (o *IgmpEntry) removeSource(ns *core.CNSCtx, s core.Ipv4Key) error {
 	if o.getMode() == IGMP_ENTRY_MODE_INCLUDE_ALL {
-		return fmt.Errorf(" can't add source for include all mc  %v ", o.Ipv4)
+		return fmt.Errorf(" ns:%v can't add source s:%v for include all mc g:%v ", ns.Key.StringRpc(), s, o.Ipv4)
 	}
 	_, ok := o.maps[s]
 	if !ok {
-		return fmt.Errorf(" source-ipv4 %v does not exist", s)
+		return fmt.Errorf(" ns:%v g:%v source-ipv4 s:%v does not exist", ns.Key.StringRpc(), o.Ipv4, s)
 	}
 	delete(o.maps, s)
 	return nil
@@ -543,6 +543,7 @@ type MapIgmp map[core.Ipv4Key]*IgmpEntry
 
 //IgmpFlowTbl  map/dlist of the igmp entries
 type IgmpFlowTbl struct {
+	ns         *core.CNSCtx
 	mapIgmp    MapIgmp
 	head       core.DList
 	activeIter *core.DList /* pointer to the next object, in case of active */
@@ -578,7 +579,7 @@ func (o *IgmpFlowTbl) addMcSG(ipv4 core.Ipv4Key, s core.Ipv4Key) (bool, error) {
 	e, ok := o.mapIgmp[ipv4]
 	if ok {
 		if e.getMode() != IGMP_ENTRY_MODE_INCLUDE_S {
-			return r, fmt.Errorf(" add(s,g) (%v,%v) in the wrong mode", s, ipv4)
+			return r, fmt.Errorf(" ns:%v add(s,g) (%v,%v) in the wrong mode", o.ns.Key.StringRpc(), s, ipv4)
 		}
 	} else {
 		e = new(IgmpEntry)
@@ -589,7 +590,7 @@ func (o *IgmpFlowTbl) addMcSG(ipv4 core.Ipv4Key, s core.Ipv4Key) (bool, error) {
 		o.head.AddLast(&e.dlist)
 		r = true
 	}
-	err1 := e.addSource(s)
+	err1 := e.addSource(o.ns, s)
 	if err1 == nil && r {
 		o.sgCount++
 	}
@@ -602,12 +603,12 @@ func (o *IgmpFlowTbl) removeMcSG(ipv4 core.Ipv4Key, s core.Ipv4Key) (bool, error
 	e, ok := o.mapIgmp[ipv4]
 	if ok {
 		if e.getMode() != IGMP_ENTRY_MODE_INCLUDE_S {
-			return r, fmt.Errorf(" remove(s,g) (%v,%v) in the wrong mode", s, ipv4)
+			return r, fmt.Errorf(" ns:%v remove(s,g) (%v,%v) in the wrong mode", o.ns.Key.StringRpc(), s, ipv4)
 		}
 	} else {
-		return r, fmt.Errorf(" add(s,g) (%v) group does not exits", ipv4)
+		return r, fmt.Errorf(" ns:%v add(s,g) (%v) group does not exits", o.ns.Key.StringRpc(), ipv4)
 	}
-	err := e.removeSource(s)
+	err := e.removeSource(o.ns, s)
 	if len(e.maps) == 0 {
 		r = true
 	}
@@ -618,7 +619,7 @@ func (o *IgmpFlowTbl) removeMcSG(ipv4 core.Ipv4Key, s core.Ipv4Key) (bool, error
 func (o *IgmpFlowTbl) addMc(ipv4 core.Ipv4Key) error {
 	_, ok := o.mapIgmp[ipv4]
 	if ok {
-		return fmt.Errorf(" mc-ipv4 %v already exist", ipv4)
+		return fmt.Errorf(" ns:%v mc-ipv4 %v already exist", o.ns.Key.StringRpc(), ipv4)
 	}
 	// create new entry
 	e := new(IgmpEntry)
@@ -633,7 +634,7 @@ func (o *IgmpFlowTbl) addMc(ipv4 core.Ipv4Key) error {
 func (o *IgmpFlowTbl) removeMc(ipv4 core.Ipv4Key) error {
 	e, ok := o.mapIgmp[ipv4]
 	if !ok {
-		return fmt.Errorf(" mc-ipv4 %v does not exist", ipv4)
+		return fmt.Errorf(" ns:%v mc-ipv4 %v does not exist", o.ns.Key.StringRpc(), ipv4)
 	}
 	if e.getMode() == IGMP_ENTRY_MODE_INCLUDE_S {
 		o.sgCount--
@@ -748,6 +749,8 @@ func NewIgmpNs(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
 	o.cdbv = core.NewCCounterDbVec("igmp")
 	o.cdbv.Add(o.cdb)
 	o.tbl.OnCreate(&o.stats)
+	fmt.Printf(" ns : %v \n", o.Ns)
+	o.tbl.ns = o.Ns // save the ns
 	o.igmpVersion = IGMP_VERSION_3
 	o.mtu = 1500
 	o.qrv = 2
