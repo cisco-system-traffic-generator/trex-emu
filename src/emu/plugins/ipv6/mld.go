@@ -520,25 +520,25 @@ func (o *MldEntry) allocMap() {
 	}
 }
 
-func (o *MldEntry) addSource(s core.Ipv6Key) error {
+func (o *MldEntry) addSource(ns *core.CNSCtx, s core.Ipv6Key) error {
 	if o.getMode() == MLD_ENTRY_MODE_INCLUDE_ALL {
-		return fmt.Errorf(" can't add source for include all mc  %v ", o.Ipv6)
+		return fmt.Errorf(" ns:%v can't add source %v for include all g:%v ", ns.Key.StringRpc(), s, o.Ipv6)
 	}
 	_, ok := o.maps[s]
 	if ok {
-		return fmt.Errorf(" source-ipv6 %v already exist", s)
+		return fmt.Errorf(" ns:%v source-ipv6 %v already exist for g: %v", ns.Key.StringRpc(), s, o.Ipv6)
 	}
 	o.maps[s] = true
 	return nil
 }
 
-func (o *MldEntry) removeSource(s core.Ipv6Key) error {
+func (o *MldEntry) removeSource(ns *core.CNSCtx, s core.Ipv6Key) error {
 	if o.getMode() == MLD_ENTRY_MODE_INCLUDE_ALL {
-		return fmt.Errorf(" can't add source for include all mc  %v ", o.Ipv6)
+		return fmt.Errorf(" ns:%v can't add source %v for include all g: %v ", ns.Key.StringRpc(), s, o.Ipv6)
 	}
 	_, ok := o.maps[s]
 	if !ok {
-		return fmt.Errorf(" source-ipv6 %v does not exist", s)
+		return fmt.Errorf(" ns:%v source-ipv6 %v does not exist g:%v", ns.Key.StringRpc(), s, o.Ipv6)
 	}
 	delete(o.maps, s)
 	return nil
@@ -552,6 +552,7 @@ type MapIgmp map[core.Ipv6Key]*MldEntry
 
 //IgmpFlowTbl  map/dlist of the mld entries
 type IgmpFlowTbl struct {
+	ns         *core.CNSCtx
 	mapIgmp    MapIgmp
 	head       core.DList
 	activeIter *core.DList /* pointer to the next object, in case of active */
@@ -584,11 +585,11 @@ func (o *IgmpFlowTbl) addMcSG(ipv6 core.Ipv6Key, s core.Ipv6Key) (bool, error) {
 	e, ok := o.mapIgmp[ipv6]
 	if ok {
 		if e.management != true {
-			return r, fmt.Errorf(" add(s,g) (%v,%v) should be be added by RPC", s, ipv6)
+			return r, fmt.Errorf(" ns:%v add(s,g) (%v,%v) should be be added by RPC", o.ns.Key.StringRpc(), s, ipv6)
 		}
 
 		if e.getMode() != MLD_ENTRY_MODE_INCLUDE_S {
-			return r, fmt.Errorf(" add(s,g) (%v,%v) in the wrong mode", s, ipv6)
+			return r, fmt.Errorf(" ns:%v add(s,g) (%v,%v) in the wrong mode", o.ns.Key.StringRpc(), s, ipv6)
 		}
 	} else {
 		e = new(MldEntry)
@@ -600,7 +601,7 @@ func (o *IgmpFlowTbl) addMcSG(ipv6 core.Ipv6Key, s core.Ipv6Key) (bool, error) {
 		o.head.AddLast(&e.dlist)
 		r = true
 	}
-	err1 := e.addSource(s)
+	err1 := e.addSource(o.ns, s)
 	if err1 == nil && r {
 		o.sgCount++
 	}
@@ -613,15 +614,15 @@ func (o *IgmpFlowTbl) removeMcSG(ipv6 core.Ipv6Key, s core.Ipv6Key) (bool, error
 	e, ok := o.mapIgmp[ipv6]
 	if ok {
 		if e.getMode() != MLD_ENTRY_MODE_INCLUDE_S {
-			return r, fmt.Errorf(" remove(s,g) (%v,%v) in the wrong mode", s, ipv6)
+			return r, fmt.Errorf(" ns:%v remove(s,g) (%v,%v) in the wrong mode", o.ns.Key.StringRpc(), s, ipv6)
 		}
 		if e.management != true {
-			return r, fmt.Errorf(" add(s,g) (%v,%v) should be be added by RPC", s, ipv6)
+			return r, fmt.Errorf(" ns:%v add(s,g) (%v,%v) should be be added by RPC", o.ns.Key.StringRpc(), s, ipv6)
 		}
 	} else {
-		return r, fmt.Errorf(" add(s,g) (%v) group does not exits", ipv6)
+		return r, fmt.Errorf(" ns:%v add(s,g) (%v) group does not exits", o.ns.Key.StringRpc(), ipv6)
 	}
-	err := e.removeSource(s)
+	err := e.removeSource(o.ns, s)
 	if len(e.maps) == 0 {
 		r = true
 	}
@@ -640,9 +641,9 @@ func (o *IgmpFlowTbl) addMc(ipv6 core.Ipv6Key, man bool) (error, bool) {
 				return nil, false
 			} else {
 				if obj.getMode() != MLD_ENTRY_MODE_INCLUDE_ALL {
-					return fmt.Errorf(" mc-ipv6 %v already is in filter mode", ipv6), false
+					return fmt.Errorf(" ns:%v mc-ipv6 %v already is in filter mode", o.ns.Key.StringRpc(), ipv6), false
 				}
-				return fmt.Errorf(" mc-ipv6 %v already exist by management", ipv6), false
+				return fmt.Errorf(" ns:%v mc-ipv6 %v already exist by management", o.ns.Key.StringRpc(), ipv6), false
 			}
 		}
 	}
@@ -663,11 +664,11 @@ func (o *IgmpFlowTbl) addMc(ipv6 core.Ipv6Key, man bool) (error, bool) {
 func (o *IgmpFlowTbl) removeMc(ipv6 core.Ipv6Key, man bool) (bool, error) {
 	e, ok := o.mapIgmp[ipv6]
 	if !ok {
-		return false, fmt.Errorf(" mc-ipv6 %v does not exist", ipv6)
+		return false, fmt.Errorf(" ns:%v mc-ipv6 %v does not exist", o.ns.Key.StringRpc(), ipv6)
 	}
 	if man {
 		if !e.management {
-			return false, fmt.Errorf(" mc-ipv6 %v wasn't added by management and can't be removed", ipv6)
+			return false, fmt.Errorf(" ns:%v mc-ipv6 %v wasn't added by management and can't be removed", o.ns.Key.StringRpc(), ipv6)
 
 		} else {
 			e.management = false
@@ -676,7 +677,7 @@ func (o *IgmpFlowTbl) removeMc(ipv6 core.Ipv6Key, man bool) (bool, error) {
 		if e.refc > 0 {
 			e.refc--
 		} else {
-			panic("mld remove without adding from external sources")
+			panic(" mld remove without adding from external sources")
 		}
 	}
 	var r bool
@@ -785,6 +786,7 @@ func (o *mldNsCtx) Init(base *PluginIpv6Ns, ctx *core.CThreadCtx, initJson []byt
 
 	o.base = base
 	o.tbl.OnCreate(&o.stats)
+	o.tbl.ns = o.base.Ns
 	o.mldVersion = MLD_VERSION_2
 	o.mtu = 1500
 	o.qrv = 2
