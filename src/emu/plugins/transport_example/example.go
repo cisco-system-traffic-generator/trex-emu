@@ -65,9 +65,10 @@ func (o *PluginTransportEClient) OnRxEvent(event transport.SocketEventType) {
 	if (event & transport.SocketEventConnected) > 0 {
 		var b []byte
 		b = make([]byte, o.cfg.DataSize)
-		for i := 0; i < int(o.cfg.DataSize); i++ {
-			b[i] = byte(i)
+		for i := 0; i < int(o.cfg.DataSize-1); i++ {
+			b[i] = 97 + byte(i%22)
 		}
+		b[o.cfg.DataSize-1] = byte('\n')
 		o.s.Write(b)
 		o.s.Close()
 	}
@@ -105,6 +106,7 @@ func (o *PluginTransportEClient) OnEvent(msg string, a, b interface{}) {
 		resolvedIPv4 := (bitMask & core.RESOLVED_IPV4_DG_MAC) == core.RESOLVED_IPV4_DG_MAC
 		if resolvedIPv4 {
 			// now we can dial
+			o.ctx = transport.GetTransportCtx(o.Client)
 			s, err := o.ctx.Dial("tcp", o.cfg.Addr, o, nil)
 			if err != nil {
 				return

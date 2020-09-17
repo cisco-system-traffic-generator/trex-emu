@@ -35,6 +35,10 @@ const (
 	ZMQ_EMU_IPC_PATH        = "/tmp/emu" // path should be /tmp/emu-port.ipc
 )
 
+type VethIFCb interface {
+	HandleRxPacket(m *Mbuf)
+}
+
 type VethIFZmq struct {
 	rxCtx    *zmq.Context
 	txCtx    *zmq.Context
@@ -49,8 +53,14 @@ type VethIFZmq struct {
 	stats      VethStats
 	tctx       *CThreadCtx
 	K12Monitor bool /* to standard output*/
+	proxyMode  bool
 	cdb        *CCounterDb
 	buf        []byte
+	cb         VethIFCb
+}
+
+func (o *VethIFZmq) SetCb(cb VethIFCb) {
+	o.cb = cb
 }
 
 func (o *VethIFZmq) CreateSocket(socketStr string) (*zmq.Context, *zmq.Socket) {
@@ -64,7 +74,11 @@ func (o *VethIFZmq) CreateSocket(socketStr string) (*zmq.Context, *zmq.Socket) {
 		panic(err)
 	}
 
-	err = socket.Connect(socketStr)
+	if o.proxyMode {
+		err = socket.Bind(socketStr)
+	} else {
+		err = socket.Connect(socketStr)
+	}
 	if err != nil {
 		panic(err)
 	}
@@ -72,7 +86,7 @@ func (o *VethIFZmq) CreateSocket(socketStr string) (*zmq.Context, *zmq.Socket) {
 
 }
 
-func (o *VethIFZmq) Create(ctx *CThreadCtx, port uint16, server string, tcp bool) {
+func (o *VethIFZmq) Create(ctx *CThreadCtx, port uint16, server string, tcp bool, proxyMode bool) {
 
 	var socketStrRx, socketStrTx string
 	if tcp {
@@ -83,11 +97,20 @@ func (o *VethIFZmq) Create(ctx *CThreadCtx, port uint16, server string, tcp bool
 		socketStrTx = fmt.Sprintf("ipc://%s-%d.ipc", ZMQ_EMU_IPC_PATH, port+1)
 
 	}
-	o.rxCtx, o.rxSocket = o.CreateSocket(socketStrRx)
-	o.txCtx, o.txSocket = o.CreateSocket(socketStrTx)
+	o.proxyMode = proxyMode
 
-	o.rxPort = port
-	o.txPort = port + 1
+	if o.proxyMode {
+		o.rxCtx, o.rxSocket = o.CreateSocket(socketStrTx)
+		o.txCtx, o.txSocket = o.CreateSocket(socketStrRx)
+		o.rxPort = port + 1
+		o.txPort = port
+	} else {
+		o.rxCtx, o.rxSocket = o.CreateSocket(socketStrRx)
+		o.txCtx, o.txSocket = o.CreateSocket(socketStrTx)
+
+		o.rxPort = port
+		o.txPort = port + 1
+	}
 	o.buf = make([]byte, 32*1024)
 
 	o.cn = make(chan []byte)
@@ -206,7 +229,11 @@ func (o *VethIFZmq) OnRx(m *Mbuf) {
 		fmt.Printf("\n ->RX<- \n")
 		m.DumpK12(o.tctx.GetTickSimInSec())
 	}
-	o.tctx.HandleRxPacket(m)
+	if o.proxyMode {
+		o.cb.HandleRxPacket(m)
+	} else {
+		o.tctx.HandleRxPacket(m)
+	}
 }
 
 /* get the veth stats */

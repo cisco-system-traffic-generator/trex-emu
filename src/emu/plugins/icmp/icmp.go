@@ -430,7 +430,7 @@ func (o *PluginIcmpNs) HandleRxIcmpPacket(ps *core.ParserPacketState) int {
 
 	/* source ip should be a valid ipv4 */
 	srcip := net.IPv4(ipv4Key[0], ipv4Key[1], ipv4Key[2], ipv4Key[3])
-	if !srcip.IsGlobalUnicast() {
+	if !srcip.IsLoopback() && !srcip.IsGlobalUnicast() {
 		o.stats.pktRxErrMulticastB++
 		return 0
 	}

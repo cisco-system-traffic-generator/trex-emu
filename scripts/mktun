@@ -1,0 +1,6 @@
+#! /usr/bin/env bash
+ip tuntap add dev tap0 mode tap
+ip link set tap0 up
+ip addr add 11.0.0.1/24 dev tap0
+ethtool --offload tap0 tx off rx off sg off gso off  tso off 
+

@@ -111,7 +111,7 @@ func RunCoreZmq(args *MainArgs) {
 	tctx := core.NewThreadCtx(0, port, *args.sim, &simrx)
 
 	if !*args.sim {
-		zmqVeth.Create(tctx, uint16(*args.vethPort), *args.zmqServer, *args.emuTCPoZMQ)
+		zmqVeth.Create(tctx, uint16(*args.vethPort), *args.zmqServer, *args.emuTCPoZMQ, false)
 		zmqVeth.StartRxThread()
 		tctx.SetZmqVeth(&zmqVeth)
 	}

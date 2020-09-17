@@ -206,6 +206,23 @@ type CThreadCtx struct {
 	DefNsPlugs  *MapJsonPlugs // Default plugins for each new namespace
 }
 
+func NewThreadCtxProxy() *CThreadCtx {
+	o := new(CThreadCtx)
+	o.timerctx = NewTimerCtx(false)
+	o.MPool.Init(mBUFS_CACHE)
+	o.simRecorder = make([]interface{}, 0)
+
+	/* counters */
+	o.cdbv = NewCCounterDbVec("ctx")
+	o.cdbv.AddVec(o.MPool.Cdbv)
+	o.cdbv.Add(o.MPool.Cdb)
+	o.cdbv.Add(o.timerctx.Cdb)
+	cdb := newThreadCtxStats(&o.stats)
+	cdb.IOpt = &o.stats
+	o.cdbv.Add(cdb)
+	return o
+}
+
 func NewThreadCtx(Id uint32, serverPort uint16, simulation bool, simRx *VethIFSim) *CThreadCtx {
 	o := new(CThreadCtx)
 	o.timerctx = NewTimerCtx(simulation)
@@ -330,6 +347,10 @@ func (o *CThreadCtx) MainLoopSim(duration time.Duration) {
 	}
 	o.Veth.SimulatorCleanup()
 	o.MPool.ClearCache() /* clear the cache for simulation */
+}
+
+func (o *CThreadCtx) HandleMainTimerTicks() {
+	o.timerctx.HandleTicks()
 }
 
 func (o *CThreadCtx) MainLoop() {
