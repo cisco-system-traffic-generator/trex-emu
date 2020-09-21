@@ -3,7 +3,6 @@ package main
 import (
 	"bufio"
 	"fmt"
-	"io"
 	"net"
 	"os"
 )
@@ -14,15 +13,13 @@ func echo(conn net.Conn) {
 	r := bufio.NewReader(conn)
 	for {
 		line, err := r.ReadBytes(byte('\n'))
-		switch err {
-		case nil:
+		if err == nil {
+			conn.Write(line)
+		} else {
 			break
-		case io.EOF:
-		default:
-			fmt.Println("ERROR", err)
 		}
-		conn.Write(line)
 	}
+	conn.Close()
 }
 
 func main() {

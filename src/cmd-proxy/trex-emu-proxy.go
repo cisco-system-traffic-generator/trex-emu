@@ -16,7 +16,11 @@ import (
 	"github.com/songgao/water"
 )
 
+// better to use readv/writev for batch of packets. this will accelerate the write and read to/from tap
+
+
 const MAX_PKT_SIZE = 10 * 1024
+const PKT_RING = 3
 
 // create 3 channel to get the packet
 // save MAC->IP map
@@ -75,8 +79,9 @@ type SocketRawIF struct {
 	tctx  *core.CThreadCtx
 	tapif *water.Interface
 
-	data []byte
+	data [PKT_RING][]byte
 	cn   chan []byte
+	ring uint32
 }
 
 func (o *SocketRawIF) Create(tctx *core.CThreadCtx, tapname string) {
@@ -93,19 +98,29 @@ func (o *SocketRawIF) Create(tctx *core.CThreadCtx, tapname string) {
 		log.Fatal(err)
 	}
 
-	o.data = make([]byte, MAX_PKT_SIZE)
+	for i := 0; i < PKT_RING; i++ {
+		o.data[i] = make([]byte, MAX_PKT_SIZE)
+	}
+	o.ring = 0
+
 	o.cn = make(chan []byte)
 }
 
 // thread
 func (o *SocketRawIF) rxThread() {
 
+	ring := 0
 	for {
-		cnt, err := o.tapif.Read(o.data)
+		cnt, err := o.tapif.Read(o.data[ring])
 		if err != nil {
+			fmt.Printf(" ERROR %s \n", err)
 			time.Sleep(10 * time.Millisecond)
 		} else {
-			o.cn <- o.data[:cnt]
+			o.cn <- o.data[ring][:cnt]
+			ring++
+			if ring == PKT_RING {
+				ring = 0
+			}
 		}
 	}
 }
