@@ -908,10 +908,6 @@ func (o *PluginArpNs) HandleRxArpPacket(m *core.Mbuf, l3 uint16) {
 
 	switch arpHeader.GetOperation() {
 	case layers.ARPRequest:
-		if !ethHeader.IsBroadcast() {
-			o.stats.pktRxErrNoBroadcast++
-			return
-		}
 		o.stats.pktRxArpQuery++
 		// learn the request information
 		o.ArpLearn(&arpHeader)
