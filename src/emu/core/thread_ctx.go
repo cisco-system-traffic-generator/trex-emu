@@ -270,12 +270,11 @@ func (o *CThreadCtx) SimRecordCompare(filename string, t *testing.T) {
 	genFilename := os.Getenv("GOPATH") + "/unit-test/generated/" + filename + ".json"
 	buf, err := ioutil.ReadFile(expFilename)
 	buf1, err1 := ioutil.ReadFile(genFilename)
-
 	if err != nil {
 		t.Fatalf("Error reading golden file %s %s \n", expFilename, err.Error())
 	}
 	if err1 != nil {
-		t.Fatalf("Error reading generated files %s %s \n", genFilename, err.Error())
+		t.Fatalf("Error reading generated files %s %s \n", genFilename, err1.Error())
 	}
 	if JsonDeepEqualInc(buf, buf1) == false {
 		t.Fatalf("Golden file :%s is not equal to generated file:%s \n", expFilename, genFilename)
