@@ -9,6 +9,7 @@ TRex EMU
 :local_web_server_url: csi-wiki-01:8181/trex
 :github_emu_path: https://github.com/cisco-system-traffic-generator/trex-core/tree/master/scripts/emu
 :github_stl_examples_path: https://github.com/cisco-system-traffic-generator/trex-core/tree/master/scripts/automation/trex_control_plane/interactive/trex/examples/emu
+:github_emu_repo: https://github.com/cisco-system-traffic-generator/trex-emu/tree/master
 :toclevels: 6
 
 include::trex_ga.asciidoc[]
@@ -77,6 +78,7 @@ The framework has an event driven architecture, this way it can scale. The frame
 
 === TRex Architecture with TRex-EMU
 
+[[Architecture]]
 image::images/trex_arch.png[title="TRex Architecture",align="left",width={p_width}, link="images/trex_arch.png"]
 
 TRex-EMU can receive commands (RPC via JSON-RPC) from a Python client and send/receive packets via a ZMQ channel that connects it to the TRex server (RX core). Packets from the network (from a TRex server physical port) that match a filter (dynamic) are forwarded to the TRex-EMU process. Packets from the EMU process are packed into the ZMQ channel and sent directly to the TRex physical port.
@@ -3347,51 +3349,496 @@ Lastly, we can monitor and see the capture:
 
 [source, bash]
 ----
-$:src$ go test -v emu/plugins/icmp -run 3 --monitor 1 > $bdollma/a.pcap
+$:src$ go test -v emu/plugins/icmp -run 3 --monitor 1 > /tmp/a.pcap
 ----
 
 
-==== Transport 
+=== Transport layer
 
-TCP and UDP sockets can be used by a plugin. The Client Transport Context (ctx) will be loaded dynamicly only when the first socket will be used. It working like that to save memory in case there is no use of TCP/UDP (only dot1x)
-The TCP logic was ported from BSD c code to native golang (from TRex code )
-The socket is working in event driven similar to nodejs and not like golang (micro-threads)
+==== Intro
 
-.Socket example 
+EMU started as a framework to implement L2/L3 protocols but as soon as we understood its potential we implemented even L7 protocols, like Netflow for example. However, L7 protocols need the transport layer.
+In case of UDP, it is simple really. But in case of TCP it gets complex. We can't expect each L7 protocol to implement its own TCP or UDP layer. Hence we introduce sockets. 
+
+Sockets can be used by plugins just like sockets of the OS. The Client Transport Context (CTX) will be loaded dynamically only when the first socket is used. It is designed that way in order to save memory in case there is no use of TCP/UDP, for example, in case of DOT1X, ICMP, etc..
+
+The TCP logic was imported from BSD C code to native Golang (from TRex-Core).
+
+The sockets work in an event driven architecture. This is similar to NodeJS and not Golang which uses micro-threads.
+
+
+==== Tutorial: Sockets, how to?
+
+Let us see the basic example of how to work with sockets. First step, let us create a couple of sockets:
+
+.Socket creation example
 [source, go]
 ----
-   // ipv4
-   ap, err := ctx.Dial("udp", 48.0.0.1:80", cb(), nil)
-   //ipv6 
-    ap, err := ctx.Dial("tcp", "[2001:db8::3000:1]:80", cb(), nil)
-    if err != nil {
-        return nil
-    }
+package socketApp
 
-    // write
-     ap.Write([]byte(`{"method" :"request"}`))
+import (
+	"emu/core"
+	"emu/plugins/transport"
+)
+
+type SocketApp struct {
+	ctx  *transport.TransportCtx // client transport context
+	ipv4 transport.SocketApi     // some IPv4 socket
+	ipv6 transport.SocketApi     // some IPv6 socket
+}
+
+func (o *SocketApp) CreateSockets(client *core.CClient) error {
+	o.ctx = transport.GetTransportCtx(client) // <1>
+	var err error
+	o.ipv4, err = o.ctx.Dial("udp", "48.0.0.1:80", o, nil) // <2>
+	if err != nil {
+		return err
+	}
+	o.ipv6, err = o.ctx.Dial("tcp", "[2001:db8::3000:1]:80", o, nil) // <3>
+	if err != nil {
+		return err
+	}
+	return nil
+}
 ----
+<1> Get the client transport context.
+<2> Create an HTTP/UDP/IPv4 socket.
+<3> Create an HTTP/TCP/IPv6 socket.
+
+While the first two arguments of `Dial` are self explanatory, let us discuss the last two.
+The last argument is an `IoctlMap` for TCP flags.
+The third argument is a callback object. A socket is an interface, and in case of events in needs a callback. So in our `SocketApp` we need to implement the following three functions which will be called
+by the socket in case of an event.
 
 .Socket callbacks
+[source, go]
+----
+func (o *SocketApp) OnRxEvent(event transport.SocketEventType) {
+}
+
+func (o *SocketApp) OnRxData(d []byte) {
+}
+
+func (o *SocketApp) OnTxEvent(event transport.SocketEventType) {
+}
+----
+
+The socket API is quite simple:
+
+.Socket API
+[source, go]
+----
+type SocketApi interface {
+
+	Close() SocketErr    // close the connection **after** all the tx queue was flushed
+	Shutdown() SocketErr // shutdown connection immediately
+	LocalAddr() net.Addr
+	RemoteAddr() net.Addr
+	GetCap() SocketCapType // get the capability of the socket e.g. SocketCapStream
+	GetLastError() SocketErr
+	SetIoctl(m IoctlMap) error // set ioctl options to the socket e.g. {"no_delay":0}
+	GetIoctl(m IoctlMap) error // get the value for each key
+	Write(buf []byte) (err SocketErr, queued bool)
+	GetL7MTU() uint16       // Returns the L7 MTU.
+	IsIPv6() bool           // Returns True if the IP layer is IPv6, False if it is IPv4.
+	GetSocket() interface{} // return internal raw socket *TcpSocket for testing
+}
+----
+
+The next step in our tutorial is to implement a simple function in our `SocketApp` that writes in the socket. The socket API offers a `Write` function which we can call.
+But unfortunately it is not that simple. Before calling `Write` on the socket we must make sure that the destination MAC address is resolved. This isn't trivial since the ARP request might take some time.
+In case the MAC address is not resolved, the writing will fail.
+Fortunately, we will get an event in case of resolve. Let's review our `SocketApp`. We should edit our struct to contain two new flags: 
 
 [source, go]
 ----
-
-func (o *SocketAppRR1) OnRxEvent(event SocketEventType) {
+type SocketApp struct {
+	ctx         *transport.TransportCtx // client transport context
+	ipv4        transport.SocketApi     // some IPv4 socket
+	ipv6        transport.SocketApi     // some IPv6 socket
+	dg4Resolved bool                    // DG for IPv4 resolved
+	dg6Resolved bool                    // DG for IPv6 resolved
 }
-
-func (o *SocketAppRR1) OnRxData(d []byte) {
-}
-
-func (o *SocketAppRR1) OnTxEvent(event SocketEventType) {
-}
-
 ----
 
+Upon creation of our app we will register for an event in case of resolve:
 
-There are utility (rpc) commands to inspect the counters and configuration of the transport context 
+.Resolve event registration
+[source, go]
+----
+func CreateSocketApp(ctx *core.PluginCtx) *SocketApp {
+	o := new(SocketApp)
+	o.InitPluginBase(ctx, o)              // Init base object
+	var socketAppEvents = []string{core.MSG_DG_MAC_RESOLVED}
+	o.RegisterEvents(ctx, socketAppEvents, o) // Register events, only if they exist
+}
 
-Plugin transport_example there is an example of usage of TCP socket 
+func (o *SocketApp) OnEvent(msg string, a, b interface{}) {
+	switch msg {
+	case core.MSG_DG_MAC_RESOLVED:
+		bitMask, ok := a.(uint8)
+		if !ok {
+			// failed at type assertion
+			return
+		}
+		resolvedIPv4 := (bitMask & core.RESOLVED_IPV4_DG_MAC) == core.RESOLVED_IPV4_DG_MAC
+		resolvedIPv6 := (bitMask & core.RESOLVED_IPV6_DG_MAC) == core.RESOLVED_IPV6_DG_MAC
+		if !o.dg4Resolved && resolvedIPv4 {
+			o.dg4Resolved = true
+		}
+		if !o.dg6Resolved && resolvedIPv6 {
+			o.dg6Resolved = true
+		}
+	}
+}
+----
 
-NOTE: better not to create a socket in the Plugin create beacuse ARP/IPV6 won't have time to complete. Better to delay it 
- 
+Now we can implement our simple Write function:
+
+.Writing in the socket
+[source, go]
+----
+func (o *SocketApp) Write(msg []byte) (err4, err6 transport.SocketErr) {
+	if o.dg4Resolved {
+		err4, _ = o.ipv4.Write(msg)
+	}
+	if o.dg6Resolved {
+		err6, _ = o.ipv6.Write(msg)
+	}
+	return err4, err6
+}
+----
+
+For a more detailed and complete example, we ask you to explore the `transport_example` plugin.
+
+==== Transport Counters
+
+The TCP/UDP counters can be inspected using the console:
+
+[source, bash]
+----
+emu>emu_transport_show_counters -p 0 --mac 00:00:00:70:00:02
+Ft Counters
+
+      name        | value
+------------------+------
+dial              | 1
+src_port_alloc    | 1
+src_port_free     | 1
+ft_addv4          | 1
+ft_removev4       | 1
+ft_lookupv4       | 10626
+ft_lookup_foundv4 | 10626
+
+Tcp Counters
+
+     name       |  value
+----------------+---------
+already_closed* | 1
+connattempt     | 1
+connects        | 1
+segstimed       | 739
+rttupdated      | 3628
+delack          | 1
+sndtotal        | 10784
+sndpack         | 7000
+predack*        | 659
+rcvackbyte_of   | 1
+sndrexmitpack*  | 7
+sndrexmitbyte*  | 10136
+rcvoopackdrop*  | 1
+rexmttimeo*     | 7
+preddat         | 6998
+rcvackbyte      | 10000000
+rcvackpack      | 3627
+rcvbyte         | 10000000
+rcvpack         | 7000
+sndacks         | 3775
+sndctrl         | 2
+sndbyte_ok      | 10000000
+
+29.96 [ms]
+----
+
+=== Proxy
+
+==== Intro
+
+Take a look again at the TRex architecture as shown in <<Architecture>>. The EMU communicates with the TRex core through a ZMQ tunnel which can run on top of IPC or TCP.
+The packets that the EMU generates are sent to the RX core of the TRex server through this ZMQ tunnel, and from there to the NIC.
+This architecture makes sense in production. When talking scale, we indeed need this fast but long path.
+
+However, when developing, we need to check correctness and not only scale. To check correctness, the previous architecture proves to be burdensome.
+Take for example the ICMP plugin we discussed in depth in this document. To verify it works, we pinged a router. Can't we ping the machine in which the EMU runs and expect it to ping us back?
+
+Hence we introduce the Proxy. The Proxy is a small proxy build in Golang, which can run in any Linux distribution.
+The Proxy installs a https://en.wikipedia.org/wiki/TUN/TAP[TAP] in the machine it runs. It then opens two ZMQ channels with the EMU, just like the RX of the TRex core.
+
+The architecture looks like this:
+
+image::images/proxy_arch.png[title="Proxy Architecture",align="left",width={p_width}, link="images/proxy_arch.png"]
+
+NOTE: The Proxy runs on the same machine as the Kernel. The EMU doesn't necessarily.
+
+==== Tutorial: Ping
+
+In this simple tutorial we will show you how you can ping with ease using this architecture. We will create a TAP interface whose IPv4 configuration will be 11.0.0.1/24.
+
+Then we will use the EMU to emulate a client with IPv4 of 11.0.0.2 and default gateway of 11.0.0.1. Then we will ping the Kernel from the EMU.
+
+First we create the TAP:
+
+link:{github_emu_repo}/scripts/mktap[scripts/mktap]
+
+[source, bash]
+----
+scripts$ sudo ./mktap
+----
+
+We can verify that the TAP is created:
+
+[source, bash]
+----
+scripts$ ifconfig tap0
+tap0      Link encap:Ethernet  HWaddr 8a:48:87:ed:00:0b
+          inet addr:11.0.0.1  Bcast:0.0.0.0  Mask:255.255.255.0
+          UP BROADCAST MULTICAST  MTU:1500  Metric:1
+          RX packets:0 errors:0 dropped:0 overruns:0 frame:0
+          TX packets:0 errors:0 dropped:0 overruns:0 carrier:0
+          collisions:0 txqueuelen:500
+          RX bytes:0 (0.0 B)  TX bytes:0 (0.0 B)
+----
+
+NOTE: The `mktap` script adds a iptable ACCEPT rule. This is necessary in our setups which have firewall rules, otherwise the Kernel will drop the incoming packets. The rule is deleted in the `rmtap` script.
+
+On the same terminal window, we can run the Proxy. If this is the first time you are running it, make sure the proxy is compiled:
+
+[source, bash]
+----
+src$ go install cmd-proxy/trex-emu-proxy.go
+----
+
+link:{github_emu_repo}/scripts/proxy[scripts/proxy]
+
+[source, bash]
+----
+scripts$ sudo ./proxy
+----
+
+Next we run the EMU. I will be running it in the same machine and with IPC hence the flag `-S` will have a localhost address. As aforementioned, you can run it any machine and specify the address with -S, but if you work
+remote remember to use TCP instead of IPC. Same here, if this is the first time you are running it, make sure the EMU is compiled:
+
+[source, bash]
+----
+src$ go install cmd/trex-emu.go
+----
+
+[source, bash]
+----
+scripts$ sudo ./trex-emu -S 127.0.0.1
+----
+
+NOTE: The `trex-emu` file is found in the scripts folder of TRex-Core. We need `sudo` only because we are using IPC. If we use TCP instead we can run the Golang executable file from the EMU repo directly without root
+permissions.
+
+Now let us connect a TRex console to the EMU server.
+[source, bash]
+----
+scripts$ ./trex-console --emu-only-server
+----
+
+The `--emu-only-server` tells the console not to look for a running TRex Core instance. If we specify it without parameters, it will look for the EMU server in localhost, but we can specify any address, for 
+example `--emu-only-server 192.168.1.1`. Since I am running everything in the same machine, specifying the flag is enough.
+
+NOTE: The console is found in the scripts folder of the TRex-Core repo.
+
+Next, we load from the console a simple EMU profile which will create a client with IPv4 11.0.0.2 and default gateway 11.0.0.1 (TAP).
+
+[source, bash]
+----
+emu>emu_load_profile -f emu/simple_icmp_local.py -t --clients 1
+----
+
+We can verify this by:
+
+[source, bash]
+----
+emu>emu_show_all
+Namespace #1 Information
+
+Port | Vlan tags | Tpids |              Plugins               | #Clients
+-----+-----------+-------+------------------------------------+---------
+ 0   |     -     |   -   | arp, icmp, ipv6, transe, transport |    1
+
+Clients Information
+
+       MAC        |   IPv4   | DG-IPv4  | MTU  |              Plugins
+------------------+----------+----------+------+-----------------------------------
+00:00:00:70:00:02 | 11.0.0.2 | 11.0.0.1 | 1500 | arp, icmp, ipv6, transe, transport
+
+26.25 [ms]
+----
+
+Now let us ping the default gateway (Kernel TAP):
+
+[source, bash]
+----
+emu>emu_icmp_ping -p 0 --mac 00:00:00:70:00:02
+
+Starting to ping :                                           [SUCCESS]
+
+Progress: 100.00%, Sent: 5/5, Rcv: 5/5, Err: 0/5, RTT min/avg/max = 0.72/1.29/3.43 ms
+
+Completed
+----
+
+And finally, after stopping the Proxy, we can remove the TAP interface:
+
+link:{github_emu_repo}/scripts/rmtap[scripts/rmtap]
+[source, bash]
+----
+scripts$ sudo ./rmtap
+----
+
+==== Tutorial: TCP echo server
+
+ICMP is a simple example to make sure everything works, but the purpose of the Proxy is to offer us as developers the correctness of the Kernel and its networking protocols.
+Anyone can implement a Echo Response server, but implementing the TCP stack is another story. The Proxy can be used to verify any protocol. Take for example Netflow. EMU implements the Netflow client side, but we
+need to test with a real collector. We can install an open source Netflow collector on top of the Linux Kernel and verify the correctness of EMU implementation.
+
+Here we will show the idea with a simpler example. We will run a basic TCP echo server on the proxy machine and emulate TCP traffic with one of the EMU clients.
+
+NOTE: This time we will use ZMQ over TCP instead of ZMQ over IPC for the sake of completeness.
+
+First, let's make the tap:
+
+[source, bash]
+----
+scripts$ sudo ./mktap
+----
+
+Then we run the Proxy with TCP over ZMQ:
+
+[source, bash]
+----
+scripts$ sudo ./proxy --emu-zmq-tcp
+----
+
+Then, we run the EMU with TCP over ZMQ. Pay attention that we can run this from the EMU repository and there is no need for root permissions.
+
+[source, bash]
+----
+src$ ../bin/trex-emu --emu-zmq-tcp -S 127.0.0.1
+----
+
+Next, let's take a look at the simple TCP echo server:
+
+[source, go]
+----
+package main
+
+import (
+	"bufio"
+	"fmt"
+	"net"
+	"os"
+)
+
+var port = "0.0.0.0:9001"
+
+func echo(conn net.Conn) {
+	r := bufio.NewReader(conn)
+	for {
+		line, err := r.ReadBytes(byte('\n'))
+		if err == nil {
+			conn.Write(line)
+		} else {
+			break
+		}
+	}
+	conn.Close()
+}
+
+func main() {
+	l, err := net.Listen("tcp", port)
+	if err != nil {
+		fmt.Println("ERROR", err)
+		os.Exit(1)
+	}
+
+	for {
+		conn, err := l.Accept()
+		if err != nil {
+			fmt.Println("ERROR", err)
+			continue
+		}
+		go echo(conn)
+	}
+}
+----
+
+The server listens at port 9001 and simply echoes back whatever it receives.
+
+Let's compile the server:
+
+[source, bash]
+----
+src$ go install cmd-test/tcp-server/tcp_server.go
+----
+
+Now, let's run it:
+
+[source, bash]
+----
+src$ ../bin/tcp_server
+----
+
+Next, we will connect the console to the EMU server and emulate one client which sends TCP traffic at port 9001.
+
+[source, bash]
+----
+scripts$ ./trex-console --emu-only-server
+----
+
+Let's add one client which makes use of the `transe` plugin. This plugin is a simple plugin which sends TCP traffic. The name derives from tranport example.
+
+We can see the relevant configuration from the link:{github_emu_path}/simple_icmp_local.py[simple_icmp_local.py] profile here:
+
+[source, python]
+----
+        self.def_c_plugs  = {
+                            'arp': {},
+                            'icmp': {},
+                            'ipv6': {},
+                            'transport': {},
+                            'transe': {'addr':'11.0.0.1:9001', 'size':100000, 'loops':100}
+                             }
+----
+
+[source, bash]
+----
+emu>emu_load_profile -f emu/simple_icmp_local.py -t --clients 1
+----
+
+We can see the counters:
+
+[source, bash]
+----
+emu>emu_transe_show_counters -p 0
+Transe Counters
+
+   name     |  value
+------------+---------
+pktClient   | 1
+rxByteTotal | 10000000
+txByteTotal | 10000000
+pktRxEvent  | 7000
+pktTxEvent  | 100
+
+5.38 [ms]
+----
+
+From the client's counters we see that the TCP server running on top of the Linux Kernels, echoes back. We can see this even better if we run the EMU in monitor mode, but we will leave this as an exercise for the reader.
+
+
+

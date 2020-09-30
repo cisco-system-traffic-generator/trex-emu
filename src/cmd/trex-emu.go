@@ -66,13 +66,13 @@ func parseMainArgs() *MainArgs {
 	args.vethPort = parser.Int("l", "veth zmq port", &argparse.Options{Default: 4511, Help: "Veth Port for server"})
 	args.verbose = parser.Flag("v", "verbose", &argparse.Options{Default: false, Help: "Run server in verbose mode"})
 	args.sim = parser.Flag("s", "simulator", &argparse.Options{Default: false, Help: "Run server in simulator mode"})
-	args.zmqServer = parser.String("S", "zmq-server", &argparse.Options{Default: "127.0.0.1", Help: "zmq server ip"})
+	args.zmqServer = parser.String("S", "zmq-server", &argparse.Options{Default: "127.0.0.1", Help: "ZMQ server IP"})
 	args.capture = parser.Flag("c", "capture", &argparse.Options{Default: false, Help: "Run server in capture mode"})
 	args.monitor = parser.Flag("m", "monitor", &argparse.Options{Default: false, Help: "Run server in K12 monitor mode"})
 	args.time = parser.Int("t", "time", &argparse.Options{Default: 10, Help: "Time of the simulation in sec"})
 	args.file = parser.String("f", "file", &argparse.Options{Default: "emu_file", Help: "Path to save the pcap file"})
 	args.dummyVeth = parser.Flag("d", "dummy-veth", &argparse.Options{Default: false, Help: "Run server with a dummy veth, all packets to rx will be dropped"})
-	args.version = parser.Flag("V", "version", &argparse.Options{Default: false, Help: "show trex-emu version"})
+	args.version = parser.Flag("V", "version", &argparse.Options{Default: false, Help: "Show TRex-emu version"})
 	args.emuTCPoZMQ = parser.Flag("", "emu-zmq-tcp", &argparse.Options{Default: false, Help: "Run TCP over ZMQ. Default is IPC"})
 
 	err := parser.Parse(os.Args)
@@ -89,7 +89,7 @@ func RunCoreZmq(args *MainArgs) {
 	var zmqVeth core.VethIFZmq
 
 	if *args.version {
-		fmt.Printf("trex-emu version is %s \n", VERSION)
+		fmt.Printf("TRex-EMU version is %s \n", VERSION)
 		os.Exit(0)
 	}
 

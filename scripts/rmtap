@@ -1,0 +1,4 @@
+#! /usr/bin/env bash
+iptables -D INPUT -i tap0 -s 11.0.0.0/24 -j ACCEPT # Delete rule in firewall.
+ip tuntap del dev tap0 mode tap
+

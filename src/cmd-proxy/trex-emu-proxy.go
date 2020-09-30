@@ -18,7 +18,6 @@ import (
 
 // better to use readv/writev for batch of packets. this will accelerate the write and read to/from tap
 
-
 const MAX_PKT_SIZE = 10 * 1024
 const PKT_RING = 3
 
@@ -47,9 +46,9 @@ func parseMainArgs() *MainArgs {
 	args.vethPort = parser.Int("l", "veth zmq port", &argparse.Options{Default: 4511, Help: "Veth Port for server"})
 	args.verbose = parser.Flag("v", "verbose", &argparse.Options{Default: false, Help: "Run server in verbose mode"})
 	args.monitor = parser.Flag("m", "monitor", &argparse.Options{Default: false, Help: "Run server in K12 monitor mode"})
-	args.version = parser.Flag("V", "version", &argparse.Options{Default: false, Help: "show trex-emu version"})
+	args.version = parser.Flag("V", "version", &argparse.Options{Default: false, Help: "Show TRex-EMU proxy version"})
 	args.emuTCPoZMQ = parser.Flag("", "emu-zmq-tcp", &argparse.Options{Default: false, Help: "Run TCP over ZMQ. Default is IPC"})
-	args.tap = parser.String("E", "tap", &argparse.Options{Default: "tap0", Help: "tap interface name e.g. tap0 "})
+	args.tap = parser.String("i", "tap", &argparse.Options{Default: "tap0", Help: "Tap interface name e.g. tap0"})
 
 	err := parser.Parse(os.Args)
 	if err != nil {
@@ -187,15 +186,15 @@ func (o *CZmqProxy) MainLoop() {
 func RunCoreZmq(args *MainArgs) {
 	var proxy CZmqProxy
 	var socket SocketRawIF
-	fmt.Printf(" EMU proxy version is %s tap:%v \n", PROXY_VERSION, *args.tap)
+	fmt.Printf("EMU proxy version is %s running on tap:%v \n", PROXY_VERSION, *args.tap)
 	if *args.version {
 		os.Exit(0)
 	}
 
 	if *args.emuTCPoZMQ {
-		fmt.Printf(" Run ZMQ server on [RX: TCP:%d, TX: TCP:%d]\n", *args.vethPort+1, *args.vethPort)
+		fmt.Printf("Run ZMQ server on [RX: TCP:%d, TX: TCP:%d]\n", *args.vethPort+1, *args.vethPort)
 	} else {
-		fmt.Printf(" Run ZMQ server on [RPC:%d, RX: IPC, TX:IPC]\n", 0)
+		fmt.Printf("Run ZMQ server on [RPC:%d, RX: IPC, TX:IPC]\n", 0)
 	}
 
 	rand.Seed(time.Now().UnixNano())
