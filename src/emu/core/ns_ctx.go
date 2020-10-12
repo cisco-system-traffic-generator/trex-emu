@@ -69,6 +69,14 @@ func (key *MACKey) IsZero() bool {
 	return false
 }
 
+func (key *MACKey) IsBroadcast() bool {
+	if *key == [6]byte{0xff, 0xff, 0xff, 0xff, 0xff, 0xff} {
+		return true
+	}
+	return false
+
+}
+
 type RpcCmdMac struct {
 	MACKey MACKey `json:"mac" validate:"required"`
 }

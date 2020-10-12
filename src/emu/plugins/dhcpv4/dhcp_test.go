@@ -155,11 +155,11 @@ func (o *VethIgmpSim) ProcessTxToRx(m *core.Mbuf) *core.Mbuf {
 	switch o.match {
 	case 0:
 		if dhcpmt == layers.DHCPMsgTypeDiscover {
-			pkt := GenerateOfferPacket(dhcph.Xid, net.IPv4(16, 0, 0, 1), net.IPv4(16, 0, 0, 2), int(layers.DHCPMsgTypeOffer))
+			pkt := GenerateOfferPacket(dhcph.Xid, net.IPv4(16, 0, 0, 1), net.IPv4(16, 0, 0, 2), int(layers.DHCPMsgTypeOffer), false)
 			mr = genMbuf(o.tctx, pkt)
 		} else {
 			if dhcpmt == layers.DHCPMsgTypeRequest {
-				pkt := GenerateOfferPacket(dhcph.Xid, net.IPv4(16, 0, 0, 1), net.IPv4(16, 0, 0, 2), int(layers.DHCPMsgTypeAck))
+				pkt := GenerateOfferPacket(dhcph.Xid, net.IPv4(16, 0, 0, 1), net.IPv4(16, 0, 0, 2), int(layers.DHCPMsgTypeAck), false)
 				mr = genMbuf(o.tctx, pkt)
 			}
 		}
@@ -167,7 +167,12 @@ func (o *VethIgmpSim) ProcessTxToRx(m *core.Mbuf) *core.Mbuf {
 
 	case 2:
 		if dhcpmt == layers.DHCPMsgTypeDiscover {
-			pkt := GenerateOfferPacket(dhcph.Xid, net.IPv4(16, 0, 0, 1), net.IPv4(16, 0, 0, 2), int(layers.DHCPMsgTypeOffer))
+			pkt := GenerateOfferPacket(dhcph.Xid, net.IPv4(16, 0, 0, 1), net.IPv4(16, 0, 0, 2), int(layers.DHCPMsgTypeOffer), false)
+			mr = genMbuf(o.tctx, pkt)
+		}
+	case 3:
+		if dhcpmt == layers.DHCPMsgTypeDiscover {
+			pkt := GenerateOfferPacket(dhcph.Xid, net.IPv4(16, 0, 0, 1), net.IPv4(16, 0, 0, 2), int(layers.DHCPMsgTypeOffer), true)
 			mr = genMbuf(o.tctx, pkt)
 		}
 	}
@@ -215,12 +220,30 @@ func TestPluginDhcp4(t *testing.T) {
 	a.Run(t)
 }
 
+func TestPluginDhcp5(t *testing.T) {
+	a := &DhcpTestBase{
+		testname:     "dhcp5",
+		dropAll:      false,
+		monitor:      false,
+		match:        3,
+		capture:      true,
+		duration:     120 * time.Second,
+		clientsToSim: 1,
+	}
+	a.Run(t)
+}
+
 func getL2() []byte {
 	l2 := []byte{0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 2, 0x81, 00, 0x00, 0x01, 0x81, 00, 0x00, 0x02, 0x08, 00}
 	return l2
 }
 
-func GenerateOfferPacket(xid uint32, src net.IP, dst net.IP, dt int) []byte {
+func getL2B() []byte {
+	l2 := []byte{0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0, 0, 1, 0, 0, 2, 0x81, 00, 0x00, 0x01, 0x81, 00, 0x00, 0x02, 0x08, 00}
+	return l2
+}
+
+func GenerateOfferPacket(xid uint32, src net.IP, dst net.IP, dt int, broadcast bool) []byte {
 
 	dhcpOffer := &layers.DHCPv4{Operation: layers.DHCPOpReply,
 		HardwareType: layers.LinkTypeEthernet,
@@ -256,8 +279,13 @@ func GenerateOfferPacket(xid uint32, src net.IP, dst net.IP, dt int) []byte {
 	binary.BigEndian.PutUint16(dr[24:26], uint16(len(dr)-20))
 	binary.BigEndian.PutUint16(dr[26:28], 0)
 
-	offerPktTemplate := append(getL2(), dr...)
-	return offerPktTemplate
+	if broadcast {
+		offerPktTemplate := append(getL2B(), dr...)
+		return offerPktTemplate
+	} else {
+		offerPktTemplate := append(getL2(), dr...)
+		return offerPktTemplate
+	}
 }
 
 func TestPluginDhcp2(t *testing.T) {
@@ -265,16 +293,16 @@ func TestPluginDhcp2(t *testing.T) {
 	return
 	tctx := core.NewThreadCtx(0, 4510, false, nil)
 	m := tctx.MPool.Alloc(1500)
-	m.Append(GenerateOfferPacket(7, net.IPv4(16, 0, 0, 1), net.IPv4(16, 0, 0, 2), int(layers.DHCPMsgTypeOffer)))
+	m.Append(GenerateOfferPacket(7, net.IPv4(16, 0, 0, 1), net.IPv4(16, 0, 0, 2), int(layers.DHCPMsgTypeOffer), false))
 	m.DumpK12(0)
 	m.FreeMbuf()
 
 	m = tctx.MPool.Alloc(1500)
-	m.Append(GenerateOfferPacket(7, net.IPv4(16, 0, 0, 1), net.IPv4(16, 0, 0, 2), int(layers.DHCPMsgTypeAck)))
+	m.Append(GenerateOfferPacket(7, net.IPv4(16, 0, 0, 1), net.IPv4(16, 0, 0, 2), int(layers.DHCPMsgTypeAck), false))
 	m.DumpK12(0)
 	m.FreeMbuf()
 
-	b := GenerateOfferPacket(7, net.IPv4(16, 0, 0, 1), net.IPv4(16, 0, 0, 2), int(layers.DHCPMsgTypeAck))
+	b := GenerateOfferPacket(7, net.IPv4(16, 0, 0, 1), net.IPv4(16, 0, 0, 2), int(layers.DHCPMsgTypeAck), false)
 	off := 14 + 8 + 20 + 8
 	fmt.Printf(" %s \n", hex.Dump(b[off:]))
 	//err := dhcph.DecodeFromBytes(b[off:], gopacket.NilDecodeFeedback)

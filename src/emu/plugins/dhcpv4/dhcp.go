@@ -61,10 +61,19 @@ type DhcpStats struct {
 	pktRxRenew       uint64
 	pktRxNack        uint64
 	pktRxRebind      uint64
+	pktRxBroadcast   uint64
 }
 
 func NewDhcpStatsDb(o *DhcpStats) *core.CCounterDb {
 	db := core.NewCCounterDb("dhcp")
+
+	db.Add(&core.CCounterRec{
+		Counter:  &o.pktRxBroadcast,
+		Name:     "pktRxBroadcast",
+		Help:     "Rx broadcast L2, should be unicast ",
+		Unit:     "pkts",
+		DumpZero: false,
+		Info:     core.ScERROR})
 
 	db.Add(&core.CCounterRec{
 		Counter:  &o.pktTxDiscover,
@@ -626,6 +635,12 @@ func (o *PluginDhcpClient) HandleRxDhcpPacket(ps *core.ParserPacketState) int {
 	m := ps.M
 	p := m.GetData()
 	/* the header is at least 8 bytes*/
+	var mackey core.MACKey
+	copy(mackey[:], p[0:6])
+
+	if mackey.IsBroadcast() {
+		o.stats.pktRxBroadcast++
+	}
 
 	ipv4 := layers.IPv4Header(p[ps.L3 : ps.L3+20])
 
@@ -739,6 +754,37 @@ func (o *PluginDhcpNs) SetTruncated() {
 
 }
 
+// try to extract the MAC from the DHCP
+func (o *PluginDhcpNs) GetMacFromDhcp(ps *core.ParserPacketState, key *core.MACKey) int {
+	m := ps.M
+	p := m.GetData()
+	dhcphlen := ps.L7Len
+
+	if dhcphlen < 240 {
+		return core.PARSER_ERR
+	}
+
+	var dhcph layers.DHCPv4
+	err := dhcph.DecodeFromBytes(p[ps.L7:ps.L7+dhcphlen], gopacket.NilDecodeFeedback)
+	if err != nil {
+		return core.PARSER_ERR
+	}
+
+	if dhcph.HardwareType != layers.LinkTypeEthernet {
+		return core.PARSER_ERR
+	}
+
+	if dhcph.HardwareLen != 6 {
+		return core.PARSER_ERR
+	}
+
+	if len(dhcph.ClientHWAddr) == 6 {
+		copy((*key)[:], dhcph.ClientHWAddr[0:6])
+		return core.PARSER_OK
+	}
+	return core.PARSER_ERR
+}
+
 func (o *PluginDhcpNs) HandleRxDhcpPacket(ps *core.ParserPacketState) int {
 
 	m := ps.M
@@ -747,6 +793,13 @@ func (o *PluginDhcpNs) HandleRxDhcpPacket(ps *core.ParserPacketState) int {
 	/* UDP checksum was verified in the parser */
 	var mackey core.MACKey
 	copy(mackey[:], p[0:6])
+
+	if mackey.IsBroadcast() {
+		// we should look by the DHCP info
+		if o.GetMacFromDhcp(ps, &mackey) == core.PARSER_ERR {
+			return core.PARSER_ERR
+		}
+	}
 
 	client := o.Ns.CLookupByMac(&mackey)
 
@@ -775,7 +828,6 @@ func HandleRxDhcpPacket(ps *core.ParserPacketState) int {
 	}
 	dhcpPlug := nsplg.Ext.(*PluginDhcpNs)
 	return dhcpPlug.HandleRxDhcpPacket(ps)
-
 }
 
 // Tx side client get an event and decide to act !
