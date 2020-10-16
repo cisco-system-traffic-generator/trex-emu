@@ -13,11 +13,7 @@ import (
 	"external/google/gopacket/layers"
 	"flag"
 	"fmt"
-	"log"
 	"net"
-	"os"
-	"runtime"
-	"runtime/pprof"
 	"testing"
 	"time"
 )
@@ -340,115 +336,6 @@ func TestPluginArp6(t *testing.T) {
 	a.Run(t)
 }
 
-func dumpMem(file string) {
-
-	fmt.Printf("==> write file %s \n", file)
-	f, err := os.Create(file)
-	defer f.Close()
-	if err != nil {
-		panic(err)
-	}
-	runtime.GC() // get up-to-date statistics
-	if err1 := pprof.WriteHeapProfile(f); err1 != nil {
-		log.Fatal("could not write memory profile: ", err1)
-	}
-}
-
-func TestPluginArp7(t *testing.T) {
-
-	//tctx.SimRecordCompare("arp7", t)
-}
-
-func test1() {
-	var simVeth VethArpSim
-	simVeth.DropAll = true
-	var simrx core.VethIFSim
-	simrx = &simVeth
-	tctx := core.NewThreadCtx(0, 4510, true, &simrx)
-	var key core.CTunnelKey
-	key.Set(&core.CTunnelData{Vport: 1, Vlans: [2]uint32{0x81000001, 0x81000002}})
-	ns := core.NewNSCtx(tctx, &key)
-	num := 10000
-	tctx.AddNs(&key, ns)
-	for j := 0; j < num; j++ {
-		a := uint8((j >> 8) & 0xff)
-		b := uint8(j & 0xff)
-		var dg core.Ipv4Key
-		if num == 1 {
-			dg = core.Ipv4Key{16, 0, 0, 2}
-		} else {
-			dg = core.Ipv4Key{16, 1, a, b}
-		}
-		client := core.NewClient(ns, core.MACKey{0, 0, 1, 0, a, b},
-			core.Ipv4Key{16, 0, a, b},
-			core.Ipv6Key{},
-			dg)
-		ns.AddClient(client)
-		client.PluginCtx.CreatePlugins([]string{"arp"}, [][]byte{})
-	}
-	tctx.RegisterParserCb("arp")
-
-	tctx.Veth.SetDebug(false, false)
-	tctx.MainLoopSim(1 * time.Minute)
-
-	for j := 0; j < num; j++ {
-		a := uint8((j >> 8) & 0xff)
-		b := uint8(j & 0xff)
-		key1 := core.MACKey{0, 0, 1, 0, a, b}
-		c1 := ns.CLookupByMac(&key1)
-		ns.RemoveClient(c1)
-	}
-	tctx.RemoveNs(&key)
-	ns.Dump()
-	defer tctx.Delete()
-
-	fmt.Printf(" timers : %v \n", tctx.GetTimerCtx().ActiveTimers())
-
-	dumpMem("/tmp/t3")
-	//tctx.Dump()
-	//tctx.MPool.DumpStats()
-
-	//cntd := tctx.GetCounterDbVec().MarshalValues(true)
-	//cntjson, _ := fastjson.MarshalIndent(cntd, "", "\t")
-	//fmt.Printf(string(cntjson))
-
-	//tctx.GetCounterDbVec().ClearValues()
-
-	//cntd1 := tctx.GetCounterDbVec().MarshalValues(true)
-	//cntjson1, _ := fastjson.MarshalIndent(cntd1, "", "\t")
-	//fmt.Printf(string(cntjson1))
-
-	PrintMemUsage("3")
-}
-
-func bToMb(b uint64) uint64 {
-	return b / 1024 / 1024
-}
-
-func PrintMemUsage(info string) {
-	var m runtime.MemStats
-	runtime.GC()
-	runtime.ReadMemStats(&m)
-	// For info on each, see: https://golang.org/pkg/runtime/#MemStats
-	fmt.Printf("%-10s Alloc = %v MiB", info, bToMb(m.Alloc))
-	fmt.Printf("\tTotalAlloc = %v MiB", bToMb(m.TotalAlloc))
-	fmt.Printf("\tSys = %v MiB", bToMb(m.Sys))
-	fmt.Printf("\tNumGC = %v\n", m.NumGC)
-}
-
-func TestPluginArp8(t *testing.T) {
-
-	test1()
-
-	/*for _, obj := range vec {
-		obj.Dump()
-	}*/
-	//dumpMem("/tmp/t2")
-	//vec = vec[:0]
-	//dumpMem("/tmp/t3")
-	//dumpMem("/tmp/t3")
-}
-
 type ArpRpcCtx1 struct {
 	tctx  *core.CThreadCtx
 	timer core.CHTimerObj
@@ -490,7 +377,7 @@ func rpcQueue2(tctx *core.CThreadCtx, test *ArpTestBase) int {
 	return 0
 }
 
-func TestPluginArp9(t *testing.T) {
+func TestPluginArp7(t *testing.T) {
 	password := "432768ec1d"
 	challenge := "a1501e8bb2701d3d9b535594993f67a7"
 	hexchal, _ := hex.DecodeString(challenge)
@@ -508,7 +395,7 @@ func TestPluginArp9(t *testing.T) {
 	fmt.Printf(" hey \n")
 
 	/*a := &ArpTestBase{
-		testname:     "arp9",
+		testname:     "arp7",
 		dropAll:      true,
 		monitor:      false,
 		match:        0,
