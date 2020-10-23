@@ -79,6 +79,7 @@ func (o *IPFixField) isEnterprise() bool {
 type IPFixGenParams struct {
 	Name            string               `json:"name" validate:"required"`        // Name of the Generator
 	AutoStart       bool                 `json:"auto_start"`                      // Start exporting this generator when plugin is loaded.
+	TemplateRate    float32              `json:"template_rate_pps"`               // Rate of template records in pps.
 	DataRate        float32              `json:"rate_pps"`                        // Rate of data records in pps.
 	RecordsNum      uint32               `json:"data_records_num"`                // Number of records in each data packet
 	TemplateID      uint16               `json:"template_id" validate:"required"` // Template ID
@@ -122,7 +123,7 @@ type IPFixGen struct {
 // init JSON.
 func NewIPFixGen(ipfix *PluginIPFixClient, initJson *fastjson.RawMessage) (*IPFixGen, bool) {
 
-	init := IPFixGenParams{DataRate: DefaultIPFixDataRate, AutoStart: true}
+	init := IPFixGenParams{TemplateRate: DefaultIPFixTemplateRate, DataRate: DefaultIPFixDataRate, AutoStart: true}
 	err := ipfix.Tctx.UnmarshalValidate(*initJson, &init)
 
 	if err != nil {
@@ -167,6 +168,7 @@ func NewIPFixGen(ipfix *PluginIPFixClient, initJson *fastjson.RawMessage) (*IPFi
 	o.name = init.Name
 	o.enabled = init.AutoStart
 	o.templateID = init.TemplateID
+	o.templateRate = init.TemplateRate
 	o.dataRate = init.DataRate
 	o.recordsNum = init.RecordsNum
 	o.optionsTemplate = init.OptionsTemplate
@@ -247,7 +249,6 @@ func NewIPFixGen(ipfix *PluginIPFixClient, initJson *fastjson.RawMessage) (*IPFi
 
 // OnCreate initializes fields of the IPFixGen.
 func (o *IPFixGen) OnCreate() {
-	o.templateRate = DefaultIPFixTemplateRate
 	o.timerw = o.ipfixPlug.timerw
 	// Set Timer callbacks to this object's OnEvent(). However we need to differ between
 	// the timers and hence the difference in the second parameter.
@@ -682,6 +683,17 @@ func (o *IPFixGen) SetDataRate(rate float32) {
 		o.timerw.Stop(&o.dataTimer)
 	}
 	o.timerw.StartTicks(&o.dataTimer, o.dataTicks)
+}
+
+// SetTemplateRate sets a new template rate through RPC.
+func (o *IPFixGen) SetTemplateRate(rate float32) {
+	o.templateRate = rate
+	o.templateTicks = o.timerw.DurationToTicks(time.Duration(float32(time.Second) / o.templateRate))
+	// Restart the timer.
+	if o.templateTimer.IsRunning() {
+		o.timerw.Stop(&o.templateTimer)
+	}
+	o.timerw.StartTicks(&o.templateTimer, o.templateTicks)
 }
 
 // GetInfo gets the generator information through RPC.
@@ -1145,9 +1157,10 @@ type (
 
 	ApiIpfixClientSetGenStateHandler struct{}
 	ApiIpfixClientSetGenStateParams  struct {
-		GenName string  `json:"gen_name"`
-		Enable  *bool   `json:"enable"`
-		Rate    float32 `json:"rate"`
+		GenName      string  `json:"gen_name"`
+		Enable       *bool   `json:"enable"`
+		Rate         float32 `json:"rate"`
+		TemplateRate float32 `json:"template_rate"`
 	}
 
 	ApiIpfixClientGetGensInfoHandler struct{}
@@ -1221,6 +1234,9 @@ func (h ApiIpfixClientSetGenStateHandler) ServeJSONRPC(ctx interface{}, params *
 	}
 	if p.Rate > 0 {
 		gen.SetDataRate(p.Rate)
+	}
+	if p.TemplateRate > 0 {
+		gen.SetTemplateRate(p.TemplateRate)
 	}
 
 	return nil, nil

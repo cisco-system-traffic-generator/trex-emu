@@ -2517,6 +2517,7 @@ after the plugin is loaded and transmitting. Let us take a look at an init JSON:
 * `generators`: A list of generators. Each generator defines a Template and operations on that template, like for example the data packets rate. Each generator contains:
 ** `name`: Name of the generator. This field is required.
 ** `auto_start`: If true will automatically start sending IPFix packets upon creation.
+** `template_rate_pps`: Rate of IPFix template packets (in pps), defaults to 1.
 ** `rate_pps`: Rate of IPFix data packets (in pps), defaults to 3.
 ** `data_records_num`: Number of data records in each data packet. If not provided, it will default to the maximum number of data packets which doesn't exceed the MTU.
 ** `is_options_template`: Indicates if this is generator will send Options Template (True) packets or Data Template packets (False). Defaults to False.
@@ -2611,7 +2612,8 @@ trex>emu_load_profile -f emu/simple_ipfix.py
 
 Now let us see the PCAP generated. In this first picture we see that the client has two generators, the first one with `template_id = 261` and Options-Template and the second one with `template_id = 266` and Data-Template.
 The Data packets for the first generator are generated with a rate of 1 pps, as specified in the init JSON. Meanwhile the Data packets for the second generator are generated with a rate of 0.5 pps. The domain identifier was specified to 7777
-in the init JSON, but be careful not to create 2 clients with the same domain identifier. Options-Template and Data-Template packets are send with a default rate of 1 pps.
+in the init JSON, but be careful not to create 2 clients with the same domain identifier. Options-Template and Data-Template packets are send with a default rate of 1 pps but this can be altered through the `template_rate_pps` value in the init JSON
+or through the console API which we will explore soon.
 
 image::images/ipfix1.png[title="IPFix Example",align="left",width={p_width}, link="images/ipfix1.png"]
 
@@ -2664,6 +2666,7 @@ emu_ipfix_disable_gen -        Disable an IPFix generator.
 emu_ipfix_enable_gen -         Enable an IPFix generator.
 emu_ipfix_get_gen_info -       Get IPFix generators information.
 emu_ipfix_set_data_rate -      Set IPFix generator data rate.
+emu_ipfix_set_template_rate -  Set IPFix generator template rate.
 emu_ipfix_show_counters -      Show IPFix data counters data.
 ----
 

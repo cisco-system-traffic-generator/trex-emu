@@ -1172,6 +1172,7 @@ func TestPluginIPFix5(t *testing.T) {
 				{
 					"name": "dns",
 					"auto_start": true,
+					"template_rate_pps": 0.1,
 					"rate_pps": 0.5,
 					"data_records_num": 1,
 					"template_id": 261,
