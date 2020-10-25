@@ -11,6 +11,7 @@ source ./b
 
 if [[ $1 == "build" ]]; then
 
+    ./version update
     cd $GOPATH/src
     go install $2 cmd/trex-emu.go
 

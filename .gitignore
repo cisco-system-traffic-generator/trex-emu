@@ -34,6 +34,9 @@ bin/
 unit-test/generated/*.json
 src/a.pcap
 
+# Ignore version file
+src/emu/version/
+
 # Ignore doc auto generated files
 doc/build
 doc/.waf*

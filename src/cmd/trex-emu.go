@@ -6,6 +6,7 @@ package main
 
 import (
 	"emu/core"
+	"emu/version"
 	"fmt"
 	"math/rand"
 	"os"
@@ -58,6 +59,29 @@ type MainArgs struct {
 	emuTCPoZMQ *bool // use TCP over ZMQ instead of the classic IPC
 }
 
+func printVersion() {
+	fmt.Println()
+	fmt.Println("Copyright (c) 2020 Cisco Systems, Inc. and/or its affiliates.")
+	fmt.Println()
+	fmt.Println("Licensed under the Apache License, Version 2.0 (the 'License').")
+	fmt.Println("You may not use this file except in compliance with the License.")
+	fmt.Println()
+	fmt.Println("The license can be found in the LICENSE file in the root of the source.")
+	fmt.Println()
+	fmt.Println("Unless required by applicable law or agreed to in writing, software")
+	fmt.Println("distributed under the License is distributed on an \"AS IS\" BASIS,")
+	fmt.Println("WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.")
+	fmt.Println("See the License for the specific language governing permissions and")
+	fmt.Println("limitations under the License.")
+	fmt.Println()
+	fmt.Printf("TRex-EMU Version : %s \n", VERSION)
+	fmt.Printf("User             : %s \n", version.User)
+	fmt.Printf("Date             : %s \n", version.Date)
+	fmt.Printf("Git SHA          : %s \n", version.GitSha)
+	fmt.Println()
+
+}
+
 func parseMainArgs() *MainArgs {
 	var args MainArgs
 	parser := argparse.NewParser("Emu Server", "Emu server emulates clients and namespaces")
@@ -89,7 +113,7 @@ func RunCoreZmq(args *MainArgs) {
 	var zmqVeth core.VethIFZmq
 
 	if *args.version {
-		fmt.Printf("TRex-EMU version is %s \n", VERSION)
+		printVersion()
 		os.Exit(0)
 	}
 

@@ -1,0 +1,37 @@
+#! /bin/bash
+
+# Utility to create or update the Go version file with parameters.
+
+version_dir="../src/emu/version"
+version_file="$version_dir/version.go"
+
+update_version_file () {
+    # Function update_version_files
+    # params:
+    #   $1 - type: string, User
+    #   $2 - type: string, Date
+    #   $3 - type: string, GitSha
+    printf "package version\n" > $version_file # Destroy older file, instead of appending.
+    printf "\n" >> $version_file
+    printf "// Package version defines the user, date and GitSha of the compiled version of TRex-Emu.\n" >> $version_file
+    printf "// This file is automatically created and updated by the compilation script.\n" >> $version_file
+    printf "\n" >> $version_file
+    printf "const (\n" >> $version_file
+    printf "\tUser   = \"%s\"\n" "$1" >> $version_file
+    printf "\tDate   = \"%s\"\n" "$2" >> $version_file
+    printf "\tGitSha = \"%s\"\n" "$3" >> $version_file
+    printf ")\n" >> $version_file
+}
+
+if [[ $1 == "create" ]]; then
+    # Create and update file with empty parameters
+    if ! [[ -d "$version_dir" ]]; then
+        # Directory doesn't exist
+        mkdir $version_dir
+    fi
+    update_version_file " - " " - " " - "
+
+elif [[ $1 == "update" ]]; then
+    # Update file with building parameters
+    update_version_file "`whoami`" "`date +"%d %B %Y, %T"`" "`git rev-parse HEAD`"
+fi

@@ -9,3 +9,9 @@ if [[ -f $PKG_CONFIG_PATH/libzmq.so && ! -f $PKG_CONFIG_PATH/libzmq.so.5 ]]; the
     ln -s $PKG_CONFIG_PATH/libzmq.so $PKG_CONFIG_PATH/libzmq.so.5
 fi
 export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$PKG_CONFIG_PATH
+
+version_file="../src/emu/version/version.go" # Version file
+
+if ! [[ -f "$version_file" ]]; then
+    ./version create
+fi
