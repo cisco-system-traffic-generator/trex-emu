@@ -58,7 +58,7 @@ func (o *myEventTest) OnEvent(a, b interface{}) {
 func TestTimerw1(t *testing.T) {
 	var timerw *CNATimerWheel
 	var rc RCtw
-	timerw, rc = NewTimerW(1024, 16)
+	timerw, rc = NewTimerWEx(1024, 16, 4)
 	if rc != RC_HTW_OK {
 		panic("can't init timew")
 	}

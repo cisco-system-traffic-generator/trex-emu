@@ -37,12 +37,12 @@ func NewTimerCtx(simulation bool) *TimerCtx {
 	if simulation {
 		o.TickDuration = eTIMER_TICK_SIM
 		o.Timer = time.NewTimer(o.TickDuration)
-		timerw, rc = NewTimerW(128, 16)
+		timerw, rc = NewTimerWEx(128, 16, 2)
 
 	} else {
 		o.TickDuration = eTIMER_TICK
 		o.Timer = time.NewTimer(o.TickDuration)
-		timerw, rc = NewTimerW(1024, 16)
+		timerw, rc = NewTimerWEx(1024, 16, 3)
 
 	}
 	if rc != RC_HTW_OK {

@@ -9,7 +9,7 @@ package core
 
 This class was ported from TRex c++ server
 
-It has two levels of tw
+It has maximum of 4 levels of tw
 
 Example:
 
@@ -22,7 +22,7 @@ it would give:
 
 level 0: 1msec - 1sec 	(res = 1msec)
 level 1: 1sec -- 67sec    (res=64msec)
-
+level 2:        4000sec   (res=4sec)
 
 
 tw.Create(1024,16)
@@ -179,7 +179,7 @@ func (o *CHTimerObj) detach() {
 }
 
 const (
-	hNA_TIMER_LEVELS      = 2
+	hNA_TIMER_LEVELS      = 4
 	hNA_MAX_LEVEL1_EVENTS = 64 /* small bursts */
 )
 
@@ -336,6 +336,12 @@ func (o *cHTimerOneWheel) getActiveBucketTotalEvents() uint32 {
 	return o.activeBucket.count
 }
 
+type cnaTimerExData struct {
+	cntState  uint32
+	cntPerIte uint32
+	cntDiv    uint32
+}
+
 // CNATimerWheel struct
 type CNATimerWheel struct {
 	ticks            [hNA_TIMER_LEVELS]uint32
@@ -348,12 +354,12 @@ type CNATimerWheel struct {
 	timerw           [hNA_TIMER_LEVELS]cHTimerOneWheel
 	state            naHtwStateNum
 	cntDiv           uint16 /*div of time for level1 */
-	cntState         uint16 /* the state of level1 for cnt mode */
-	cntPerIte        uint32
+	maxLevels        uint8
+	exData           [hNA_TIMER_LEVELS]cnaTimerExData
 }
 
 // InitTW init the timer
-func (o *CNATimerWheel) InitTW(size uint32, level1Div uint32) RCtw {
+func (o *CNATimerWheel) InitTW(size uint32, level1Div uint32, levels uint8) RCtw {
 
 	for i := 0; i < hNA_TIMER_LEVELS; i++ {
 		res := o.timerw[i].initTWOne(size)
@@ -371,7 +377,18 @@ func (o *CNATimerWheel) InitTW(size uint32, level1Div uint32) RCtw {
 	o.wheelSize = size
 	o.wheelLevel1Shift = o.wheelShift - utllog2Shift(level1Div)
 	o.wheelLevel1Err = ((1 << (o.wheelLevel1Shift)) - 1)
+	o.maxLevels = levels
+	if o.maxLevels > hNA_TIMER_LEVELS {
+		return RC_HTW_ERR_NO_LOG2
+	}
+
 	o.cntDiv = 1 << o.wheelLevel1Shift
+	level_shift := o.wheelLevel1Shift
+	for i := 1; i < hNA_TIMER_LEVELS; i++ {
+		o.exData[i].cntDiv = 1 << level_shift
+		level_shift += o.wheelLevel1Shift
+	}
+
 	return RC_HTW_OK
 }
 
@@ -382,7 +399,18 @@ func NewTimerW(size uint32, level1Div uint32) (*CNATimerWheel, RCtw) {
 
 	o = new(CNATimerWheel)
 
-	r := o.InitTW(size, level1Div)
+	r := o.InitTW(size, level1Div, 2)
+
+	return o, r
+}
+
+func NewTimerWEx(size uint32, level1Div uint32, levels uint8) (*CNATimerWheel, RCtw) {
+
+	var o *CNATimerWheel
+
+	o = new(CNATimerWheel)
+
+	r := o.InitTW(size, level1Div, levels)
 
 	return o, r
 }
@@ -406,12 +434,14 @@ func (o *CNATimerWheel) onTickLevel0() {
 
 func (o *CNATimerWheel) onTickLevelInc(level uint8) {
 
-	o.cntState++
 	tm := &o.timerw[level]
-	if o.cntState == o.cntDiv {
+	ed := &o.exData[level]
+	ed.cntState++
+
+	if ed.cntState == ed.cntDiv {
 		tm.nextTick()
 		o.ticks[level]++
-		o.cntState = 0
+		ed.cntState = 0
 	}
 }
 
@@ -424,28 +454,41 @@ func max(a, b uint32) uint32 {
 
 func (o *CNATimerWheel) restart(tmr *CHTimerObj, ticks uint32) RCtw {
 
-	nticks := (ticks + o.wheelLevel1Err) >> o.wheelLevel1Shift
+	index := 1
 
-	if nticks < o.wheelSize {
-		if nticks < 2 {
-			nticks = 2
+	level_err := (o.wheelLevel1Err + 1)
+	level_shift := o.wheelLevel1Shift
+
+	for index < int(o.maxLevels) {
+		nticks := (ticks + (level_err - 1)) >> level_shift
+
+		if nticks < o.wheelSize {
+			if nticks < 2 {
+				nticks = 2
+			}
+			tmr.ticksLeft = 0
+			tmr.wheel = uint8(index)
+			return o.timerw[index].start(tmr, nticks-1)
 		}
-		tmr.ticksLeft = 0
-		tmr.wheel = 1
-		return o.timerw[1].start(tmr, nticks-1)
-	} else {
-		tmr.ticksLeft = ticks - ((o.wheelSize - 1) << o.wheelLevel1Shift)
-		tmr.wheel = 1
-		return o.timerw[1].start(tmr, o.wheelSize-1)
+		index++
+		level_err = level_err << o.wheelLevel1Shift
+		level_shift += o.wheelLevel1Shift
 	}
+	level_shift -= o.wheelLevel1Shift
+
+	tmr.ticksLeft = ticks - ((o.wheelSize - 1) << level_shift)
+	tmr.wheel = o.maxLevels - 1
+	return o.timerw[o.maxLevels-1].start(tmr, o.wheelSize-1)
 }
 
 // OnTickLevel call by global tick
-func (o *CNATimerWheel) onTickLevel(level uint8, minEvents uint32, left *uint32) uint16 {
+func (o *CNATimerWheel) onTickLevel(level uint8, minEvents uint32, left *uint32) uint32 {
 	tm := &o.timerw[level]
+	ed := &o.exData[level]
+
 	var cnt uint32
 	cnt = 0
-	oldState := o.cntState
+	oldState := ed.cntState
 
 	*left = tm.getActiveBucketTotalEvents()
 
@@ -454,9 +497,9 @@ func (o *CNATimerWheel) onTickLevel(level uint8, minEvents uint32, left *uint32)
 		return (oldState)
 	}
 
-	if o.cntState == 0 {
-		steps := (*left + uint32(o.cntDiv) - 1) / uint32(o.cntDiv)
-		o.cntPerIte = max(steps, minEvents)
+	if ed.cntState == 0 {
+		steps := (*left + uint32(ed.cntDiv) - 1) / uint32(ed.cntDiv)
+		ed.cntPerIte = max(steps, minEvents)
 	}
 
 	for {
@@ -471,7 +514,7 @@ func (o *CNATimerWheel) onTickLevel(level uint8, minEvents uint32, left *uint32)
 			o.restart(event, event.ticksLeft)
 		}
 		cnt++
-		if cnt == o.cntPerIte {
+		if cnt == ed.cntPerIte {
 			o.onTickLevelInc(level)
 			*left -= cnt
 			return (oldState)
@@ -488,7 +531,9 @@ func (o *CNATimerWheel) OnTick(minEvents uint32) {
 	var left uint32
 	left = 0
 	o.onTickLevel0()
-	o.onTickLevel(1, minEvents, &left)
+	for i := uint8(1); i < o.maxLevels; i++ {
+		o.onTickLevel(uint8(i), minEvents, &left)
+	}
 }
 
 // Stop schedule a timer event
