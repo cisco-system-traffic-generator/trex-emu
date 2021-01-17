@@ -37,6 +37,11 @@ type (
 		Timestamp float64 `json:"ts"`
 	}
 
+	ApiShutdownHandler struct{}
+	ApiShutdownParams  struct {
+		Time uint32 `json:"time"` // time in seconds left until the shutdown
+	}
+
 	/* Namespace Commands */
 	ApiNsAddHandler struct{}
 	ApiNsAddParams  struct{} /* [key tunnel] */
@@ -271,6 +276,21 @@ func (h ApiNsGetInfoHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawM
 	}
 
 	return res.NsInfo, nil
+}
+
+func (h ApiShutdownHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
+	tctx := ctx.(*CThreadCtx)
+	var p ApiShutdownParams
+	err := tctx.UnmarshalValidate(*params, &p)
+	if err != nil {
+		return nil, &jsonrpc.Error{
+			Code:    jsonrpc.ErrorCodeInvalidRequest,
+			Message: err.Error(),
+		}
+	}
+	time := time.Duration(p.Time) * time.Second
+	tctx.Shutdown(time)
+	return nil, nil
 }
 
 func (h ApiNsSetDefPlugHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
@@ -537,6 +557,7 @@ func init() {
 	RegisterCB("api_sync_v2", ApiSyncHandler{}, true)
 	RegisterCB("get_version", ApiGetVersionHandler{}, true)
 	RegisterCB("ping", ApiPingHandler{}, false)
+	RegisterCB("shutdown", ApiShutdownHandler{}, false)
 
 	RegisterCB("ctx_add", ApiNsAddHandler{}, false)
 	RegisterCB("ctx_remove", ApiNsRemoveHandler{}, false)

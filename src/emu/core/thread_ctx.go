@@ -180,30 +180,44 @@ func newThreadCtxStats(o *CThreadCtxStats) *CCounterDb {
 	return db
 }
 
+// Timer callback object for shutdown command. We need this struct for its OnEvent implementation.
+type ShutdownTimerCallback struct{}
+
+// OnEvent for ShutdownTimerCallback. This is called after the shutdown
+// timeout has finished. It marks the thread for shutdown.
+func (o *ShutdownTimerCallback) OnEvent(a, b interface{}) {
+	// a should be a pointer to the context
+	tctx := a.(*CThreadCtx)
+	tctx.markForShutdown = true
+}
+
 // CThreadCtx network namespace context
 type CThreadCtx struct {
-	timerctx    *TimerCtx
-	Simulation  bool
-	MPool       MbufPoll /* mbuf pool */
-	portMap     MapPortT // valid port for this cCZmqJsonRPC2t
-	Id          uint32
-	mapNs       MapNsT // map tunnel to namespaceCZmqJsonRPC2
-	nsHead      DList  // list of ns
-	PluginCtx   *PluginCtx
-	rpc         CZmqJsonRPC2
-	apiHandler  string
-	stats       CThreadCtxStats
-	epoc        uint32 // number of timer adding/removing ns used by RPC
-	iterEpoc    uint32
-	iterReady   bool
-	iter        DListIterHead
-	Veth        VethIF
-	validate    *validator.Validate
-	parser      Parser
-	simRecorder []interface{} // record event for simulation
-	cdbv        *CCounterDbVec
-	clientStats CClientStats
-	DefNsPlugs  *MapJsonPlugs // Default plugins for each new namespace
+	timerctx        *TimerCtx
+	Simulation      bool
+	MPool           MbufPoll /* mbuf pool */
+	portMap         MapPortT // valid port for this cCZmqJsonRPC2t
+	Id              uint32
+	mapNs           MapNsT // map tunnel to namespaceCZmqJsonRPC2
+	nsHead          DList  // list of ns
+	PluginCtx       *PluginCtx
+	rpc             CZmqJsonRPC2
+	apiHandler      string
+	stats           CThreadCtxStats
+	epoc            uint32 // number of timer adding/removing ns used by RPC
+	iterEpoc        uint32
+	iterReady       bool
+	iter            DListIterHead
+	Veth            VethIF
+	validate        *validator.Validate
+	parser          Parser
+	simRecorder     []interface{} // record event for simulation
+	cdbv            *CCounterDbVec
+	clientStats     CClientStats
+	DefNsPlugs      *MapJsonPlugs         // Default plugins for each new namespace
+	shutdownTimer   CHTimerObj            // Timer object for shutdown
+	shutdownTimerCb ShutdownTimerCallback // Timer callback object
+	markForShutdown bool                  // device should shutdown, timer completed
 }
 
 func NewThreadCtxProxy() *CThreadCtx {
@@ -248,6 +262,9 @@ func NewThreadCtx(Id uint32, serverPort uint16, simulation bool, simRx *VethIFSi
 	}
 	o.simRecorder = make([]interface{}, 0)
 
+	// shutdown timer
+	o.shutdownTimer.SetCB(&o.shutdownTimerCb, o, 0) // set callback
+
 	/* counters */
 	o.cdbv = NewCCounterDbVec("ctx")
 	o.cdbv.AddVec(o.MPool.Cdbv)
@@ -259,15 +276,16 @@ func NewThreadCtx(Id uint32, serverPort uint16, simulation bool, simRx *VethIFSi
 	o.cdbv.Add(cdb)
 	return o
 }
+
 func (o *CThreadCtx) SetZmqVeth(veth VethIF) {
 	o.Veth = veth
 	o.cdbv.Add(o.Veth.GetCdb())
 }
 
 func (o *CThreadCtx) SimRecordCompare(filename string, t *testing.T) {
-	o.SimRecordExport(filename)
 	expFilename := os.Getenv("GOPATH") + "/unit-test/exp/" + filename + ".json"
 	genFilename := os.Getenv("GOPATH") + "/unit-test/generated/" + filename + ".json"
+	o.SimRecordExport(genFilename)
 	buf, err := ioutil.ReadFile(expFilename)
 	buf1, err1 := ioutil.ReadFile(genFilename)
 	if err != nil {
@@ -298,7 +316,7 @@ func (o *CThreadCtx) SimRecordExport(filename string) {
 	o.SimRecordAppend(o.Veth.GetCdb().MarshalValues(false))
 	buf, err := fastjson.MarshalIndent(o.simRecorder, "", "\t")
 	if err == nil {
-		ioutil.WriteFile(os.Getenv("GOPATH")+"/unit-test/generated/"+filename+".json", buf, 0644)
+		ioutil.WriteFile(filename, buf, 0644)
 	}
 }
 
@@ -364,6 +382,9 @@ func (o *CThreadCtx) MainLoop() {
 			o.Veth.OnRxStream(msg)
 		}
 		o.Veth.FlushTx()
+		if o.markForShutdown {
+			break
+		}
 	}
 	o.Veth.SimulatorCleanup()
 	o.MPool.ClearCache()
@@ -439,8 +460,7 @@ func (o *CThreadCtx) GetClientPlugin(params *fastjson.RawMessage, plugin string)
 	return plug, nil
 }
 
-func (o *CThreadCtx) UnmarshalClient(data []byte, key *MACKey,
-	tun *CTunnelKey) error {
+func (o *CThreadCtx) UnmarshalClient(data []byte, key *MACKey, tun *CTunnelKey) error {
 	err := o.UnmarshalMacKey(data, key)
 	if err != nil {
 		return err
@@ -653,7 +673,26 @@ func (o *CThreadCtx) GetTimerCtx() *TimerCtx {
 }
 
 func (o *CThreadCtx) Delete() {
+	if o.shutdownTimer.IsRunning() {
+		o.timerctx.Stop(&o.shutdownTimer)
+	}
 	o.rpc.Delete()
+}
+
+func (o *CThreadCtx) Shutdown(time time.Duration) {
+	if o.markForShutdown {
+		// already marked for shutdown, too late.
+		return
+	}
+	if time.Seconds() == 0 {
+		o.markForShutdown = true
+	} else {
+		if o.shutdownTimer.IsRunning() {
+			// timer already set. Let's reset it.
+			o.timerctx.Stop(&o.shutdownTimer)
+		}
+		o.timerctx.StartTicks(&o.shutdownTimer, o.timerctx.DurationToTicks(time)) // Start time
+	}
 }
 
 func (o *CThreadCtx) StartRxThread() {
