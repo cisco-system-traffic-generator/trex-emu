@@ -8,6 +8,8 @@ package core
 import (
 	"encoding/hex"
 	"fmt"
+	"io"
+	"os"
 	"unsafe"
 )
 
@@ -639,14 +641,14 @@ func (o *Mbuf) GetRecord(timeSec float64, meta string) *MbufJson {
 }
 
 //DumpK12  dump in k12 format
-func (o *Mbuf) DumpK12(timeSec float64) {
+func (o *Mbuf) DumpK12(timeSec float64, file *os.File) {
 
-	fmt.Printf("\n")
-	fmt.Printf("+---------+---------------+----------+\n")
+	io.WriteString(file, "\n")
+	io.WriteString(file, "+---------+---------------+----------+\n")
 	mt := uint64(timeSec/60) % 60
 	s := uint64(timeSec) % 60
 	sm := uint64(reminder(timeSec) * 1000.0)
 	su := uint64(reminder(timeSec*1000.0) * 1000.0)
-	fmt.Printf("00:%02d:%02d,%03d,%03d   ETHER \n", mt, s, sm, su)
-	fmt.Printf("|0   |%s\n\n", o.GetK12String())
+	io.WriteString(file, fmt.Sprintf("00:%02d:%02d,%03d,%03d   ETHER \n", mt, s, sm, su))
+	io.WriteString(file, fmt.Sprintf("|0   |%s\n\n", o.GetK12String()))
 }

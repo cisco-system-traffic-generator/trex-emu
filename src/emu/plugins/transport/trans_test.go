@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"math/rand"
 	"net"
+	"os"
 	"testing"
 	"time"
 )
@@ -52,7 +53,7 @@ func (o *TransportTestBase) Run(t *testing.T, compare bool) {
 	if monitor > 0 {
 		m = true
 	}
-	tctx.Veth.SetDebug(m, o.capture)
+	tctx.Veth.SetDebug(m, os.Stdout, o.capture)
 	tctx.MainLoopSim(o.duration)
 	defer tctx.Delete()
 	var key core.CTunnelKey
@@ -289,7 +290,7 @@ func (o *TransportSimTestBase) Run(t *testing.T, compare bool) {
 		m = true
 	}
 
-	sim.tctx.Veth.SetDebug(m, o.capture)
+	sim.tctx.Veth.SetDebug(m, os.Stdout, o.capture)
 	sim.tctx.MainLoopSim(o.duration)
 	fmt.Printf("\n== Client counters === \n")
 	sim.client.ctx.cdbv.Dump()

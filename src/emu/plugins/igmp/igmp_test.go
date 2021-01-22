@@ -13,6 +13,7 @@ import (
 	"flag"
 	"fmt"
 	"net"
+	"os"
 	"testing"
 	"time"
 
@@ -86,7 +87,7 @@ func (o *IgmpTestBase) Run(t *testing.T) {
 	if monitor > 0 {
 		m = true
 	}
-	tctx.Veth.SetDebug(m, o.capture)
+	tctx.Veth.SetDebug(m, os.Stdout, o.capture)
 	tctx.MainLoopSim(o.duration)
 	defer tctx.Delete()
 	var key core.CTunnelKey

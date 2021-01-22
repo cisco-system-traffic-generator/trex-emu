@@ -8,6 +8,7 @@ import (
 	"emu/core"
 	"emu/version"
 	"fmt"
+	"log"
 	"math/rand"
 	"os"
 	"time"
@@ -44,19 +45,17 @@ func RegisterPlugins(tctx *core.CThreadCtx) {
 }
 
 type MainArgs struct {
-	port       *int
-	verbose    *bool
-	sim        *bool
-	capture    *bool
-	monitor    *bool
-	time       *int
-	file       *string
-	dummyVeth  *bool
-	vethPort   *int
-	zmqServer  *string
-	version    *bool
-	duration   time.Duration
-	emuTCPoZMQ *bool // use TCP over ZMQ instead of the classic IPC
+	port        *int    // RPC port. Port to which the client connects to
+	vethPort    *int    // Veth Port for EMU. Port to which TRex Server connects to.
+	dummyVeth   *bool   // Run Emu on dummy veth mode.
+	zmqServer   *string // IPv4 for the zmqServer. Defaults to local.
+	capture     *bool   // capture traffic, rpc, counters and dump them in a json file
+	captureJson *string // filename for the capture
+	monitor     *bool   // monitor traffic in K12 mode and dump in pcapFile
+	monitorFile *string // filename for the monitored traffic to be dumped
+	verbose     *bool   // verbose mode, will print details
+	version     *bool   // print version of EMU and exit
+	emuTCPoZMQ  *bool   // use TCP over ZMQ instead of the classic IPC to connect with TRex.
 }
 
 func printVersion() {
@@ -88,22 +87,20 @@ func parseMainArgs() *MainArgs {
 
 	args.port = parser.Int("p", "rpc port", &argparse.Options{Default: 4510, Help: "RPC Port for server"})
 	args.vethPort = parser.Int("l", "veth zmq port", &argparse.Options{Default: 4511, Help: "Veth Port for server"})
-	args.verbose = parser.Flag("v", "verbose", &argparse.Options{Default: false, Help: "Run server in verbose mode"})
-	args.sim = parser.Flag("s", "simulator", &argparse.Options{Default: false, Help: "Run server in simulator mode"})
+	args.dummyVeth = parser.Flag("d", "dummy-veth", &argparse.Options{Default: false, Help: "Run server with a dummy veth, all packets to rx will be dropped"})
 	args.zmqServer = parser.String("S", "zmq-server", &argparse.Options{Default: "127.0.0.1", Help: "ZMQ server IP"})
 	args.capture = parser.Flag("c", "capture", &argparse.Options{Default: false, Help: "Run server in capture mode"})
+	args.captureJson = parser.String("C", "capture-json", &argparse.Options{Default: "capture.json", Help: "Path to save the JSON with capture details"})
 	args.monitor = parser.Flag("m", "monitor", &argparse.Options{Default: false, Help: "Run server in K12 monitor mode"})
-	args.time = parser.Int("t", "time", &argparse.Options{Default: 10, Help: "Time of the simulation in sec"})
-	args.file = parser.String("f", "file", &argparse.Options{Default: "emu_file", Help: "Path to save the pcap file"})
-	args.dummyVeth = parser.Flag("d", "dummy-veth", &argparse.Options{Default: false, Help: "Run server with a dummy veth, all packets to rx will be dropped"})
-	args.version = parser.Flag("V", "version", &argparse.Options{Default: false, Help: "Show TRex-emu version"})
+	args.monitorFile = parser.String("M", "monitor-pcap", &argparse.Options{Default: "stdout", Help: "Path to save monitored traffic (PCAP)"})
+	args.verbose = parser.Flag("v", "verbose", &argparse.Options{Default: false, Help: "Run server in verbose mode"})
+	args.version = parser.Flag("V", "version", &argparse.Options{Default: false, Help: "Show TRex-Emu version"})
 	args.emuTCPoZMQ = parser.Flag("", "emu-zmq-tcp", &argparse.Options{Default: false, Help: "Run TCP over ZMQ. Default is IPC"})
 
 	err := parser.Parse(os.Args)
 	if err != nil {
 		fmt.Print(parser.Usage(err))
 	}
-	args.duration = time.Duration(*args.time) * time.Second
 
 	return &args
 }
@@ -132,9 +129,9 @@ func RunCoreZmq(args *MainArgs) {
 		simrx = &simVeth
 	}
 
-	tctx := core.NewThreadCtx(0, port, *args.sim, &simrx)
+	tctx := core.NewThreadCtx(0, port, *args.dummyVeth, &simrx)
 
-	if !*args.sim {
+	if !*args.dummyVeth {
 		zmqVeth.Create(tctx, uint16(*args.vethPort), *args.zmqServer, *args.emuTCPoZMQ, false)
 		zmqVeth.StartRxThread()
 		tctx.SetZmqVeth(&zmqVeth)
@@ -143,17 +140,25 @@ func RunCoreZmq(args *MainArgs) {
 	RegisterPlugins(tctx)
 
 	tctx.SetVerbose(*args.verbose)
-	tctx.Veth.SetDebug(*args.monitor, *args.capture)
+	var monitorFile *os.File
+	var err error
+	if *args.monitorFile == "stdout" {
+		monitorFile = os.Stdout
+	} else {
+		monitorFile, err = os.Create(*args.monitorFile)
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer monitorFile.Close()
+	}
+	tctx.Veth.SetDebug(*args.monitor, monitorFile, *args.capture)
 	tctx.StartRxThread()
 	defer tctx.Delete()
 
-	if !*args.sim {
-		tctx.MainLoop()
-	} else {
-		tctx.MainLoopSim(args.duration)
-	}
+	tctx.MainLoop()
+
 	if *args.capture {
-		tctx.SimRecordExport(*args.file)
+		tctx.SimRecordExport(*args.captureJson)
 	}
 }
 

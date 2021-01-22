@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"math/rand"
+	"os"
 	"testing"
 	"time"
 )
@@ -66,7 +67,7 @@ func (o *IPFixTestBase) Run(t *testing.T, compare bool) {
 		m = true
 	}
 	simVeth.tctx = tctx
-	tctx.Veth.SetDebug(m, o.capture)
+	tctx.Veth.SetDebug(m, os.Stdout, o.capture)
 	tctx.MainLoopSim(o.duration)
 	defer tctx.Delete()
 

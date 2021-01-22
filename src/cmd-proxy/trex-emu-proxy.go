@@ -216,7 +216,7 @@ func RunCoreZmq(args *MainArgs) {
 	proxy.rawSocket.StartRxThread()
 
 	tctx.SetZmqVeth(&proxy.zmqVeth)
-	tctx.Veth.SetDebug(*args.monitor, false)
+	tctx.Veth.SetDebug(*args.monitor, os.Stdout, false)
 
 	proxy.MainLoop()
 }

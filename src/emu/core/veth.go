@@ -7,7 +7,8 @@ package core
 
 import (
 	"encoding/json"
-	"fmt"
+	"io"
+	"os"
 )
 
 type VethStats struct {
@@ -123,7 +124,7 @@ type VethIF interface {
 
 	SimulatorCleanup()
 
-	SetDebug(monitor bool, capture bool)
+	SetDebug(monitor bool, monitorFile *os.File, capture bool)
 
 	GetCdb() *CCounterDb
 
@@ -143,15 +144,16 @@ type VethIFSim interface {
 }
 
 type VethIFSimulator struct {
-	vec        []*Mbuf
-	rxvec      []*Mbuf
-	rpcQue     [][]byte
-	stats      VethStats
-	tctx       *CThreadCtx
-	Sim        VethIFSim /* interface per test to simulate DUT */
-	Record     bool      /* to a buffer */
-	K12Monitor bool      /* to standard ouput*/
-	cdb        *CCounterDb
+	vec         []*Mbuf
+	rxvec       []*Mbuf
+	rpcQue      [][]byte
+	stats       VethStats
+	tctx        *CThreadCtx
+	Sim         VethIFSim // interface per test to simulate DUT
+	Record      bool      // to a buffer
+	K12Monitor  bool      // K12 packet monitoring to monitorDest
+	monitorFile *os.File  // File to print the K12 packet captured. Default is stdout.
+	cdb         *CCounterDb
 }
 
 func (o *VethIFSimulator) Create(ctx *CThreadCtx) {
@@ -163,6 +165,24 @@ func (o *VethIFSimulator) Create(ctx *CThreadCtx) {
 }
 
 func (o *VethIFSimulator) FlushTx() {
+	if len(o.vec) == 0 {
+		return
+	}
+	o.stats.TxBatch++
+	for _, m := range o.vec {
+		if !m.IsContiguous() {
+			panic(" mbuf should be contiguous  ")
+		}
+		if o.K12Monitor {
+			io.WriteString(o.monitorFile, "\n ->TX<- \n")
+			m.DumpK12(o.tctx.GetTickSimInSec(), o.monitorFile)
+		}
+		if o.Record {
+			o.tctx.SimRecordAppend(m.GetRecord(o.tctx.GetTickSimInSec(), "tx"))
+		}
+		m.FreeMbuf()
+	}
+	o.vec = o.vec[:0]
 
 }
 
@@ -213,8 +233,8 @@ func (o *VethIFSimulator) OnRx(m *Mbuf) {
 	o.stats.RxPkts++
 	o.stats.RxBytes += uint64(m.PktLen())
 	if o.K12Monitor {
-		fmt.Printf("\n ->RX<- \n")
-		m.DumpK12(o.tctx.GetTickSimInSec())
+		io.WriteString(o.monitorFile, "\n ->RX<- \n")
+		m.DumpK12(o.tctx.GetTickSimInSec(), o.monitorFile)
 	}
 	if o.Record {
 		o.tctx.SimRecordAppend(m.GetRecord(o.tctx.GetTickSimInSec(), "rx"))
@@ -262,7 +282,7 @@ func (o *VethIFSimulator) SimulatorCheckRxQueue() {
 	o.handleRpcQueue()
 	for _, m := range o.vec {
 		if o.K12Monitor {
-			m.DumpK12(o.tctx.GetTickSimInSec())
+			m.DumpK12(o.tctx.GetTickSimInSec(), o.monitorFile)
 		}
 		if o.Record {
 			o.tctx.SimRecordAppend(m.GetRecord(o.tctx.GetTickSimInSec(), "tx"))
@@ -291,13 +311,13 @@ func (o *VethIFSimulator) SimulatorCleanup() {
 	o.rxvec = nil
 }
 
-func (o *VethIFSimulator) SetDebug(monitor bool, capture bool) {
+func (o *VethIFSimulator) SetDebug(monitor bool, monitorFile *os.File, capture bool) {
 	o.K12Monitor = monitor
 	o.Record = capture
+	o.monitorFile = monitorFile
 }
 
 func (o *VethIFSimulator) GetC() chan []byte {
-	panic(" GetC() should not be used in VethIFSimulator ")
 	return nil
 }
 

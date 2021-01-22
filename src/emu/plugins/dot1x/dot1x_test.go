@@ -14,6 +14,7 @@ import (
 	"external/google/gopacket/layers"
 	"flag"
 	"fmt"
+	"os"
 	"testing"
 	"time"
 )
@@ -53,7 +54,7 @@ func (o *Dot1xTestBase) Run(t *testing.T) {
 		m = true
 	}
 	simVeth.tctx = tctx
-	tctx.Veth.SetDebug(m, o.capture)
+	tctx.Veth.SetDebug(m, os.Stdout, o.capture)
 	tctx.MainLoopSim(o.duration)
 	defer tctx.Delete()
 	var key core.CTunnelKey

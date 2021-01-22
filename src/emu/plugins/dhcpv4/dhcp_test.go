@@ -14,6 +14,7 @@ import (
 	"flag"
 	"fmt"
 	"net"
+	"os"
 	"testing"
 	"time"
 )
@@ -53,7 +54,7 @@ func (o *DhcpTestBase) Run(t *testing.T) {
 		m = true
 	}
 	simVeth.tctx = tctx
-	tctx.Veth.SetDebug(m, o.capture)
+	tctx.Veth.SetDebug(m, os.Stdout, o.capture)
 	tctx.MainLoopSim(o.duration)
 	defer tctx.Delete()
 	var key core.CTunnelKey
@@ -294,12 +295,12 @@ func TestPluginDhcp2(t *testing.T) {
 	tctx := core.NewThreadCtx(0, 4510, false, nil)
 	m := tctx.MPool.Alloc(1500)
 	m.Append(GenerateOfferPacket(7, net.IPv4(16, 0, 0, 1), net.IPv4(16, 0, 0, 2), int(layers.DHCPMsgTypeOffer), false))
-	m.DumpK12(0)
+	m.DumpK12(0, os.Stdout)
 	m.FreeMbuf()
 
 	m = tctx.MPool.Alloc(1500)
 	m.Append(GenerateOfferPacket(7, net.IPv4(16, 0, 0, 1), net.IPv4(16, 0, 0, 2), int(layers.DHCPMsgTypeAck), false))
-	m.DumpK12(0)
+	m.DumpK12(0, os.Stdout)
 	m.FreeMbuf()
 
 	b := GenerateOfferPacket(7, net.IPv4(16, 0, 0, 1), net.IPv4(16, 0, 0, 2), int(layers.DHCPMsgTypeAck), false)

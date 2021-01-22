@@ -25,6 +25,8 @@ import (
 	"encoding/binary"
 	zmq "external/pebbe/zmq4"
 	"fmt"
+	"io"
+	"os"
 	"time"
 )
 
@@ -47,16 +49,17 @@ type VethIFZmq struct {
 	rxPort   uint16 // in respect to EMU. rx->emu
 	txPort   uint16 // in respect to EMU. emu->tx
 
-	cn         chan []byte
-	vec        []*Mbuf
-	txVecSize  uint32
-	stats      VethStats
-	tctx       *CThreadCtx
-	K12Monitor bool /* to standard output*/
-	proxyMode  bool
-	cdb        *CCounterDb
-	buf        []byte
-	cb         VethIFCb
+	cn          chan []byte
+	vec         []*Mbuf
+	txVecSize   uint32
+	stats       VethStats
+	tctx        *CThreadCtx
+	K12Monitor  bool     // K12 packet monitoring to monitorDest
+	monitorFile *os.File // File to print the K12 packet captured. Default is stdout.
+	proxyMode   bool
+	cdb         *CCounterDb
+	buf         []byte
+	cb          VethIFCb
 }
 
 func (o *VethIFZmq) SetCb(cb VethIFCb) {
@@ -159,7 +162,7 @@ func (o *VethIFZmq) FlushTx() {
 			panic(" mbuf should be contiguous  ")
 		}
 		if o.K12Monitor {
-			m.DumpK12(o.tctx.GetTickSimInSec())
+			m.DumpK12(o.tctx.GetTickSimInSec(), o.monitorFile)
 		}
 		var pktHeader uint32
 		pktHeader = (uint32(0xAA) << 24) + uint32((m.VPort()&0xff))<<16 + uint32(m.pktLen&0xffff)
@@ -226,8 +229,8 @@ func (o *VethIFZmq) OnRx(m *Mbuf) {
 	o.stats.RxPkts++
 	o.stats.RxBytes += uint64(m.PktLen())
 	if o.K12Monitor {
-		fmt.Printf("\n ->RX<- \n")
-		m.DumpK12(o.tctx.GetTickSimInSec())
+		io.WriteString(o.monitorFile, "\n ->RX<- \n")
+		m.DumpK12(o.tctx.GetTickSimInSec(), o.monitorFile)
 	}
 	if o.proxyMode {
 		o.cb.HandleRxPacket(m)
@@ -254,8 +257,9 @@ func (o *VethIFZmq) SimulatorCleanup() {
 
 }
 
-func (o *VethIFZmq) SetDebug(monitor bool, capture bool) {
+func (o *VethIFZmq) SetDebug(monitor bool, monitorFile *os.File, capture bool) {
 	o.K12Monitor = monitor
+	o.monitorFile = monitorFile
 }
 
 func (o *VethIFZmq) GetCdb() *CCounterDb {
