@@ -2880,6 +2880,117 @@ Note that when using TCP in debug mode we don't need these permissions and we si
  scripts/trex_emu$ trex-emu --emu-zmq-tcp
 ----
 
+== Simulator
+
+Getting TRex-EMU to run in debug mode together with TRex can be cumbersome, especially when all one wants is to simulate some short profile and see that it works.
+Imagine we are writing a profile from scratch, and we have a syntax in error in it. We will discover this only when the profile is loaded, which happens after TRex starts and after TRex-EMU starts.
+
+If you find yourself in one of the following cases, you might consider using the simulator:
+
+** You are implementing a new plugin and want to verify the transmitted packets.
+** You are writing a new profile from scratch and want to verify it works.
+** You don't require an interactive default gateway, you just need to send packets.
+
+The EMU simulator is a straightforward tool that can simulate EMU profiles as we know them for a given duration of time. Let's take a look at it:
+
+[source, bash]
+----
+scripts$ emu-sim -h
+usage: sim.py [-h] [-f FILE] [-o OUTPUT] [-d DURATION] [-j JSON] [-v]
+
+optional arguments:
+  -h, --help            show this help message and exit
+  -f FILE, --file FILE  Emu profile to simulate. (default: emu/simple_emu.py) # <1>
+  -o OUTPUT, --output OUTPUT
+                        output file for Emu simulation. (default:
+                        emu_out.pcap) # <2>
+  -d DURATION, --duration DURATION
+                        duration of simulation in seconds. (default: 10) # <3>
+  -j JSON, --json JSON  JSON file to capture traffic, RPC, counters etc. for
+                        debug purposes. (default: None) # <4>
+  -v, --verbose         run Emu in verbose mode  # <5>
+----
+<1> Emu profile to simulate.
+<2> Pcap file with the packets generated. Packets are dumped in K12 format.
+<3> Duration of simulation in seconds. It might be slightly longer than the requested value.
+<4> A JSON file with debug information.
+<5> Emu server will be run in verbose mode.
+
+The simulator starts TRex-EMU as a standalone server, without TRex core. This means:
+
+** The transmitted packets are recorded and then forwarded to some dummy sink veth. Meaning, the tx packets are black holed.
+** There is no rx channel, hence no packets will be received from a default gateway.
+
+These constraints seem too substantial, but for a developer who implements a new plugin and wants to see the packets TRex-EMU is generating it is more than enough.
+
+=== Example
+
+Let us show an example of how to use the simulator. We are going to use a Netflow profile, since Netflow is a plugin that doesn't require any rx.
+
+Let us use the link:{github_emu_path}/simple_ipfix.py[emu/simple_ipfix.py] profile. However we are going to make a small change. 
+
+The Netflow plugin starts sending traffic only after the default gateway's MAC address is resolved. Since there is no rx, it can never be resolved by ARP. 
+This is why we are going to set a fixed MAC address for the default gateway.
+
+[source, python]
+----
+    c = EMUClientObj(mac = mac.V(),
+                     ipv4 = ipv4.V(),
+                     ipv6 = ipv6.V(),
+                     ipv4_dg = dg_4.V(),
+                     ipv4_force_dg = True, # <1>
+                     ipv4_force_mac = "00:00:00:01:00:01", # <2>
+                     plugs  = {'ipfix': self.get_init_json(host_port),
+                               'arp': {'enable': True},
+                               'ipv6': {}})
+----
+<1> We indicate that we are forcing the MAC address of the default gateway to be a fixed value.
+<2> The value of the forced MAC.
+
+Now let's simulate the profile for 2 seconds.
+
+[source, bash]
+----
+scripts$ emu-sim -f emu/simple_ipfix.py -o out.pcap -d 2 
+----
+
+Let us take a look into the generated PCAP file:
+
+image::images/simulated_netflow_pcap.png[title="Simulated Netflow PCAP",align="left",width={p_width}, link="images/simulated_netflow_pcap.png"]
+
+From this PCAP we can verify:
+
+** The traffic is simulated for almost 2 seconds.
+** The traffic is simulated as instructed in the profile.
+** The destination MAC address is the fixed MAC address we just set.
+
+[NOTE]
+=====================================================================
+The simulated time will always be slightly longer than the requested duration.
+This is because the operation of loading the profile and setting the 
+duration in TRex-EMU is not atomic and is done in two different commands.
+Hence the extra time is the time it takes the simulator to set the duration
+in TRex-EMU after it loads the profile.
+=====================================================================
+
+The simulator can especially help us debug. Let's see what happens when we run it with the appropriate flag.
+
+[source, bash]
+----
+scripts$ emu-sim -f emu/simple_ipfix.py -d 1 --json debug.json
+----
+
+Since the debug file is long we will show here part of it:
+
+image::images/simulator_rpc_json.png[title="Simulator RPC json",align="left",width={p_width}, link="images/simulator_rpc_json.png"]
+
+image::images/simulator_counter_json.png[title="Simulator counters json",align="left",width={p_width}, link="images/simulator_counter_json.png"]
+
+The debug json file contains:
+
+** RPC requests and responses
+** Packets
+** Counters
 
 == FAQ 
 
