@@ -2,11 +2,22 @@ package jsonrpc
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 
 	"github.com/intel-go/fastjson"
 )
+
+func jsonInterface(d []byte) interface{} {
+
+	var v interface{}
+	err := json.Unmarshal(d, &v)
+	if err != nil {
+		return err
+	}
+	return v
+}
 
 // Handler links a method of JSON-RPC request.
 type Handler interface {
@@ -20,6 +31,11 @@ func (mr *MethodRepository) ServeBytes(req []byte) []byte {
 	if mr.Verbose {
 		fmt.Println("[verbose] Got Request to Server:")
 		fmt.Println(string(req) + "\n")
+	}
+	if mr.Capture && *mr.rpcRec != nil {
+		obj := make(map[string]interface{}, 0)
+		obj["rpc-req"] = jsonInterface(req)
+		*mr.rpcRec = append(*mr.rpcRec, obj)
 	}
 	rs, batch, err := ParseRequestBytes(req)
 	if err != nil {
@@ -41,6 +57,11 @@ func (mr *MethodRepository) ServeBytes(req []byte) []byte {
 	if mr.Verbose {
 		fmt.Println("[verbose] Sending Response to Client:")
 		fmt.Println(string(b) + "\n\n")
+	}
+	if mr.Capture && *mr.rpcRec != nil {
+		obj := make(map[string]interface{}, 0)
+		obj["rpc-res"] = jsonInterface(b)
+		*mr.rpcRec = append(*mr.rpcRec, obj)
 	}
 	return b
 }

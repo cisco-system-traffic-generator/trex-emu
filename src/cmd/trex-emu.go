@@ -139,7 +139,7 @@ func RunCoreZmq(args *MainArgs) {
 
 	RegisterPlugins(tctx)
 
-	tctx.SetVerbose(*args.verbose)
+	tctx.SetRpcParams(*args.verbose, *args.capture)
 	var monitorFile *os.File
 	var err error
 	if *args.monitorFile == "stdout" {

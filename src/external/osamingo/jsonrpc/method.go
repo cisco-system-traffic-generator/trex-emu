@@ -8,9 +8,14 @@ type (
 	// A MethodRepository has JSON-RPC method functions.
 	MethodRepository struct {
 		r       map[string]Metadata
-		Verbose bool
-		api     string
-		ctx     interface{}
+		Verbose bool // Verbose mode, print the RPC req/res to standart output.
+		Capture bool // Capture the RPC req/res into rpcRec
+		// A slice that records RPC req/res.  This is part of `ctx`.
+		// But `ctx` can't be type casted to its original type (circular dep.) hence we pass it as
+		// a parameter and we append directly to it.
+		rpcRec *[]interface{}
+		api    string
+		ctx    interface{}
 	}
 	// Metadata has method meta data.
 	Metadata struct {
@@ -29,6 +34,12 @@ func NewMethodRepository() *MethodRepository {
 // SetCtx set context, pass to each callback
 func (mr *MethodRepository) SetCtx(i interface{}) {
 	mr.ctx = i
+}
+
+// SetRpcRecorder sets the RPC recorder which in case Capture is set, will
+// record the RPC rec/res.
+func (mr *MethodRepository) SetRpcRecorder(rec *[]interface{}) {
+	mr.rpcRec = rec
 }
 
 // TakeMethod takes jsonrpc.Func in MethodRepository.

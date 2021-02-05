@@ -261,6 +261,7 @@ func NewThreadCtx(Id uint32, serverPort uint16, simulation bool, simRx *VethIFSi
 		o.Veth = &simv
 	}
 	o.simRecorder = make([]interface{}, 0)
+	o.rpc.SetRpcRecorder(&o.simRecorder) // set the recorder for RPC so we can record RPC req/res.
 
 	// shutdown timer
 	o.shutdownTimer.SetCB(&o.shutdownTimerCb, o, 0) // set callback
@@ -855,6 +856,7 @@ func (o *CThreadCtx) GetCounterDbVec() *CCounterDbVec {
 	return o.cdbv
 }
 
-func (o *CThreadCtx) SetVerbose(v bool) {
+func (o *CThreadCtx) SetRpcParams(v, c bool) {
 	o.rpc.mr.Verbose = v
+	o.rpc.mr.Capture = c
 }

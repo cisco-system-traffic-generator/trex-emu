@@ -38,6 +38,11 @@ func (o *CZmqJsonRPC2) SetCtx(i interface{}) {
 	o.mr.SetCtx(i)
 }
 
+// SetRpcRecorder sets the RPC recorder for the method repository.
+func (o *CZmqJsonRPC2) SetRpcRecorder(rpcRec *[]interface{}) {
+	o.mr.SetRpcRecorder(rpcRec)
+}
+
 // NewZmqRpc create a zmq server in port
 func (o *CZmqJsonRPC2) NewZmqRpc(serverPort uint16, simulation bool) {
 	context, err := zmq.NewContext()
