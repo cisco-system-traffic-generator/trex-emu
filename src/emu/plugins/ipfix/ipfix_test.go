@@ -2401,6 +2401,103 @@ func TestPluginIPFix22(t *testing.T) {
 	a.Run(t, true)
 }
 
+func TestPluginIPFix23(t *testing.T) {
+	// string engines
+	initJson := `
+		{
+			"netflow_version": 10,
+			"dst": "48.0.0.0:4739",
+			"domain_id": 6,
+			"generators": [
+				{
+					"name": "strings",
+					"auto_start": true,
+					"rate_pps": 2,
+					"data_records_num": 3,
+					"template_id": 260,
+					"fields": [
+						{
+							"name": "interfaceName",
+							"type": 82,
+							"length": 32,
+							"data": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+						},
+						{
+							"name": "variableLength",
+							"type": 45003,
+							"length": 65535,
+							"enterprise_number": 9
+						}
+					],
+					"engines": [
+						{
+							"engine_name": "interfaceName",
+							"engine_type": "histogram_string",
+							"params": {
+								"size": 32,
+								"offset": 0,
+								"should_pad": true,
+								"entries": [
+									{
+										"str": "Te0/0/0",
+										"prob": 4,
+										"padding_value": 35,
+									},
+									{
+										"str": "Hu0/1",
+										"prob": 1,
+										"padding_value": 36,
+									},
+									{
+										"str": "Gi0",
+										"prob": 2,
+									}
+								]
+							}
+						},
+						{
+							"engine_name": "variableLength",
+							"engine_type": "histogram_string",
+							"params": {
+								"size": 10,
+								"offset": 2,
+								"should_pad": false,
+								"entries": [
+									{
+										"str": "Cisco",
+										"prob": 1,
+										"padding_value": 35,
+									},
+									{
+										"str": "TRex",
+										"prob": 2,
+									},
+									{
+										"str": "TRex-Emu",
+										"prob": 1,
+									}
+								]
+							}
+						}
+					]
+				}
+			]
+		}
+		`
+	a := &IPFixTestBase{
+		testname:     "ipfix23",
+		dropAll:      false,
+		monitor:      true,
+		match:        0,
+		capture:      true,
+		initJSON:     [][]byte{[]byte(initJson)},
+		duration:     10 * time.Second,
+		clientsToSim: 1,
+		seed:         0xc15c0be51,
+	}
+	a.Run(t, true)
+}
+
 func init() {
 	flag.IntVar(&monitor, "monitor", 0, "monitor")
 }

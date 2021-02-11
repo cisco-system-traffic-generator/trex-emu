@@ -1529,7 +1529,7 @@ func (o *HistogramURLEntry) GetProb() uint32 {
 	return o.Prob
 }
 
-// HistogramURL64Params is used for parsing the input JSON and create the entries.
+// HistogramURLParams is used for parsing the input JSON and create the entries.
 type HistogramURLParams struct {
 	HistogramEngineCommonParams                     // common params
 	Entries                     []HistogramURLEntry `json:"entries"` // slice of entries
@@ -1563,6 +1563,96 @@ func CreateHistogramURLEngine(params *fastjson.RawMessage, mgr *FieldEngineManag
 	return NewHistogramEngine(&histParams, mgr)
 }
 
+/* ------------------------------------------------------------------------------
+							String Histogram
+--------------------------------------------------------------------------------*/
+// HistogramStringEntry represents a string which can be used as an entry for the
+// HistogramEngine can be picked with probability prob.
+type HistogramStringEntry struct {
+	Str          string `json:"str"`           // String value
+	Prob         uint32 `json:"prob"`          // Probability for this entry to be picked
+	PaddingValue uint8  `json:"padding_value"` // Value which will be used to pad the string to a fixed size. (In case it is needed)
+	processedStr []byte // Process string into a byte for fast update. Pay the price once in processing.
+}
+
+// validateParams validates that a HistogramStringEntry is valid. An entry is considered valid
+// if it can be successfully encoded to a byte slice within the given size.
+func (o *HistogramStringEntry) validateParams(mgr *FieldEngineManager, size uint16) error {
+	if o.Prob == 0 {
+		// Probability 0 can be okay too but let's be strict and eliminate redundant values.
+		mgr.counters.invalidHistogramEntry++
+		return fmt.Errorf("Invalid probability 0, please remove this entry.\n")
+	}
+	byteString := []byte(o.Str)
+	if len(byteString) > int(size) {
+		mgr.counters.sizeTooSmall++
+		return fmt.Errorf("String %v cannot be represented with size %v.\n", o.Str, size)
+	}
+	return nil
+}
+
+// processString processes the string ahead (upon creation) and creates the processedStr byte slice. This byte slice
+// contains the value that this entry returns if picked. The byte slice can be a simple convertion from the string
+// or a padded one in case padding is needed.
+func (o *HistogramStringEntry) processString(shouldPad bool, size uint16) {
+	o.processedStr = []byte(o.Str)
+	if shouldPad {
+		appendSize := int(size) - len(o.processedStr)
+		for j := 0; j < appendSize; j++ {
+			o.processedStr = append(o.processedStr, byte(o.PaddingValue))
+		}
+	}
+}
+
+// GetValue returns the picked string encoded into the byte parameter.
+func (o *HistogramStringEntry) GetValue(size uint16) (b []byte, err error) {
+	if int(size) < len(o.processedStr) {
+		return nil, fmt.Errorf("Size %v is too small for string %v.\n", size, o.Str)
+	}
+	return o.processedStr, nil
+}
+
+// GetProb returns the probability for this entry to be picked in the histogram engine.
+func (o *HistogramStringEntry) GetProb() uint32 {
+	return o.Prob
+}
+
+// HistogramStringParams is used for parsing the input JSON and create the entries.
+type HistogramStringParams struct {
+	HistogramEngineCommonParams                        // common params
+	ShouldPad                   bool                   `json:"should_pad"` // should pad the strings to given size. Defaults to false.
+	Entries                     []HistogramStringEntry `json:"entries"`    // slice of entries
+}
+
+// CreateHistogramStringEngine creates an Histogram Engine whose entries are strings with a probability to get chosen.
+func CreateHistogramStringEngine(params *fastjson.RawMessage, mgr *FieldEngineManager) (eng FieldEngineIF, err error) {
+
+	// unmarshal the data
+	p := HistogramStringParams{ShouldPad: false}
+	err = fastjson.Unmarshal(*params, &p)
+	if err != nil {
+		mgr.counters.invalidJson++
+		return nil, err
+	}
+
+	// create general params
+	var histParams HistogramEngineParams
+	histParams.Size = p.Size
+	histParams.Offset = p.Offset
+	for i := range p.Entries {
+		// validate entries.
+		err := p.Entries[i].validateParams(mgr, p.Size)
+		if err != nil {
+			// errors are already set in the entry.
+			return nil, err
+		}
+		p.Entries[i].processString(p.ShouldPad, p.Size) // Create a padded string if necessary.
+		histParams.Entries = append(histParams.Entries, &p.Entries[i])
+	}
+	// create and return new engine
+	return NewHistogramEngine(&histParams, mgr)
+}
+
 func init() {
 	// Register all the field engine types.
 	fieldEngineRegister("uint", CreateUIntEngine)
@@ -1582,4 +1672,5 @@ func init() {
 	fieldEngineRegister("time_end", CreateTimeEndEngine)
 
 	fieldEngineRegister("histogram_url", CreateHistogramURLEngine)
+	fieldEngineRegister("histogram_string", CreateHistogramStringEngine)
 }

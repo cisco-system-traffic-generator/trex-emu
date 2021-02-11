@@ -1277,3 +1277,73 @@ func TestEngineManager9(t *testing.T) {
 	}
 	a.Run(t, true)
 }
+
+func TestEngineManager10(t *testing.T) {
+	a := &EngineManagerTestBase{
+		testname:     "fe10",
+		monitor:      true,
+		bufferSize:   12,
+		iterNumber:   21,
+		engineNumber: 1,
+		seed:         0xc15c0be5,
+		inputJson: fastjson.RawMessage([]byte(`[
+			{
+				"engine_type": "histogram_string",
+				"engine_name": "Strings",
+				"params": 
+					{
+						"size": 10,
+						"offset": 2,
+						"should_pad": true,
+						"entries": [
+							{
+								"str": "TRex",
+								"prob": 2,
+							},
+							{
+								"str": "CiscoTRex"
+								"prob": 5,
+								"padding_value": 36
+							}
+						]
+					}
+			}
+		 ]`)),
+	}
+	a.Run(t, true)
+}
+
+func TestEngineManager11(t *testing.T) {
+	a := &EngineManagerTestBase{
+		testname:     "fe11",
+		monitor:      true,
+		bufferSize:   10,
+		iterNumber:   21,
+		engineNumber: 1,
+		seed:         0xdeadbeef,
+		inputJson: fastjson.RawMessage([]byte(`[
+			{
+				"engine_type": "histogram_string",
+				"engine_name": "Strings",
+				"params": 
+					{
+						"size": 10,
+						"offset": 0,
+						"should_pad": false,
+						"entries": [
+							{
+								"str": "טירקס",
+								"prob": 2,
+							},
+							{
+								"str": "Cisco"
+								"prob": 5,
+								"padding_value": 36
+							}
+						]
+					}
+			}
+		 ]`)),
+	}
+	a.Run(t, true)
+}

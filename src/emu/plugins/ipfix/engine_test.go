@@ -11,7 +11,7 @@ import (
 	"github.com/intel-go/fastjson"
 )
 
-// validateGenereatedUint8
+// validateGeneratedUint8
 func validateGeneratedUint8(b []byte, expected []uint8, eng FieldEngineIF, t *testing.T) {
 	var value uint8
 	for i := 0; i < len(expected); i++ {
@@ -2129,4 +2129,102 @@ func TestHistogramURL(t *testing.T) {
 		}
 	}
 
+}
+
+func genStringHistogramEngine(t *testing.T, pad bool, factor int, p1, p2 uint32) map[string]int {
+	feMgr := createEngineManager(t)
+
+	entries := []HistogramStringEntry{
+		HistogramStringEntry{
+			Str:          "TRex",
+			Prob:         p1,
+			PaddingValue: '#',
+		},
+		HistogramStringEntry{
+			Str:          "Cisco",
+			Prob:         p2,
+			PaddingValue: ' ',
+		},
+	}
+
+	var size uint16 = 10
+
+	for i, _ := range entries {
+		entries[i].processString(pad, size) // Create a padded string if necessary.
+	}
+
+	var commonEntries []HistogramEntry
+	for i, _ := range entries {
+		commonEntries = append(commonEntries, &entries[i])
+	}
+
+	params := HistogramEngineParams{
+		HistogramEngineCommonParams{
+			Offset: 3,
+			Size:   size,
+		},
+		commonEntries,
+	}
+
+	eng, err := NewHistogramEngine(&params, feMgr)
+	if err != nil {
+		t.Errorf("Error while generating new engine.\n %v.\n", err.Error())
+		t.FailNow()
+	}
+
+	b := make([]byte, size+params.Offset)
+	generated := make(map[string]int, 2)
+
+	iterNumber := int(p1+p2) * factor
+
+	for i := 0; i < iterNumber; i++ {
+		length, _ := eng.Update(b[eng.GetOffset() : eng.GetOffset()+eng.GetSize()])
+		gen := string(b[eng.GetOffset() : int(eng.GetOffset())+length])
+		generated[gen]++
+	}
+	return generated
+}
+
+//TestHistogramStringFixedLength
+func TestHistogramStringFixedLength(t *testing.T) {
+
+	var p1, p2 uint32 = 5, 3
+	factor := 1000
+
+	generated := genStringHistogramEngine(t, true, factor, p1, p2)
+
+	expected := make(map[string]int, 2)
+	expected["TRex######"] = 5000
+	expected["Cisco     "] = 3000
+
+	for str := range generated {
+		min := int(float32(expected[str]) * 0.9)
+		max := int(float32(expected[str]) * 1.1)
+		if generated[str] < min || generated[str] > max {
+			t.Errorf("Bad amount generated for str %v, expected in [%v-%v], got %v.\n", str, min, max, generated[str])
+			t.FailNow()
+		}
+	}
+}
+
+//TestHistogramStringVarLength
+func TestHistogramStringVarLength(t *testing.T) {
+
+	var p1, p2 uint32 = 5, 3
+	factor := 1000
+
+	generated := genStringHistogramEngine(t, false, factor, p1, p2)
+
+	expected := make(map[string]int, 2)
+	expected["TRex"] = 5000
+	expected["Cisco"] = 3000
+
+	for str := range generated {
+		min := int(float32(expected[str]) * 0.9)
+		max := int(float32(expected[str]) * 1.1)
+		if generated[str] < min || generated[str] > max {
+			t.Errorf("Bad amount generated for str %v, expected in [%v-%v], got %v.\n", str, min, max, generated[str])
+			t.FailNow()
+		}
+	}
 }
