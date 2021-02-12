@@ -2228,7 +2228,7 @@ The Inter Packet Gap (IPG) will be a random value between `ipg_min` and `ipg_max
 the can be used for relative times (`time_offset = upTime`) or absolute times (`times_offset = UnixTime`).
 All the values are in `milliseconds`.
 
-Lastly, to generate hosts realistically, we provide an engine for building URLs.
+To generate hosts realistically, we provide an engine for building URLs.
 [source, json]
 .Histogram URLs
 ----
@@ -2281,6 +2281,82 @@ The `size` parameter in this engine is an upper bound for the random queries len
 longest possible URL that can be composed.
 =====================================================================
 
+Another important histogram engine is the histogram string engine. Many IPFix fields work with strings, some are of fixed length (for example 32 bytes) and some have variable length.
+We created a generic engine that generates strings with a given probability and works both with fixed and variable length fields by padding if necessary. Thanks to Golang's native support of Unicode
+strings, the engine will support any Unicode strings.
+
+Let us look at a fixed length field string histogram:
+[source, python]
+.String histogram - Fixed length field
+----
+{
+    "engine_name": "interfaceName",
+    "engine_type": "histogram_string",              <1>
+    "params": {
+        "size": 32,                                 <2>
+        "offset": 0,
+        "should_pad": True,                         <3>
+        "entries": [
+            {
+                "str": "Te0/0/0",
+                "prob": 4,
+                "padding_value": 35,                <4>
+            },
+            {
+                "str": "Hu0/1",
+                "prob": 1,
+                "padding_value": 36,
+            },
+            {
+                "str": "Gi0",
+                "prob": 2,
+            }
+        ]
+    }
+}
+----
+<1> The type of the engine is `histogram_string`
+<2> The maximum byte size of the encoded string can be 32 bytes
+<3> Specifies that the string should be always padded to the maximum size. This should be true for fixed length fields and false for variable length fields.
+<4> Some ASCII padding value. In this case it is #. The default value is 0x00.
+
+In this engine, the generated value will be padded to 32 bytes using the `padding_value`. By using the default padding value we get exactly the required behavior for IPFix fixed length works.
+
+Let us look at a variable length field string histogram:
+[source, python]
+.String histogram - Variable length field
+----
+{
+    "engine_name": "variableLength",
+    "engine_type": "histogram_string",              <1>
+    "params": {
+        "size": 10,                                 <2>
+        "offset": 2,
+        "should_pad": False,                        <3>
+        "entries": [
+            {
+                "str": "Cisco",
+                "prob": 1,
+                "padding_value": 35,                <4>
+            },
+            {
+                "str": "TRex",
+                "prob": 2,
+            },
+            {
+                "str": "TRex-Emu",
+                "prob": 1,
+            }
+        ]
+    }
+}
+----
+<1> The type of the engine is `histogram_string` too.
+<2> The maximum size of an allowed field.
+<3> The string is not padded, it is encoded in its original length. Use this for variable length strings.
+<4> Padding value can be given but it is ignored.
+
+
 We will summarize the engines and their types in the following table:
 
 .Engine summary
@@ -2328,7 +2404,7 @@ We will summarize the engines and their types in the following table:
                                 | time_start_engine_name                   | string           | Yes       | Exact name that will be given to the `time_start` engine.
                                 | duration_min                             | uint64           | Yes       | Minimal duration for this flow in milliseconds.
                                 | duration_max                             | uint64           | Yes       | Maximal duration for this flow in milliseconds. The duration will be a uniformly picked value between min and max duration.
-.9+| histogram_url              | size                .2+|                 | uint16           | Yes       | Size of url in bytes. Provide a large enough buffer to hold the longest url that can be generated.
+.9+| histogram_url              | size                .2+|                 | uint16           | Yes       | Maximum size of url in bytes. Provide a large enough buffer to hold the longest url that can be generated.
                                 | offset                                   | uint16           | Yes       | Offset to write in the provided buffer.
                              .7+| entries                |                 | []dictionaries   | Yes       | List of dictionary where each dictionary represents an entry for the histogram.
                                                          |  schemes        | []strings        | Yes       | List of schemes for the URL.
@@ -2337,6 +2413,13 @@ We will summarize the engines and their types in the following table:
                                                          |  queries        | []strings        | No        | List of possible raw queries for the URL. The empty query is implicitly provided.
                                                          |  random_queries | bool             | No        | Should generate random queries? Default is False. Mutually exclusive with the `queries` parameter. Will generate queries of any length smaller than size.
                                                          |  prob           | uint32           | Yes       | Probability for this entry to be picked. Any integer bigger than 0. The probabilities will be scaled automatically.
+.7+| histogram_string           | size                .3+|                 | uint16           | Yes       | Maximum size of string in bytes. Provide a large enough value to hold the longest string encoded.
+                                | offset                                   | uint16           | Yes       | Offset to write in the provided buffer.
+                                | should_pad                               | bool             | Yes       | Pad the encoded string to the maximum size using some UTF-8 padding value. This should be true for fixed length fields (padding the value will always give a fixed length buffer) and false for variable length fields.
+                             .4+| entries                |                 | []dictionaries   | Yes       | List of dictionary where each dictionary represents an entry for the histogram.
+                                                         |  str            | string           | Yes       | String to generate. Each string's encoded length should be less or equal the maximum size.
+                                                         |  prob           | uint32           | Yes       | Probability for this entry to be picked. Any integer bigger than 0. The probabilities will be scaled automatically.
+                                                         |  padding_value  | uint8            | No        | Some UTF-8 order value for a padding character. This will be used to pad the encoded string to maximum size in case padding is set. Defaults to 0. 
 |=================
 
 ==== Engine Manager
@@ -3491,28 +3574,28 @@ Let us see the basic example of how to work with sockets. First step, let us cre
 package socketApp
 
 import (
-	"emu/core"
-	"emu/plugins/transport"
+    "emu/core"
+    "emu/plugins/transport"
 )
 
 type SocketApp struct {
-	ctx  *transport.TransportCtx // client transport context
-	ipv4 transport.SocketApi     // some IPv4 socket
-	ipv6 transport.SocketApi     // some IPv6 socket
+    ctx  *transport.TransportCtx // client transport context
+    ipv4 transport.SocketApi     // some IPv4 socket
+    ipv6 transport.SocketApi     // some IPv6 socket
 }
 
 func (o *SocketApp) CreateSockets(client *core.CClient) error {
-	o.ctx = transport.GetTransportCtx(client) // <1>
-	var err error
-	o.ipv4, err = o.ctx.Dial("udp", "48.0.0.1:80", o, nil) // <2>
-	if err != nil {
-		return err
-	}
-	o.ipv6, err = o.ctx.Dial("tcp", "[2001:db8::3000:1]:80", o, nil) // <3>
-	if err != nil {
-		return err
-	}
-	return nil
+    o.ctx = transport.GetTransportCtx(client) // <1>
+    var err error
+    o.ipv4, err = o.ctx.Dial("udp", "48.0.0.1:80", o, nil) // <2>
+    if err != nil {
+        return err
+    }
+    o.ipv6, err = o.ctx.Dial("tcp", "[2001:db8::3000:1]:80", o, nil) // <3>
+    if err != nil {
+        return err
+    }
+    return nil
 }
 ----
 <1> Get the client transport context.
@@ -3544,18 +3627,18 @@ The socket API is quite simple:
 ----
 type SocketApi interface {
 
-	Close() SocketErr    // close the connection **after** all the tx queue was flushed
-	Shutdown() SocketErr // shutdown connection immediately
-	LocalAddr() net.Addr
-	RemoteAddr() net.Addr
-	GetCap() SocketCapType // get the capability of the socket e.g. SocketCapStream
-	GetLastError() SocketErr
-	SetIoctl(m IoctlMap) error // set ioctl options to the socket e.g. {"no_delay":0}
-	GetIoctl(m IoctlMap) error // get the value for each key
-	Write(buf []byte) (err SocketErr, queued bool)
-	GetL7MTU() uint16       // Returns the L7 MTU.
-	IsIPv6() bool           // Returns True if the IP layer is IPv6, False if it is IPv4.
-	GetSocket() interface{} // return internal raw socket *TcpSocket for testing
+    Close() SocketErr    // close the connection **after** all the tx queue was flushed
+    Shutdown() SocketErr // shutdown connection immediately
+    LocalAddr() net.Addr
+    RemoteAddr() net.Addr
+    GetCap() SocketCapType // get the capability of the socket e.g. SocketCapStream
+    GetLastError() SocketErr
+    SetIoctl(m IoctlMap) error // set ioctl options to the socket e.g. {"no_delay":0}
+    GetIoctl(m IoctlMap) error // get the value for each key
+    Write(buf []byte) (err SocketErr, queued bool)
+    GetL7MTU() uint16       // Returns the L7 MTU.
+    IsIPv6() bool           // Returns True if the IP layer is IPv6, False if it is IPv4.
+    GetSocket() interface{} // return internal raw socket *TcpSocket for testing
 }
 ----
 
@@ -3567,11 +3650,11 @@ Fortunately, we will get an event in case of resolve. Let's review our `SocketAp
 [source, go]
 ----
 type SocketApp struct {
-	ctx         *transport.TransportCtx // client transport context
-	ipv4        transport.SocketApi     // some IPv4 socket
-	ipv6        transport.SocketApi     // some IPv6 socket
-	dg4Resolved bool                    // DG for IPv4 resolved
-	dg6Resolved bool                    // DG for IPv6 resolved
+    ctx         *transport.TransportCtx // client transport context
+    ipv4        transport.SocketApi     // some IPv4 socket
+    ipv6        transport.SocketApi     // some IPv6 socket
+    dg4Resolved bool                    // DG for IPv4 resolved
+    dg6Resolved bool                    // DG for IPv6 resolved
 }
 ----
 
@@ -3581,29 +3664,29 @@ Upon creation of our app we will register for an event in case of resolve:
 [source, go]
 ----
 func CreateSocketApp(ctx *core.PluginCtx) *SocketApp {
-	o := new(SocketApp)
-	o.InitPluginBase(ctx, o)              // Init base object
-	var socketAppEvents = []string{core.MSG_DG_MAC_RESOLVED}
-	o.RegisterEvents(ctx, socketAppEvents, o) // Register events, only if they exist
+    o := new(SocketApp)
+    o.InitPluginBase(ctx, o)              // Init base object
+    var socketAppEvents = []string{core.MSG_DG_MAC_RESOLVED}
+    o.RegisterEvents(ctx, socketAppEvents, o) // Register events, only if they exist
 }
 
 func (o *SocketApp) OnEvent(msg string, a, b interface{}) {
-	switch msg {
-	case core.MSG_DG_MAC_RESOLVED:
-		bitMask, ok := a.(uint8)
-		if !ok {
-			// failed at type assertion
-			return
-		}
-		resolvedIPv4 := (bitMask & core.RESOLVED_IPV4_DG_MAC) == core.RESOLVED_IPV4_DG_MAC
-		resolvedIPv6 := (bitMask & core.RESOLVED_IPV6_DG_MAC) == core.RESOLVED_IPV6_DG_MAC
-		if !o.dg4Resolved && resolvedIPv4 {
-			o.dg4Resolved = true
-		}
-		if !o.dg6Resolved && resolvedIPv6 {
-			o.dg6Resolved = true
-		}
-	}
+    switch msg {
+    case core.MSG_DG_MAC_RESOLVED:
+        bitMask, ok := a.(uint8)
+        if !ok {
+            // failed at type assertion
+            return
+        }
+        resolvedIPv4 := (bitMask & core.RESOLVED_IPV4_DG_MAC) == core.RESOLVED_IPV4_DG_MAC
+        resolvedIPv6 := (bitMask & core.RESOLVED_IPV6_DG_MAC) == core.RESOLVED_IPV6_DG_MAC
+        if !o.dg4Resolved && resolvedIPv4 {
+            o.dg4Resolved = true
+        }
+        if !o.dg6Resolved && resolvedIPv6 {
+            o.dg6Resolved = true
+        }
+    }
 }
 ----
 
@@ -3613,13 +3696,13 @@ Now we can implement our simple Write function:
 [source, go]
 ----
 func (o *SocketApp) Write(msg []byte) (err4, err6 transport.SocketErr) {
-	if o.dg4Resolved {
-		err4, _ = o.ipv4.Write(msg)
-	}
-	if o.dg6Resolved {
-		err6, _ = o.ipv6.Write(msg)
-	}
-	return err4, err6
+    if o.dg4Resolved {
+        err4, _ = o.ipv4.Write(msg)
+    }
+    if o.dg6Resolved {
+        err6, _ = o.ipv6.Write(msg)
+    }
+    return err4, err6
 }
 ----
 
@@ -3852,42 +3935,42 @@ Next, let's take a look at the simple TCP echo server:
 package main
 
 import (
-	"bufio"
-	"fmt"
-	"net"
-	"os"
+    "bufio"
+    "fmt"
+    "net"
+    "os"
 )
 
 var port = "0.0.0.0:9001"
 
 func echo(conn net.Conn) {
-	r := bufio.NewReader(conn)
-	for {
-		line, err := r.ReadBytes(byte('\n'))
-		if err == nil {
-			conn.Write(line)
-		} else {
-			break
-		}
-	}
-	conn.Close()
+    r := bufio.NewReader(conn)
+    for {
+        line, err := r.ReadBytes(byte('\n'))
+        if err == nil {
+            conn.Write(line)
+        } else {
+            break
+        }
+    }
+    conn.Close()
 }
 
 func main() {
-	l, err := net.Listen("tcp", port)
-	if err != nil {
-		fmt.Println("ERROR", err)
-		os.Exit(1)
-	}
+    l, err := net.Listen("tcp", port)
+    if err != nil {
+        fmt.Println("ERROR", err)
+        os.Exit(1)
+    }
 
-	for {
-		conn, err := l.Accept()
-		if err != nil {
-			fmt.Println("ERROR", err)
-			continue
-		}
-		go echo(conn)
-	}
+    for {
+        conn, err := l.Accept()
+        if err != nil {
+            fmt.Println("ERROR", err)
+            continue
+        }
+        go echo(conn)
+    }
 }
 ----
 
