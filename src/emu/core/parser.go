@@ -28,6 +28,12 @@ const (
 )
 
 const (
+	IPV6_OPTION_NONE  = 0
+	IPV6_OPTION_PAD   = 1
+	IPV6_ROUTER_ALERT = 5
+)
+
+const (
 	PARSER_ERR = -1
 	PARSER_OK  = 0
 )
@@ -648,6 +654,28 @@ func (o *Parser) parsePacketL4(ps *ParserPacketState,
 	return (0)
 }
 
+func processIpv6Options(p []byte, flags *uint32) int {
+	size := len(p)
+	i := 0
+	nh := p[0]
+	for {
+		switch nh {
+		case IPV6_OPTION_NONE:
+			i++
+		case IPV6_ROUTER_ALERT:
+			*flags |= IPV6_M_RTALERT_ML
+			return (0)
+		default:
+			i = i + 2 + int(p[i+1])
+		}
+		if i > (size - 1) {
+			return (-1)
+		}
+		nh = p[i]
+	}
+	return (0)
+}
+
 /*
 ParsePacket
 return values
@@ -798,11 +826,8 @@ func (o *Parser) ParsePacket(m *Mbuf) int {
 						return PARSER_ERR
 					}
 					nh = ipv6ex.NextHeader()
+					processIpv6Options(p[l4+2:l4+hl], &ps.Flags)
 
-					if p[l4+2] == 0x5 {
-						// rounter alert
-						ps.Flags |= IPV6_M_RTALERT_ML
-					}
 					l4len -= hl
 					osize += hl
 					l4 += hl
@@ -825,11 +850,8 @@ func (o *Parser) ParsePacket(m *Mbuf) int {
 						return PARSER_ERR
 					}
 					nh = ipv6ex.NextHeader()
+					processIpv6Options(p[l4+2:l4+hl], &ps.Flags)
 
-					if p[l4+3] == 0x5 {
-						// rounter alert
-						ps.Flags |= IPV6_M_RTALERT_ML
-					}
 					l4len -= hl
 					osize += hl
 					l4 += hl
