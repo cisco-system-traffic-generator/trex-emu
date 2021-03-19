@@ -1,4 +1,4 @@
-package ipfix
+package field_engine
 
 import (
 	"math"
@@ -38,7 +38,7 @@ func coincident(a, b []uint32, errPerc float64) bool {
 // verifyDistribution verifies that the distribution is proportional to the expected distribution (a),
 // and that it is scaled as it should (b), hence proving the correctness.
 // To verify (a) we can check that the expected and received slices (vectors) are coincident.
-// To verify (b) we can check that the sum of received is eqaul to iterNumber.
+// To verify (b) we can check that the sum of received is equal to iterNumber.
 func verifyDistribution(expected, received []uint32, iterNumber uint32, errPerc float64, t *testing.T) {
 	coincident := coincident(expected, received, errPerc)
 	if !coincident {
@@ -59,13 +59,13 @@ func TestNonUniRandGenNegative(t *testing.T) {
 	exp := "This array contains only 0.\n"
 	_, err := NewNonUniformRandGen(distributions)
 	if err.Error() != exp {
-		t.Errorf("Didnt't raise correct error, have %v, want %v.\n", err.Error(), exp)
+		t.Errorf("Didn't raise correct error, have %v, want %v.\n", err.Error(), exp)
 	}
 	distributions = []uint32{math.MaxUint32, math.MaxUint32}
 	exp = "The distributions sum to more than MaxUint32 (1), can't scale them.\n"
 	_, err = NewNonUniformRandGen(distributions)
 	if err.Error() != exp {
-		t.Errorf("Didnt't raise correct error, have %v, want %v.\n", err.Error(), exp)
+		t.Errorf("Didn't raise correct error, have %v, want %v.\n", err.Error(), exp)
 	}
 }
 

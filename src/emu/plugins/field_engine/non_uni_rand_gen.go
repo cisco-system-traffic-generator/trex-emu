@@ -1,4 +1,4 @@
-package ipfix
+package field_engine
 
 import (
 	"fmt"
@@ -78,7 +78,7 @@ type NonUniformRandGen struct {
 	numNonZeroDist   uint32             // the number of non zero distributions
 }
 
-// NewNonUnformRandGen creates a new non uniform random generator.
+// NewNonUniformRandGen creates a new non uniform random generator.
 func NewNonUniformRandGen(distributions []uint32) (*NonUniformRandGen, error) {
 	o := new(NonUniformRandGen)
 	// calculate the number of non zero probabilites
@@ -229,10 +229,10 @@ func (o *NonUniformRandGen) normalize() error {
 /* -----------------------------------------------------------------------------------------------
 										Decompose
 ----------------------------------------------------------------------------------------------- */
-// findNewBinDistIndexes finds the indeces for the next two elements that will create
+// findNewBinDistIndexes finds the indices for the next two elements that will create
 // a binary distribution. The small index must hold o.distributions[small] <= threshold
 // while the big index must hold o.distribution[big] + o.distribution[small] >= threshhold.
-// In case there are no such indeces, the function returns an error.
+// In case there are no such indices, the function returns an error.
 func (o *NonUniformRandGen) findNewBinDistIndexes(threshold uint32) (small, big int, err error) {
 	// iterate to find the small index
 	for i, dist := range o.distributions {
@@ -259,8 +259,8 @@ func (o *NonUniformRandGen) findNewBinDistIndexes(threshold uint32) (small, big 
 
 }
 
-// We've selected 2 symbols, at indeces small and big such that distributions[small] <= threashold
-// and big >= (threashold - distribution[small]).
+// We've selected 2 symbols, at indices small and big such that distributions[small] <= threshold
+// and big >= (threshold - distribution[small]).
 // This function will create a new binary distribution, and make
 // the appropriate adjustments to the input distributions.
 func (o *NonUniformRandGen) computeNewBinDist(small, big int, numNonZero, threshold uint32) error {
@@ -294,7 +294,7 @@ func (o *NonUniformRandGen) decompose() error {
 		for {
 			small, big, err := o.findNewBinDistIndexes(threshold)
 			if err != nil {
-				// probably couldn't find more indeces
+				// probably couldn't find more indices
 				break
 			}
 			err = o.computeNewBinDist(small, big, o.numNonZeroDist, threshold)

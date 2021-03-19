@@ -3,7 +3,7 @@
 // that can be found in the LICENSE file in the root of the source
 // tree.
 
-package ipfix
+package field_engine
 
 import (
 	"emu/core"
@@ -207,6 +207,11 @@ func (o *FieldEngineManager) WasCreatedSuccessfully() bool {
 func (o *FieldEngineManager) GetFEManagerCounters(params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
 	var p core.ApiCntParams
 	return o.cdbv.GeneralCounters(nil, o.tctx, params, &p)
+}
+
+// GetEngineMap returns map engine name -> engine interface.
+func (o *FieldEngineManager) GetEngineMap() map[string]FieldEngineIF {
+	return o.engines
 }
 
 /*---------------------------------------------------------------------------------
