@@ -599,6 +599,31 @@ func TestEngineManagerNeg17(t *testing.T) {
 	a.Run(t, true)
 }
 
+func TestEngineManagerNeg18(t *testing.T) {
+	a := &EngineManagerTestBase{
+		testname:     "feNeg18",
+		monitor:      false,
+		bufferSize:   20,
+		iterNumber:   0,
+		engineNumber: 1,
+		inputJson: fastjson.RawMessage([]byte(`[
+			{
+				"engine_type": "float",
+				"engine_name": "float32",
+				"params":
+				{
+					"size": 2,
+					"offset": 0,
+					"min": -10,
+					"max": 10
+				}
+			 }
+		 ]`)),
+		counters: FieldEngineCounters{invalidJson: 1, failedBuildingEngine: 1},
+	}
+	a.Run(t, true)
+}
+
 func TestEngineManager1(t *testing.T) {
 	a := &EngineManagerTestBase{
 		testname:     "fe1",
@@ -1341,6 +1366,309 @@ func TestEngineManager11(t *testing.T) {
 								"padding_value": 36
 							}
 						]
+					}
+			}
+		 ]`)),
+	}
+	a.Run(t, true)
+}
+
+func TestEngineManager12(t *testing.T) {
+	a := &EngineManagerTestBase{
+		testname:     "fe12",
+		monitor:      true,
+		bufferSize:   8,
+		iterNumber:   100,
+		engineNumber: 1,
+		seed:         0xc15c0be5,
+		inputJson: fastjson.RawMessage([]byte(`[
+					{
+						"engine_type": "int",
+						"engine_name": "int64",
+						"params":
+						{
+							"size": 4,
+							"offset": 4,
+							"min": -128,
+							"max": 127,
+							"op": "rand"
+						}
+					 }
+					]`)),
+	}
+	a.Run(t, true)
+}
+
+func TestEngineManager13(t *testing.T) {
+	a := &EngineManagerTestBase{
+		testname:     "fe13",
+		monitor:      true,
+		bufferSize:   4,
+		iterNumber:   100,
+		engineNumber: 3,
+		seed:         0xc15c0c15c0be5be,
+		inputJson: fastjson.RawMessage([]byte(`[
+			{
+				"engine_type": "int_list",
+				"engine_name": "int_list_inc",
+				"params": 
+					{
+						"size": 1,
+						"offset": 0,
+						"op": "inc",
+						"list": [-128, -1, 0, 1, 127]
+					}
+			},
+			{
+				"engine_type": "int_list",
+				"engine_name": "int_list_dec",
+				"params":
+					{
+						"size": 1,
+						"offset": 1,
+						"op": "dec",
+						"list": [-7, -6, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 6, 7],
+						"step": 2,
+						"init_index": 4
+					}
+			},
+			{
+				"engine_type": "int_list",
+				"engine_name": "int_list_random",
+				"params":
+					{
+						"size": 2,
+						"offset": 2,
+						"list": [3, 7, 15, 31, 127, 255, -32768, 32767, -1],
+						"op": "rand"
+					}
+			}
+		 ]`)),
+	}
+	a.Run(t, true)
+}
+
+func TestEngineManager14(t *testing.T) {
+	a := &EngineManagerTestBase{
+		testname:     "fe14",
+		monitor:      true,
+		bufferSize:   30,
+		iterNumber:   200,
+		engineNumber: 6,
+		seed:         0xdeadbeef,
+		inputJson: fastjson.RawMessage([]byte(`[
+			{
+				"engine_type": "histogram_int",
+				"engine_name": "histogram_int",
+				"params":
+					{
+						"size": 2,
+						"offset": 0,
+						"entries":
+							[
+								{
+									"v": -1,
+									"prob": 2
+								},
+								{
+									"v": 1,
+									"prob": 4
+								}
+							]
+					}
+			},
+			{
+				"engine_type": "histogram_int_range",
+				"engine_name": "histogram_int_range",
+				"params": 
+					{
+						"size": 2,
+						"offset": 2,
+						"entries":
+							[
+								{
+									"min": -32768,
+									"max": -32765,
+									"prob": 7
+								},
+								{
+									"min": -3,
+									"max": 3,
+									"prob": 10
+								},
+								{
+									"min": 32764,
+									"max": 32767,
+									"prob": 13
+								}
+							]
+					}
+			},
+			{
+				"engine_type": "histogram_int_list",
+				"engine_name": "histogram_int_list",
+				"params":
+					{
+						"size": 2,
+						"offset": 4,
+						"entries":
+							[
+								{
+									"list": [-5, -4, -3],
+									"prob": 2
+								},
+								{
+									"list": [3, 4, 5],
+									"prob": 3
+								}
+							]
+					}
+			},
+			{
+				"engine_type": "histogram_int64",
+				"engine_name": "histogram_int64",
+				"params":
+					{
+						"size": 8,
+						"offset": 6,
+						"entries":
+							[
+								{
+									"v": -1,
+									"prob": 1
+								},
+								{
+									"v": 1,
+									"prob": 1
+								}
+							]
+					}
+			},
+			{
+				"engine_type": "histogram_int64_range",
+				"engine_name": "histogram_int64_range",
+				"params":
+					{
+						"size": 8,
+						"offset": 14,
+						"entries":
+							[
+								{
+									"min": -100102401491,
+									"max": 0,
+									"prob": 1
+								},
+								{
+									"min": 1,
+									"max": 104910491049214,
+									"prob": 1
+								}
+							]
+					}
+			},
+			{
+				"engine_type": "histogram_int64_list",
+				"engine_name": "histogram_int64_list",
+				"params":
+					{
+						"size": 8,
+						"offset": 22,
+						"entries":
+							[
+								{
+									"list": [-128, -64, -32],
+									"prob": 2
+								},
+								{
+									"list": [32, 64, 128],
+									"prob": 3
+								}
+							]
+					}
+			}
+		 ]`)),
+	}
+	a.Run(t, true)
+}
+
+func TestEngineManager15(t *testing.T) {
+	a := &EngineManagerTestBase{
+		testname:     "fe15",
+		monitor:      true,
+		bufferSize:   12,
+		iterNumber:   100,
+		engineNumber: 2,
+		seed:         0xbe5be5,
+		inputJson: fastjson.RawMessage([]byte(`[
+			{
+				"engine_type": "float",
+				"engine_name": "float64",
+				"params":
+					{
+						"size": 8,
+						"offset": 0,
+						"min": -10,
+						"max": 10,
+					}
+			},
+			{
+				"engine_type": "float",
+				"engine_name": "float32",
+				"params":
+					{
+						"size": 4,
+						"offset": 8,
+						"min": 200,
+						"max": 2000,
+					}
+			}
+		 ]`)),
+	}
+	a.Run(t, true)
+}
+
+func TestEngineManager16(t *testing.T) {
+	a := &EngineManagerTestBase{
+		testname:     "fe16",
+		monitor:      true,
+		bufferSize:   16,
+		iterNumber:   100,
+		engineNumber: 3,
+		seed:         0xc15c0c15c0be5be,
+		inputJson: fastjson.RawMessage([]byte(`[
+			{
+				"engine_type": "float_list",
+				"engine_name": "float_inc",
+				"params": 
+					{
+						"size": 4,
+						"offset": 0,
+						"op": "inc",
+						"list": [3.14, 2.71, 1.62, 1.44]
+					}
+			},
+			{
+				"engine_type": "float_list",
+				"engine_name": "float_list_dec",
+				"params":
+					{
+						"size": 4,
+						"offset": 4,
+						"op": "dec",
+						"list": [-4.5, -2.4, -1.1, 0, 1.2, 3.33333],
+						"step": 2,
+						"init_index": 4
+					}
+			},
+			{
+				"engine_type": "float_list",
+				"engine_name": "float_list_random",
+				"params":
+					{
+						"size": 8,
+						"offset": 8,
+						"list": [0.000001, 1.0009, 3.333, 3.14582],
+						"op": "rand"
 					}
 			}
 		 ]`)),

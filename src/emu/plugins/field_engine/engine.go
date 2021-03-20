@@ -56,31 +56,6 @@ type HistogramEntry interface {
 	GetValue(size uint16) ([]byte, error)
 }
 
-/* ------------------------------------------------------------------------------
-								UIntEngine
---------------------------------------------------------------------------------*/
-// UIntEngine params is a struct a parameters for the UIntEngine.
-type UIntEngineParams struct {
-	Size      uint16 `json:"size"`   // size of the uint variable in bytes
-	Offset    uint16 `json:"offset"` // offset in which to write in the packet
-	Op        string `json:"op"`     // operation which provides the generation, can be {inc, dec, rand}
-	Step      uint64 `json:"step"`   // step to decrement or increment, rand will be ignored. Default=1.
-	MinValue  uint64 `json:"min"`    // minimal value of the domain
-	MaxValue  uint64 `json:"max"`    // maximal value of the domain
-	InitValue uint64 `json:"init"`   // initial value in the generator, default = min value.
-}
-
-// UIntEngine is a field engine which is responsible to generate variables of uint types.
-// These types can be of lengths (1, 2, 4, 8) bytes (uint8, uint16, uint32, uint64).
-// The next variable can be generated through different operations, a increment of the current value,
-// a decrement of the current value, or some random generation.
-type UIntEngine struct {
-	par       *UIntEngineParams   // params as provided by the caller
-	currValue uint64              // current value in the generator
-	domainLen uint64              // domain length
-	mgr       *FieldEngineManager // field engine manager
-}
-
 // maxUInt64 calculates the max between 2 uint64.
 func maxUInt64(a, b uint64) (max uint64) {
 	if a >= b {
@@ -89,6 +64,41 @@ func maxUInt64(a, b uint64) (max uint64) {
 		max = b
 	}
 	return max
+}
+
+// maxInt64 calculates the max between 2 uint64.
+func maxInt64(a, b int64) (max int64) {
+	if a >= b {
+		max = a
+	} else {
+		max = b
+	}
+	return max
+}
+
+// calcDomainLenInt calculates the domain length between two integers min and max,
+// meaning the number of integers between min and max including min and max.
+// Assumes min < max.
+func calcDomainLenInt(min int64, max int64) uint64 {
+	if min == math.MinInt64 && max == math.MaxInt64 {
+		// Domain Length is MaxUint64 + 1, can't be represented with uint64, but MaxUint64 is close enough.
+		return math.MaxUint64
+	}
+	var domainLen uint64
+	if min > 0 {
+		// can't overflow int64 since min > 0
+		// 0 < min < max
+		domainLen = uint64(max - min + 1)
+	} else {
+		if max > 0 {
+			// min < 0 < max
+			domainLen = uint64(max) + uint64(min*-1) + 1
+		} else {
+			// min < max < 0
+			domainLen = uint64(min*-1) - uint64(max*-1) + 1
+		}
+	}
+	return domainLen
 }
 
 // findValue returns the index of the val item in array arr if it is found and true,
@@ -124,9 +134,54 @@ func PutValue(size uint16, value uint64, b []byte, mgr *FieldEngineManager) erro
 	return nil
 }
 
+/* ------------------------------------------------------------------------------
+								BaseNumericEngineParams
+--------------------------------------------------------------------------------*/
+// BaseNumericEngineParams is a struct that gathers base params for uint/int engines.
+type BaseNumericEngineParams struct {
+	Size   uint16 `json:"size"`   // Size of the uint variable in bytes
+	Offset uint16 `json:"offset"` // Offset in which to write in the packet
+	Op     string `json:"op"`     // Operation which provides the generation, can be {inc, dec, rand}
+	Step   uint64 `json:"step"`   // Step to decrement or increment, rand will be ignored. Default=1.
+}
+
+// GetOffset implements the GetOffset function of FieldEngineIF.
+func (o *BaseNumericEngineParams) GetOffset() uint16 {
+	return o.Offset
+}
+
+// GetSize implements the GetSize function of FieldEngineIF.
+func (o *BaseNumericEngineParams) GetSize() uint16 {
+	return o.Size
+}
+
+/* ------------------------------------------------------------------------------
+								UInt Engine
+--------------------------------------------------------------------------------*/
+// UIntEngineParams is a struct of parameters for the UIntEngine.
+type UIntEngineParams struct {
+	BaseNumericEngineParams
+	MinValue  uint64 `json:"min"`  // Minimal value of the domain
+	MaxValue  uint64 `json:"max"`  // Maximal value of the domain
+	InitValue uint64 `json:"init"` // Initial value in the generator, default = min value.
+}
+
+// UIntEngine is a field engine which is responsible to generate variables of uint types.
+// These types can be of lengths 1, 2, 4, 8 bytes (uint8, uint16, uint32, uint64).
+// The next variable can be generated through different operations, an increment of the current value,
+// a decrement of the current value, or some random generation.
+type UIntEngine struct {
+	*UIntEngineParams                     // Pointer to params as provided by the caller
+	currValue         uint64              // Current value in the generator
+	domainLen         uint64              // Domain length
+	mgr               *FieldEngineManager // Field engine manager
+}
+
+// CreateUIntEngine creates a new FieldEngineIF interface of type UIntEngine.
 func CreateUIntEngine(params *fastjson.RawMessage, mgr *FieldEngineManager) (FieldEngineIF, error) {
-	// parse the json
-	p := UIntEngineParams{Step: 1}
+	// Parse the params.
+	p := UIntEngineParams{}
+	p.Step = 1
 	err := mgr.tctx.UnmarshalValidate(*params, &p)
 	if err != nil {
 		mgr.counters.invalidJson++
@@ -137,7 +192,7 @@ func CreateUIntEngine(params *fastjson.RawMessage, mgr *FieldEngineManager) (Fie
 	return NewUIntEngine(&p, mgr)
 }
 
-// NewUintEngine creates a new uint engine
+// NewUintEngine creates a new UIntEngine.
 func NewUIntEngine(params *UIntEngineParams, mgr *FieldEngineManager) (*UIntEngine, error) {
 	o := new(UIntEngine)
 	o.mgr = mgr
@@ -146,21 +201,21 @@ func NewUIntEngine(params *UIntEngineParams, mgr *FieldEngineManager) (*UIntEngi
 		// validate has already set the errors of the manager
 		return nil, err
 	}
-	o.par = params
-	o.domainLen = (o.par.MaxValue - o.par.MinValue + 1)
+	o.UIntEngineParams = params
+	o.domainLen = (o.MaxValue - o.MinValue + 1)
 	if o.domainLen == 0 {
 		// when min = 0 and max = MaxUint64 domainLen can't be represented on a uint64.
 		// So we try to get as close as we can.
 		o.domainLen = math.MaxUint64
 	}
-	if o.par.Step > o.domainLen {
-		o.par.Step = o.par.Step % o.domainLen
+	if o.Step > o.domainLen {
+		o.Step = o.Step % o.domainLen
 	}
-	o.currValue = maxUInt64(o.par.MinValue, o.par.InitValue)
+	o.currValue = maxUInt64(o.MinValue, o.InitValue)
 	return o, nil
 }
 
-// ValidateParams validates the parameters of the uint engine.
+// ValidateParams validates the parameters of the UIntEngine.
 func (o *UIntEngine) validateParams(params *UIntEngineParams) (err error) {
 	err = nil
 	if params.MinValue > params.MaxValue {
@@ -193,29 +248,29 @@ func (o *UIntEngine) validateParams(params *UIntEngineParams) (err error) {
 // IncValue increments the value according to step
 func (o *UIntEngine) IncValue() {
 	// Need to be very careful here with overflows.
-	left := o.par.MaxValue - o.currValue // this will never overflow as currValue < maxValue
-	if o.par.Step <= left {
+	left := o.MaxValue - o.currValue // this will never overflow as currValue < maxValue
+	if o.Step <= left {
 		// simple increment by step, not overflow of domain
 		// step is fixed module size of domain
-		o.currValue += o.par.Step
+		o.currValue += o.Step
 	} else {
 		// overflow of domain
 		// if here then (step > left) therefore step - left - 1 will not overflow
-		o.currValue = o.par.MinValue + (o.par.Step - left - 1) // restart also consumes 1
+		o.currValue = o.MinValue + (o.Step - left - 1) // restart also consumes 1
 	}
 }
 
 // DecValue decrements the value according to step
 func (o *UIntEngine) DecValue() {
-	left := o.currValue - o.par.MinValue // this will never overflow as currValue > minValue
-	if o.par.Step <= left {
+	left := o.currValue - o.MinValue // this will never overflow as currValue > minValue
+	if o.Step <= left {
 		// no overflow of domain
 		// step is fixed module size of domain
-		o.currValue -= o.par.Step
+		o.currValue -= o.Step
 	} else {
 		// overflow of domain
 		// if here then (step > left) therefore step - left - 1 will not overflow
-		o.currValue = o.par.MaxValue - (o.par.Step - left - 1) // restart also consumes 1
+		o.currValue = o.MaxValue - (o.Step - left - 1) // restart also consumes 1
 	}
 }
 
@@ -225,13 +280,13 @@ func (o *UIntEngine) RandValue() {
 	// Converts the generated value to a value in the domain by adding the modulus of domainLength
 	// to the minimal value.
 	genValue := rand.Uint64()
-	o.currValue = o.par.MinValue + (genValue % o.domainLen)
+	o.currValue = o.MinValue + (genValue % o.domainLen)
 }
 
 // PerformOp performs the operation, either it is rand, inc or dec.
 func (o *UIntEngine) PerformOp() (err error) {
 	err = nil
-	switch o.par.Op {
+	switch o.Op {
 	case "inc":
 		o.IncValue()
 	case "dec":
@@ -248,7 +303,7 @@ func (o *UIntEngine) PerformOp() (err error) {
 // Update implements the Update function of FieldEngineIF.
 func (o *UIntEngine) Update(b []byte) (int, error) {
 
-	err := PutValue(o.par.Size, o.currValue, b, o.mgr)
+	err := PutValue(o.Size, o.currValue, b, o.mgr)
 	if err != nil {
 		// errors already set
 		return 0, err
@@ -256,48 +311,349 @@ func (o *UIntEngine) Update(b []byte) (int, error) {
 	err = o.PerformOp()
 	if err != nil {
 		// errors already set and value already put
-		return int(o.par.Size), err
+		return int(o.Size), err
 	}
-	return int(o.par.Size), nil
+	return int(o.Size), nil
+}
+
+/* ------------------------------------------------------------------------------
+								Int Engine
+--------------------------------------------------------------------------------*/
+// IntEngineParams is a struct of parameters for the IntEngine.
+type IntEngineParams struct {
+	BaseNumericEngineParams
+	MinValue  int64 `json:"min"`  // Minimal value of the domain
+	MaxValue  int64 `json:"max"`  // Maximal value of the domain
+	InitValue int64 `json:"init"` // Initial value in the generator, default = min value.
+}
+
+// IntEngine is a field engine which is responsible to generate variables of int types.
+// These types can be of lengths 1, 2, 4, 8 bytes (int8, int16, int32, int64).
+// The next variable can be generated through different operations, a increment of the current value,
+// a decrement of the current value, or some random generation.
+type IntEngine struct {
+	*IntEngineParams                     // Pointer to params as provided by the caller
+	currValue        int64               // Current value in the generator
+	domainLen        uint64              // Domain length
+	mgr              *FieldEngineManager // Field engine manager
+}
+
+// CreateIntEngine creates a new FieldEngineIF interface of type IntEngine.
+func CreateIntEngine(params *fastjson.RawMessage, mgr *FieldEngineManager) (FieldEngineIF, error) {
+	// Parse the params
+	p := IntEngineParams{InitValue: math.MinInt64}
+	p.Step = 1
+	err := mgr.tctx.UnmarshalValidate(*params, &p)
+	if err != nil {
+		mgr.counters.invalidJson++
+		return nil, err
+	}
+
+	// create and return new engine
+	return NewIntEngine(&p, mgr)
+}
+
+// NewIntEngine creates a new IntEngine.
+func NewIntEngine(params *IntEngineParams, mgr *FieldEngineManager) (*IntEngine, error) {
+	o := new(IntEngine)
+	o.mgr = mgr
+	err := o.validateParams(params)
+	if err != nil {
+		// validate has already set the errors of the manager
+		return nil, err
+	}
+	o.IntEngineParams = params
+	o.domainLen = calcDomainLenInt(o.MinValue, o.MaxValue)
+	if o.Step > o.domainLen {
+		o.Step = o.Step % o.domainLen
+	}
+	o.currValue = maxInt64(o.MinValue, o.InitValue)
+	return o, nil
+}
+
+// ValidateParams validates the parameters of the IntEngine.
+func (o *IntEngine) validateParams(params *IntEngineParams) (err error) {
+	err = nil
+	if params.MinValue > params.MaxValue {
+		err = fmt.Errorf("Min value %v is bigger than max value %v.\n", params.MinValue, params.MaxValue)
+		o.mgr.counters.maxSmallerThanMin++
+	}
+	if params.InitValue != math.MinInt64 && (params.InitValue < params.MinValue || params.InitValue > params.MaxValue) {
+		err = fmt.Errorf("Init value %v must be between [%v - %v].\n", params.InitValue, params.MinValue, params.MaxValue)
+		o.mgr.counters.badInitValue++
+	}
+	sizes := []uint16{1, 2, 4, 8}
+	maxPossible := []int64{math.MaxInt8, math.MaxInt16, math.MaxInt32, math.MaxInt64}
+	minPossible := []int64{math.MinInt8, math.MinInt16, math.MinInt32, math.MinInt64}
+	i, ok := findValue(sizes, params.Size)
+	if !ok {
+		err = fmt.Errorf("Invalid size %v. Size should be {1, 2, 4, 8}.\n", params.Size)
+		o.mgr.counters.invalidSize++
+	} else {
+		if params.MaxValue > maxPossible[i] {
+			err = fmt.Errorf("Max value %v cannot be represented with size %v.\n", params.MaxValue, params.Size)
+			o.mgr.counters.sizeTooSmall++
+		}
+		if params.MinValue < minPossible[i] {
+			err = fmt.Errorf("Min value %v cannot be represented with size %v.\n", params.MinValue, params.Size)
+			o.mgr.counters.sizeTooSmall++
+		}
+	}
+	if params.Op != "inc" && params.Op != "dec" && params.Op != "rand" {
+		err = fmt.Errorf("Unsupported operation %v.\n", params.Op)
+		o.mgr.counters.badOperation++
+	}
+	return err
+}
+
+// IncValue increments the value according to step
+func (o *IntEngine) IncValue() {
+	// Need to be very careful here with overflows.
+	left := uint64(o.MaxValue - o.currValue) // this will never overflow as currValue < maxValue
+	if o.Step <= left {
+		// simple increment by step, not overflow of domain
+		// step is fixed module size of domain
+		o.currValue += int64(o.Step)
+	} else {
+		// overflow of domain
+		// if here then (step > left) therefore step - left - 1 will not overflow
+		o.currValue = o.MinValue + int64(o.Step-left-1) // restart also consumes 1
+	}
+}
+
+// DecValue decrements the value according to step
+func (o *IntEngine) DecValue() {
+	left := uint64(o.currValue - o.MinValue) // this will never overflow as currValue > minValue
+	if o.Step <= left {
+		// no overflow of domain
+		// step is fixed module size of domain
+		o.currValue -= int64(o.Step)
+	} else {
+		// overflow of domain
+		// if here then (step > left) therefore step - left - 1 will not overflow
+		o.currValue = o.MaxValue - int64(o.Step-left-1) // restart also consumes 1
+	}
+}
+
+// RandValue generates a random value in the domain [min, max]
+func (o *IntEngine) RandValue() {
+	genValue := rand.Uint64()
+	// Converting the value to int64 will give a random int64.
+	o.currValue = o.MinValue + int64((genValue % o.domainLen))
+}
+
+// PerformOp performs the operation, either it is rand, inc or dec.
+func (o *IntEngine) PerformOp() (err error) {
+	err = nil
+	switch o.Op {
+	case "inc":
+		o.IncValue()
+	case "dec":
+		o.DecValue()
+	case "rand":
+		o.RandValue()
+	default:
+		o.mgr.counters.badOperation++
+		err = errors.New("Unrecognized operation")
+	}
+	return err
+}
+
+// Update implements the Update function of FieldEngineIF.
+func (o *IntEngine) Update(b []byte) (int, error) {
+
+	// Converting to uint64 doesn't change the encoding.
+	err := PutValue(o.Size, uint64(o.currValue), b, o.mgr)
+	if err != nil {
+		// errors already set
+		return 0, err
+	}
+	err = o.PerformOp()
+	if err != nil {
+		// errors already set and value already put
+		return int(o.Size), err
+	}
+	return int(o.Size), nil
+}
+
+/* ------------------------------------------------------------------------------
+								FloatEngine
+--------------------------------------------------------------------------------*/
+// FloatEngineParams is a struct of parameters for the FloatEngine.
+type FloatEngineParams struct {
+	Size   uint16  `json:"size" validate:"required,oneof=4 8"` // Size can be 4 (float32) or 8 (float64)
+	Offset uint16  `json:"offset"`                             // Offset in which to write in the packet
+	Min    float64 `json:"min", validate:"required"`           // Minimal value of the domain
+	Max    float64 `json:"max", validate:"required"`           // Maximal value of the domain
+}
+
+// FloatEngine represents a float32 or float64 engine. For float engines only rand makes sense.
+type FloatEngine struct {
+	FloatEngineParams                     // Params as provided by the caller
+	mgr               *FieldEngineManager // Field engine manager
+}
+
+// Update implements the Update function of FieldEngineIF.
+func (o *FloatEngine) Update(b []byte) (int, error) {
+	if len(b) < int(o.Size) {
+		return -1, fmt.Errorf("Size of provided buffer too small, want %v, have %v.", o.Size, len(b))
+	}
+	factor := rand.Float64()
+	genValue := (o.Min) + (o.Max-o.Min)*factor
+	if o.Size == 4 {
+		binary.BigEndian.PutUint32(b, math.Float32bits(float32(genValue)))
+	} else if o.Size == 8 {
+		binary.BigEndian.PutUint64(b, math.Float64bits(genValue))
+	}
+	return int(o.Size), nil
 }
 
 // GetOffset implements the GetOffset function of FieldEngineIF.
-func (o *UIntEngine) GetOffset() uint16 {
-	return o.par.Offset
+func (o *FloatEngine) GetOffset() uint16 {
+	return o.Offset
 }
 
 // GetSize implements the GetSize function of FieldEngineIF.
-func (o *UIntEngine) GetSize() uint16 {
-	return o.par.Size
+func (o *FloatEngine) GetSize() uint16 {
+	return o.Size
+}
+
+// CreateFloatEngine creates a new FieldEngineIF interface of type FloatEngine.
+func CreateFloatEngine(params *fastjson.RawMessage, mgr *FieldEngineManager) (FieldEngineIF, error) {
+	// Parse the params
+	p := FloatEngineParams{}
+	err := mgr.tctx.UnmarshalValidate(*params, &p)
+	if err != nil {
+		mgr.counters.invalidJson++
+		return nil, err
+	}
+	if p.Min > p.Max {
+		err = fmt.Errorf("Min value %v is bigger than max value %v.\n", p.Min, p.Max)
+		mgr.counters.maxSmallerThanMin++
+	}
+	// create and return new engine
+	return NewFloatEngine(&p, mgr)
+}
+
+// NewFloatEngine creates a new FloatEngine.
+func NewFloatEngine(params *FloatEngineParams, mgr *FieldEngineManager) (*FloatEngine, error) {
+	o := new(FloatEngine)
+	o.FloatEngineParams = *params
+	o.mgr = mgr
+	return o, nil
+}
+
+/* ------------------------------------------------------------------------------
+								Base List Engine
+--------------------------------------------------------------------------------*/
+
+// BaseListEngineParams is a basic struct that gathers the common params for list type engines.
+type BaseListEngineParams struct {
+	Size      uint16 `json:"size"`       // Size of the uint variable in bytes
+	Offset    uint16 `json:"offset"`     // Offset in which to write in the packet
+	Op        string `json:"op"`         // Operation which provides the generation, can be {inc, dec, rand}
+	Step      uint64 `json:"step"`       // Step to decrement or increment, rand will be ignored. Default=1.
+	InitIndex uint64 `json:"init_index"` // Initial index in the list. Default=0.
+}
+
+// BaseListEngine is a basic struct that offers common functionality for list type engines.
+type BaseListEngine struct {
+	*BaseListEngineParams                     // Pointer to params as provided by the caller
+	currIndex             int                 // Current index in the generator
+	listLength            int                 // Length of the list
+	mgr                   *FieldEngineManager // Field engine manager
+}
+
+// ValidateParams validates the parameters of the base list engine.
+func (o *BaseListEngine) validateParams(params *BaseListEngineParams) (err error) {
+	if params.Op != "inc" && params.Op != "dec" && params.Op != "rand" {
+		err = fmt.Errorf("Unsupported operation %v.\n", params.Op)
+		o.mgr.counters.badOperation++
+	}
+	if o.listLength == 0 {
+		err = fmt.Errorf("Engine list can't be empty.\n")
+		o.mgr.counters.emptyList++
+	}
+	if o.listLength > 0 && int(params.InitIndex) >= o.listLength {
+		err = fmt.Errorf("Init index %v must be between [%v - %v].\n", params.InitIndex, 0, o.listLength)
+		o.mgr.counters.badInitValue++
+	}
+	return err
+}
+
+// IncValue increments the value according to step
+func (o *BaseListEngine) IncValue() {
+	o.currIndex = (o.currIndex + int(o.Step)) % o.listLength
+}
+
+// DecValue decrements the value according to step
+func (o *BaseListEngine) DecValue() {
+	// Careful with overflows
+	if o.currIndex < int(o.Step) {
+		// Overflows
+		o.currIndex = o.listLength - (int(o.Step) - o.currIndex)
+	} else {
+		// No overflow
+		o.currIndex = o.currIndex - int(o.Step)
+	}
+}
+
+// RandValue generates a new index in the list.
+func (o *BaseListEngine) RandValue() {
+	o.currIndex = rand.Intn(o.listLength)
+}
+
+// PerformOp performs the operation, either it is rand, inc or dec.
+func (o *BaseListEngine) PerformOp() (err error) {
+	err = nil
+	switch o.Op {
+	case "inc":
+		o.IncValue()
+	case "dec":
+		o.DecValue()
+	case "rand":
+		o.RandValue()
+	default:
+		o.mgr.counters.badOperation++
+		err = errors.New("Unrecognized operation")
+	}
+	return err
+}
+
+// GetOffset implements the GetOffset function of FieldEngineIF.
+func (o *BaseListEngine) GetOffset() uint16 {
+	return o.Offset
+}
+
+// GetSize implements the GetSize function of FieldEngineIF.
+func (o *BaseListEngine) GetSize() uint16 {
+	return o.Size
 }
 
 /* ------------------------------------------------------------------------------
 								UInt List Engine
 --------------------------------------------------------------------------------*/
-// UIntListEngine params is a struct a parameters for the UIntListEngine.
+// UIntListEngineParams is a struct of parameters for the UIntListEngine.
 type UIntListEngineParams struct {
-	Size      uint16   `json:"size"`       // size of the uint variable in bytes
-	Offset    uint16   `json:"offset"`     // offset in which to write in the packet
-	Op        string   `json:"op"`         // operation which provides the generation, can be {inc, dec, rand}
-	Step      uint64   `json:"step"`       // step to decrement or increment, rand will be ignored. Default=1.
-	InitIndex uint64   `json:"init_index"` // initial index in the list. Default=0.
-	List      []uint64 `json:"list"`       // list of choices from which we pick a value and generate
+	BaseListEngineParams          // Embed the basic list params
+	List                 []uint64 `json:"list"` // List of choices from which we pick a value and generate
 }
 
 // UIntListEngine is a field engine which is responsible to generate variables of uint types.
-// These types can be of lengths (1, 2, 4, 8) bytes (uint8, uint16, uint32, uint64).
-// The next variable will be picked from the list and can be picked through different operations, a increment of the current index,
+// These types can be of lengths 1, 2, 4, 8 bytes (uint8, uint16, uint32, uint64).
+// The next variable will be picked from the list and can be picked through different operations, an increment of the current index,
 // a decrement of the current index, or some random index
 type UIntListEngine struct {
-	par       *UIntListEngineParams // params as provided by the caller
-	currIndex int                   // current index in the generator
-	mgr       *FieldEngineManager   // field engine manager
+	BaseListEngine                       // Embed the common functionality provided by the base class
+	uintParams     *UIntListEngineParams // Pointer to params as provided by the caller.
 }
 
-// Create an UIntListEngine
+// CreateUIntListEngine creates a new FieldEngineIF interface of type UIntListEngine.
 func CreateUIntListEngine(params *fastjson.RawMessage, mgr *FieldEngineManager) (FieldEngineIF, error) {
-	// parse the json
-	p := UIntListEngineParams{Step: 1, InitIndex: 0}
+	// Parse the params.
+	p := UIntListEngineParams{}
+	p.Step = 1
+	p.InitIndex = 0
 	err := mgr.tctx.UnmarshalValidate(*params, &p)
 	if err != nil {
 		mgr.counters.invalidJson++
@@ -311,33 +667,25 @@ func CreateUIntListEngine(params *fastjson.RawMessage, mgr *FieldEngineManager) 
 func NewUIntListEngine(params *UIntListEngineParams, mgr *FieldEngineManager) (*UIntListEngine, error) {
 	o := new(UIntListEngine)
 	o.mgr = mgr
+	o.listLength = len(params.List) // set this before validation, it is used in base functionality.
 	err := o.validateParams(params)
 	if err != nil {
 		// validate has already set the errors of the manager
 		return nil, err
 	}
-	o.par = params
-	if int(o.par.Step) > len(o.par.List) {
-		o.par.Step = o.par.Step % uint64(len(o.par.List))
+	o.uintParams = params
+	o.BaseListEngineParams = &params.BaseListEngineParams
+
+	if int(o.Step) > o.listLength {
+		o.Step = o.Step % uint64(o.listLength)
 	}
-	o.currIndex = int(o.par.InitIndex)
+	o.currIndex = int(o.InitIndex)
 	return o, nil
 }
 
 // ValidateParams validates the parameters of the uint engine.
 func (o *UIntListEngine) validateParams(params *UIntListEngineParams) (err error) {
-	if params.Op != "inc" && params.Op != "dec" && params.Op != "rand" {
-		err = fmt.Errorf("Unsupported operation %v.\n", params.Op)
-		o.mgr.counters.badOperation++
-	}
-	if len(params.List) == 0 {
-		err = fmt.Errorf("Engine list can't be empty.\n")
-		o.mgr.counters.emptyList++
-	}
-	if len(params.List) > 0 && int(params.InitIndex) >= len(params.List) {
-		err = fmt.Errorf("Init index %v must be between [%v - %v].\n", params.InitIndex, 0, len(params.List))
-		o.mgr.counters.badInitValue++
-	}
+	err = o.BaseListEngine.validateParams(&params.BaseListEngineParams)
 	sizes := []uint16{1, 2, 4, 8}
 	maxPossible := []uint64{math.MaxUint8, math.MaxUint16, math.MaxUint32, math.MaxUint64}
 	i, ok := findValue(sizes, params.Size)
@@ -356,50 +704,9 @@ func (o *UIntListEngine) validateParams(params *UIntListEngineParams) (err error
 	return err
 }
 
-// IncValue increments the value according to step
-func (o *UIntListEngine) IncValue() {
-	o.currIndex = (o.currIndex + int(o.par.Step)) % len(o.par.List)
-}
-
-// DecValue decrements the value according to step
-func (o *UIntListEngine) DecValue() {
-	// Careful with overflows
-	if o.currIndex < int(o.par.Step) {
-		// Overflows
-		o.currIndex = len(o.par.List) - (int(o.par.Step) - o.currIndex)
-	} else {
-		// No overflow
-		o.currIndex = o.currIndex - int(o.par.Step)
-	}
-
-}
-
-// RandValue generates a new index in the list.
-func (o *UIntListEngine) RandValue() {
-	o.currIndex = rand.Intn(len(o.par.List))
-}
-
-// PerformOp performs the operation, either it is rand, inc or dec.
-func (o *UIntListEngine) PerformOp() (err error) {
-	err = nil
-	switch o.par.Op {
-	case "inc":
-		o.IncValue()
-	case "dec":
-		o.DecValue()
-	case "rand":
-		o.RandValue()
-	default:
-		o.mgr.counters.badOperation++
-		err = errors.New("Unrecognized operation")
-	}
-	return err
-}
-
 // Update implements the Update function of FieldEngineIF.
 func (o *UIntListEngine) Update(b []byte) (int, error) {
-
-	err := PutValue(o.par.Size, o.par.List[o.currIndex], b, o.mgr)
+	err := PutValue(o.Size, o.uintParams.List[o.currIndex], b, o.mgr)
 	if err != nil {
 		// errors already set
 		return 0, err
@@ -408,50 +715,207 @@ func (o *UIntListEngine) Update(b []byte) (int, error) {
 	err = o.PerformOp()
 	if err != nil {
 		// errors already set and value already put
-		return int(o.par.Size), err
+		return int(o.Size), err
 	}
-	return int(o.par.Size), nil
+	return int(o.Size), nil
 }
 
-// GetOffset implements the GetOffset function of FieldEngineIF.
-func (o *UIntListEngine) GetOffset() uint16 {
-	return o.par.Offset
+/* ------------------------------------------------------------------------------
+								Int List Engine
+--------------------------------------------------------------------------------*/
+// IntListEngineParams is a struct of parameters for the IntListEngine.
+type IntListEngineParams struct {
+	BaseListEngineParams         // Embed the basic list params
+	List                 []int64 `json:"list"` // List of choices from which we pick a value and generate
 }
 
-// GetSize implements the GetSize function of FieldEngineIF.
-func (o *UIntListEngine) GetSize() uint16 {
-	return o.par.Size
+// IntListEngine is a field engine which is responsible to generate variables of int types.
+// These types can be of lengths 1, 2, 4, 8 bytes (int8, int16, int32, int64).
+// The next variable will be picked from the list and can be picked through different operations, an increment of the current index,
+// a decrement of the current index, or some random index
+type IntListEngine struct {
+	BaseListEngine                      // Embed the common functionality in a a base class
+	intParams      *IntListEngineParams // Pointer to params as provided by the caller.
+}
+
+// CreateIntListEngine creates a new FieldEngineIF interface of type IntListEngine.
+func CreateIntListEngine(params *fastjson.RawMessage, mgr *FieldEngineManager) (FieldEngineIF, error) {
+	// Parse the params
+	p := IntListEngineParams{}
+	p.Step = 1
+	p.InitIndex = 0
+	err := mgr.tctx.UnmarshalValidate(*params, &p)
+	if err != nil {
+		mgr.counters.invalidJson++
+		return nil, err
+	}
+	// create and return new engine
+	return NewIntListEngine(&p, mgr)
+}
+
+// NewIntListEngine creates a new uint list engine.
+func NewIntListEngine(params *IntListEngineParams, mgr *FieldEngineManager) (*IntListEngine, error) {
+	o := new(IntListEngine)
+	o.mgr = mgr
+	o.listLength = len(params.List) // set this before validation, it is used in base functionality.
+	err := o.validateParams(params)
+	if err != nil {
+		// validate has already set the errors of the manager
+		return nil, err
+	}
+	o.intParams = params
+	o.BaseListEngineParams = &params.BaseListEngineParams
+
+	if int(o.Step) > o.listLength {
+		o.Step = o.Step % uint64(o.listLength)
+	}
+	o.currIndex = int(o.InitIndex)
+	return o, nil
+}
+
+// ValidateParams validates the parameters of the int engine.
+func (o *IntListEngine) validateParams(params *IntListEngineParams) (err error) {
+	err = o.BaseListEngine.validateParams(&params.BaseListEngineParams)
+	sizes := []uint16{1, 2, 4, 8}
+	maxPossible := []int64{math.MaxInt8, math.MaxInt16, math.MaxInt32, math.MaxInt64}
+	minPossible := []int64{math.MinInt8, math.MinInt16, math.MinInt32, math.MinInt64}
+	i, ok := findValue(sizes, params.Size)
+	if !ok {
+		err = fmt.Errorf("Invalid size %v. Size should be {1, 2, 4, 8}.\n", params.Size)
+		o.mgr.counters.invalidSize++
+	} else {
+		for j := range params.List {
+			if params.List[j] > maxPossible[i] || params.List[j] < minPossible[i] {
+				err = fmt.Errorf("List value %v cannot be represented with size %v.\n", params.List[j], params.Size)
+				o.mgr.counters.sizeTooSmall++
+				break
+			}
+		}
+	}
+	return err
+}
+
+// Update implements the Update function of FieldEngineIF.
+func (o *IntListEngine) Update(b []byte) (int, error) {
+	// Converting to uint64 doesn't change the value or the binary encoding, only the way
+	// the value is interpreted.
+	err := PutValue(o.Size, uint64(o.intParams.List[o.currIndex]), b, o.mgr)
+	if err != nil {
+		// errors already set
+		return 0, err
+	}
+
+	err = o.PerformOp()
+	if err != nil {
+		// errors already set and value already put
+		return int(o.Size), err
+	}
+	return int(o.Size), nil
+}
+
+/* ------------------------------------------------------------------------------
+								Float List Engine
+--------------------------------------------------------------------------------*/
+// FloatListEngineParams is a struct of parameters for the FloatListEngine.
+type FloatListEngineParams struct {
+	BaseListEngineParams           // Embed the basic list params
+	List                 []float64 `json:"list"` // List of choices from which we pick a value and generate
+}
+
+// FloatListEngine is a field engine which is responsible to generate variables of float types.
+// These types can be of lengths 4, 8 bytes (float32, float64).
+// The next variable will be picked from the list and can be picked through different operations, an increment of the current index,
+// a decrement of the current index, or some random index
+type FloatListEngine struct {
+	BaseListEngine                        // Embed the common functionality in a a base class
+	floatParams    *FloatListEngineParams // Pointer to params as provided by the caller.
+}
+
+// CreateFloatListEngine creates a new FieldEngineIF interface of type FloatListEngine.
+func CreateFloatListEngine(params *fastjson.RawMessage, mgr *FieldEngineManager) (FieldEngineIF, error) {
+	// parse the json
+	p := FloatListEngineParams{}
+	p.Step = 1
+	p.InitIndex = 0
+	err := mgr.tctx.UnmarshalValidate(*params, &p)
+	if err != nil {
+		mgr.counters.invalidJson++
+		return nil, err
+	}
+	// create and return new engine
+	return NewFloatListEngine(&p, mgr)
+}
+
+// NewFloatListEngine creates a new uint list engine.
+func NewFloatListEngine(params *FloatListEngineParams, mgr *FieldEngineManager) (*FloatListEngine, error) {
+	o := new(FloatListEngine)
+	o.mgr = mgr
+	o.listLength = len(params.List) // set this before validation, it is used in base functionality.
+	err := o.BaseListEngine.validateParams(&params.BaseListEngineParams)
+	if err != nil {
+		// validate has already set the errors of the manager
+		return nil, err
+	}
+	o.floatParams = params
+	o.BaseListEngineParams = &params.BaseListEngineParams
+
+	if int(o.Step) > o.listLength {
+		o.Step = o.Step % uint64(o.listLength)
+	}
+	o.currIndex = int(o.InitIndex)
+	return o, nil
+}
+
+// Update implements the Update function of FieldEngineIF.
+func (o *FloatListEngine) Update(b []byte) (int, error) {
+	// Converting to uint64 doesn't change the value or the binary encoding, only the way
+	// the value is interpreted.
+	var val uint64
+	if o.Size == 4 {
+		val = uint64(math.Float32bits(float32(o.floatParams.List[o.currIndex])))
+	} else if o.Size == 8 {
+		val = math.Float64bits(o.floatParams.List[o.currIndex])
+	}
+	err := PutValue(o.Size, val, b, o.mgr)
+	if err != nil {
+		// errors already set
+		return 0, err
+	}
+
+	err = o.PerformOp()
+	if err != nil {
+		// errors already set and value already put
+		return int(o.Size), err
+	}
+	return int(o.Size), nil
 }
 
 /* ------------------------------------------------------------------------------
 								String List Engine
 --------------------------------------------------------------------------------*/
-// StringListEngineParams is a struct a parameters for the StringListEngine.
+// StringListEngineParams is a struct of parameters for the StringListEngine.
 type StringListEngineParams struct {
-	Size         uint16   `json:"size"`          // size of maximal string we are going to write
-	Offset       uint16   `json:"offset"`        // offset in which to write in the packet
-	Op           string   `json:"op"`            // operation which provides the generation in the list, can be {inc, dec, rand}
-	Step         uint64   `json:"step"`          // step to decrement or increment, rand will be ignored. Default=1.
-	InitIndex    uint64   `json:"init_index"`    // initial index in the list. Default=0.
-	List         []string `json:"list"`          // list of choices from which we pick a value and generate
-	PaddingValue uint8    `json:"padding_value"` // value which will be used to pad the string to maximal size
+	BaseListEngineParams
+	List         []string `json:"list"`          // List of choices from which we pick a value and generate
+	PaddingValue uint8    `json:"padding_value"` // Value which will be used to pad the string to maximal size
 }
 
 // StringListEngine is a field engine which is responsible to generate variables of string types.
 // The strings can be any length as long as they are shorter than size. They will be padded with the padding_value to size length.
-// The next variable will be picked from the list and can be picked through different operations, a increment of the current index,
+// The next variable will be picked from the list and can be picked through different operations, an increment of the current index,
 // a decrement of the current index, or some random index
 type StringListEngine struct {
-	par           *StringListEngineParams // params as provided by the caller
-	currIndex     int                     // current index in the generator
-	processedList [][]byte                // list of bytes manipulated and padded ahead of time for fast update
-	mgr           *FieldEngineManager     // field engine manager
+	BaseListEngine                         // Embed base list engine for base functionality
+	stringParams   *StringListEngineParams // Pointer to params as provided by the caller.
+	processedList  [][]byte                // List of bytes manipulated and padded ahead of time for fast update
 }
 
-// Create a StingListEngine
+// CreateStringListEngine creates a new FieldEngineIF interface of type StringListEngine.
 func CreateStringListEngine(params *fastjson.RawMessage, mgr *FieldEngineManager) (FieldEngineIF, error) {
-	// parse the json
-	p := StringListEngineParams{Step: 1, InitIndex: 0, PaddingValue: 0}
+	// Parse the params
+	p := StringListEngineParams{PaddingValue: 0}
+	p.Step = 1
+	p.InitIndex = 0
 	err := mgr.tctx.UnmarshalValidate(*params, &p)
 	if err != nil {
 		mgr.counters.invalidJson++
@@ -465,34 +929,25 @@ func CreateStringListEngine(params *fastjson.RawMessage, mgr *FieldEngineManager
 func NewStringListEngine(params *StringListEngineParams, mgr *FieldEngineManager) (*StringListEngine, error) {
 	o := new(StringListEngine)
 	o.mgr = mgr
+	o.listLength = len(params.List) // set this before validation, it is used in base functionality.
 	err := o.validateParams(params)
 	if err != nil {
 		// validate has already set the errors of the manager
 		return nil, err
 	}
-	o.par = params
-	if int(o.par.Step) > len(o.par.List) {
-		o.par.Step = o.par.Step % uint64(len(o.par.List))
+	o.stringParams = params
+	o.BaseListEngineParams = &params.BaseListEngineParams
+	if int(o.Step) > o.listLength {
+		o.Step = o.Step % uint64(o.listLength)
 	}
 	o.processStrings()
-	o.currIndex = int(o.par.InitIndex)
+	o.currIndex = int(o.InitIndex)
 	return o, nil
 }
 
 // ValidateParams validates the parameters of the string list engine.
 func (o *StringListEngine) validateParams(params *StringListEngineParams) (err error) {
-	if params.Op != "inc" && params.Op != "dec" && params.Op != "rand" {
-		err = fmt.Errorf("Unsupported operation %v.\n", params.Op)
-		o.mgr.counters.badOperation++
-	}
-	if len(params.List) == 0 {
-		err = fmt.Errorf("Engine list can't be empty.\n")
-		o.mgr.counters.emptyList++
-	}
-	if len(params.List) > 0 && int(params.InitIndex) >= len(params.List) {
-		err = fmt.Errorf("Init index %v must be between [%v - %v].\n", params.InitIndex, 0, len(params.List))
-		o.mgr.counters.badInitValue++
-	}
+	err = o.BaseListEngine.validateParams(&params.BaseListEngineParams)
 	for _, str := range params.List {
 		if len([]byte(str)) > int(params.Size) {
 			err = fmt.Errorf("String %v cannot be represented with size %v.\n", str, params.Size)
@@ -506,85 +961,36 @@ func (o *StringListEngine) validateParams(params *StringListEngineParams) (err e
 // processStrings pre processes the strings and paddes them ahead of time in order to perform fast update
 // and no need to pad every time.
 func (o *StringListEngine) processStrings() {
-	for _, str := range o.par.List {
+	for _, str := range o.stringParams.List {
 		bytesStr := []byte(str)
-		appendSize := int(o.par.Size) - len(bytesStr)
+		appendSize := int(o.Size) - len(bytesStr)
 		for j := 0; j < appendSize; j++ {
-			bytesStr = append(bytesStr, byte(o.par.PaddingValue))
+			bytesStr = append(bytesStr, byte(o.stringParams.PaddingValue))
 		}
 		o.processedList = append(o.processedList, bytesStr)
 	}
 }
 
-// IncValue increments the value according to step
-func (o *StringListEngine) IncValue() {
-	o.currIndex = (o.currIndex + int(o.par.Step)) % len(o.par.List)
-}
-
-// DecValue decrements the value according to step
-func (o *StringListEngine) DecValue() {
-	// Careful with overflows
-	if o.currIndex < int(o.par.Step) {
-		// Overflows
-		o.currIndex = len(o.par.List) - (int(o.par.Step) - o.currIndex)
-	} else {
-		// No overflow
-		o.currIndex = o.currIndex - int(o.par.Step)
-	}
-
-}
-
-// RandValue generates a new index in the list.
-func (o *StringListEngine) RandValue() {
-	o.currIndex = rand.Intn(len(o.par.List))
-}
-
-// PerformOp performs the operation, either it is rand, inc or dec.
-func (o *StringListEngine) PerformOp() (err error) {
-	err = nil
-	switch o.par.Op {
-	case "inc":
-		o.IncValue()
-	case "dec":
-		o.DecValue()
-	case "rand":
-		o.RandValue()
-	default:
-		o.mgr.counters.badOperation++
-		err = errors.New("Unrecognized operation")
-	}
-	return err
-}
-
 // Update implements the Update function of FieldEngineIF.
+// This will always pad and return the padded size.
 func (o *StringListEngine) Update(b []byte) (int, error) {
-	if len(b) < int(o.par.Size) {
+	if len(b) < int(o.Size) {
 		o.mgr.counters.bufferTooShort++
-		return 0, fmt.Errorf("Provided slice is shorter that the size of the variable to write, want at least %v, have %v.\n", o.par.Size, len(b))
+		return 0, fmt.Errorf("Provided slice is shorter that the size of the variable to write, want at least %v, have %v.\n", o.Size, len(b))
 	}
 
 	copied := copy(b, o.processedList[o.currIndex])
-	if copied != int(o.par.Size) {
+	if copied != int(o.Size) {
 		o.mgr.counters.badCopyToBuffer++
-		return 0, fmt.Errorf("Error happened copying the string into the buffer. Copied bytes: want %v and have %v.\n", o.par.Size, copied)
+		return 0, fmt.Errorf("Error happened copying the string into the buffer. Copied bytes: want %v and have %v.\n", o.Size, copied)
 	}
 
 	err := o.PerformOp()
 	if err != nil {
 		// errors already set and value already put
-		return int(o.par.Size), err
+		return int(o.Size), err
 	}
-	return int(o.par.Size), nil
-}
-
-// GetOffset implements the GetOffset function of FieldEngineIF.
-func (o *StringListEngine) GetOffset() uint16 {
-	return o.par.Offset
-}
-
-// GetSize implements the GetSize function of FieldEngineIF.
-func (o *StringListEngine) GetSize() uint16 {
-	return o.par.Size
+	return int(o.Size), nil
 }
 
 /* ------------------------------------------------------------------------------
@@ -593,24 +999,24 @@ func (o *StringListEngine) GetSize() uint16 {
 // HistogramEngineCommonParams contains the common params for all the types of
 // histogram engines.
 type HistogramEngineCommonParams struct {
-	Size   uint16 `json:"size"`   // size of the variable in bytes
-	Offset uint16 `json:"offset"` // offset in which to write in the packet
+	Size   uint16 `json:"size"`   // Size of the variable in bytes
+	Offset uint16 `json:"offset"` // Offset in which to write in the packet
 }
 
 // HistogramEngineParams is a struct that must be provided to the HistogramEngine
 // when creating it.
 type HistogramEngineParams struct {
-	HistogramEngineCommonParams                  // common params for all the engines
-	Entries                     []HistogramEntry // the entries of the histogram
+	HistogramEngineCommonParams                  // Common params for all the engines
+	Entries                     []HistogramEntry // The entries of the histogram
 }
 
 // HistogramEngine is a FieldEngine, which contains a non uniform pseudo random
 // generator and can generate it's entries as per probability of each entry.
 type HistogramEngine struct {
-	par           *HistogramEngineParams // params as provided by the caller
-	distributions []uint32               // distribution slice
-	generator     *NonUniformRandGen     // non uniform random generator of the distribution
-	mgr           *FieldEngineManager    // field engine manager
+	par           *HistogramEngineParams // Pointer to params as provided by the caller.
+	distributions []uint32               // Distribution slice
+	generator     *NonUniformRandGen     // Non uniform random generator of the distribution
+	mgr           *FieldEngineManager    // Field engine manager
 
 }
 
@@ -676,7 +1082,7 @@ func (o *HistogramEngine) GetSize() uint16 {
 }
 
 /* ------------------------------------------------------------------------------
-						Helping Utils for Uint32
+						Helping Utils for Uint32 histogram
 --------------------------------------------------------------------------------*/
 
 func putValueInBuffer(size uint16, value uint32) (b []byte, err error) {
@@ -700,13 +1106,13 @@ func putValueInBuffer(size uint16, value uint32) (b []byte, err error) {
 // HistogramUInt32Entry represents a uint32 which can be used as an entry for the
 // HistogramEngine. This entry can be picked with probability prob.
 type HistogramUInt32Entry struct {
-	V    uint32 `json:"v"`    // a value v of 32 bits
-	Prob uint32 `json:"prob"` // probability of this entry
+	V    uint32 `json:"v"`    // A value v of 32 bits
+	Prob uint32 `json:"prob"` // Probability of this entry
 }
 
 // HistogramUInt32Params is used for parsing the input json.
 type HistogramUInt32Params struct {
-	HistogramEngineCommonParams                        // common params
+	HistogramEngineCommonParams                        // Common params
 	Entries                     []HistogramUInt32Entry `json:"entries"` // slice of entries
 }
 
@@ -758,21 +1164,85 @@ func CreateHistogramUInt32Engine(params *fastjson.RawMessage, mgr *FieldEngineMa
 }
 
 /* ------------------------------------------------------------------------------
+						HistogramInt32Entry
+--------------------------------------------------------------------------------*/
+// HistogramInt32Entry represents a int32 which can be used as an entry for the
+// HistogramEngine. This entry can be picked with probability prob.
+type HistogramInt32Entry struct {
+	V    int32  `json:"v"`    // A value v of 32 bits
+	Prob uint32 `json:"prob"` // Probability of this entry
+}
+
+// HistogramInt32Params is used for parsing the input json.
+type HistogramInt32Params struct {
+	HistogramEngineCommonParams                       // Common params
+	Entries                     []HistogramInt32Entry `json:"entries"` // Slice of entries
+}
+
+// GetValue puts the value in the byte buffer.
+func (o *HistogramInt32Entry) GetValue(size uint16) (b []byte, err error) {
+	// Converting to uint32 won't change the value, only the representation.
+	return putValueInBuffer(size, uint32(o.V))
+}
+
+// GetProb returns the probability for this entry to be picked in the histogram engine.
+func (o *HistogramInt32Entry) GetProb() uint32 {
+	return o.Prob
+}
+
+// CreateHistogramUInt32ListEngine creates an histogram engine of int32 from the input json.
+func CreateHistogramInt32Engine(params *fastjson.RawMessage, mgr *FieldEngineManager) (eng FieldEngineIF, err error) {
+	// unmarshal the data
+	p := HistogramInt32Params{}
+	err = fastjson.Unmarshal(*params, &p)
+	if err != nil {
+		mgr.counters.invalidJson++
+		return nil, err
+	}
+
+	// create general params
+	var histParams HistogramEngineParams
+	histParams.Size = p.Size
+	histParams.Offset = p.Offset
+	for i := range p.Entries {
+		switch p.Size {
+		case 1:
+			if p.Entries[i].V > math.MaxInt8 || p.Entries[i].V < math.MinInt8 {
+				mgr.counters.invalidSize++
+				return nil, fmt.Errorf("Value %v can't be represented with %v bytes\n.", p.Entries[i].V, p.Size)
+			}
+		case 2:
+			if p.Entries[i].V > math.MaxInt16 || p.Entries[i].V < math.MinInt16 {
+				mgr.counters.invalidSize++
+				return nil, fmt.Errorf("Value %v can't be represented with %v bytes\n.", p.Entries[i].V, p.Size)
+			}
+		case 8:
+			mgr.counters.invalidSize++
+			return nil, fmt.Errorf("Invalid size %v with type of engine.\n", p.Size)
+		}
+		histParams.Entries = append(histParams.Entries, &p.Entries[i])
+	}
+
+	// create and return new engine
+	return NewHistogramEngine(&histParams, mgr)
+}
+
+/* ------------------------------------------------------------------------------
 						HistogramUInt32RangeEntry
 --------------------------------------------------------------------------------*/
 // HistogramUInt32RangeEntry represents a range of uint32 which can be used as an
 // entry for the HistogramEngine. This entry can be picked with probability prob.
 // If the entry is picked, a value in the range will be generated uniformly.
 type HistogramUInt32RangeEntry struct {
-	Min  uint32 `json:"min"`  // lower bound of the range
-	Max  uint32 `json:"max"`  // higher bound of the range
-	Prob uint32 `json:"prob"` // probability of this entry
+	Min  uint32 `json:"min"`  // Lower bound of the range
+	Max  uint32 `json:"max"`  // Higher bound of the range
+	Prob uint32 `json:"prob"` // Probability of this entry
 }
 
 // HistogramUInt32RangeParams is used for parsing the input json.
 type HistogramUInt32RangeParams struct {
-	HistogramEngineCommonParams                             // common params
-	Entries                     []HistogramUInt32RangeEntry `json:"entries"` // slice of entries
+	HistogramEngineCommonParams                             // Common params
+	Entries                     []HistogramUInt32RangeEntry `json:"entries"` // Slice of entries
 }
 
 // GetValue generates uniformly a value in the range and puts it in the byte buffer.
@@ -833,14 +1303,87 @@ func CreateHistogramUInt32RangeEngine(params *fastjson.RawMessage, mgr *FieldEng
 }
 
 /* ------------------------------------------------------------------------------
+						HistogramInt32RangeEntry
+--------------------------------------------------------------------------------*/
+// HistogramInt32RangeEntry represents a range of int32 which can be used as an
+// entry for the HistogramEngine. This entry can be picked with probability prob.
+// If the entry is picked, a value in the range will be generated uniformly.
+type HistogramInt32RangeEntry struct {
+	Min          int32  `json:"min"`  // Lower bound of the range
+	Max          int32  `json:"max"`  // Higher bound of the range
+	Prob         uint32 `json:"prob"` // Probability of this entry
+	domainLength uint64 // Domain Length, (max - min + 1)
+}
+
+// HistogramInt32RangeParams is used for parsing the input json.
+type HistogramInt32RangeParams struct {
+	HistogramEngineCommonParams                            // Common params
+	Entries                     []HistogramInt32RangeEntry `json:"entries"` // Slice of entries
+}
+
+// GetValue generates uniformly a value in the range and puts it in the byte buffer.
+func (o *HistogramInt32RangeEntry) GetValue(size uint16) (b []byte, err error) {
+	genValue := rand.Uint64()                   // generate random 32 bytes
+	v := o.Min + int32(genValue%o.domainLength) // scale it to the domain
+	return putValueInBuffer(size, uint32(v))
+}
+
+// GetProb returns the probability for this entry to be picked in the histogram engine.
+func (o *HistogramInt32RangeEntry) GetProb() uint32 {
+	return o.Prob
+}
+
+// CreateHistogramInt32RangeEngine creates an histogram engine of int32 range from the input json.
+func CreateHistogramInt32RangeEngine(params *fastjson.RawMessage, mgr *FieldEngineManager) (eng FieldEngineIF, err error) {
+	// unmarshal the data
+	p := HistogramInt32RangeParams{}
+	err = fastjson.Unmarshal(*params, &p)
+	if err != nil {
+		mgr.counters.invalidJson++
+		return nil, err
+	}
+
+	// create general params
+	var histParams HistogramEngineParams
+	histParams.Size = p.Size
+	histParams.Offset = p.Offset
+	for i := range p.Entries {
+		if p.Entries[i].Min > p.Entries[i].Max {
+			mgr.counters.maxSmallerThanMin++
+			return nil, fmt.Errorf("Min %v bigger than max %v in entry #%v.\n", p.Entries[i].Min, p.Entries[i].Max, i)
+		}
+		switch p.Size {
+		case 1:
+			if p.Entries[i].Max > math.MaxInt8 || p.Entries[i].Min < math.MinInt8 {
+				mgr.counters.invalidSize++
+				return nil, fmt.Errorf("Range [%v-%v] can't be represented with %v bytes\n.", p.Entries[i].Min, p.Entries[i].Max, p.Size)
+			}
+		case 2:
+			if p.Entries[i].Max > math.MaxInt16 || p.Entries[i].Min < math.MinInt16 {
+				mgr.counters.invalidSize++
+				return nil, fmt.Errorf("Range [%v-%v] can't be represented with %v bytes\n.", p.Entries[i].Min, p.Entries[i].Max, p.Size)
+			}
+		case 8:
+			mgr.counters.invalidSize++
+			return nil, fmt.Errorf("Invalid size %v with type of engine.\n", p.Size)
+		}
+		p.Entries[i].domainLength = calcDomainLenInt(int64(p.Entries[i].Min), int64(p.Entries[i].Max))
+		histParams.Entries = append(histParams.Entries, &p.Entries[i])
+	}
+
+	// create and return new engine
+	return NewHistogramEngine(&histParams, mgr)
+}
+
+/* ------------------------------------------------------------------------------
 						HistogramUInt32ListEntry
 --------------------------------------------------------------------------------*/
 // HistogramUInt32ListEntry represents a list of uint32 which can be used as an
 // entry for the HistogramEngine. This entry can be picked with probability prob.
 // If the entry is picked, a value in the list will be selected uniformly.
 type HistogramUInt32ListEntry struct {
-	List []uint32 `json:"list"` // a list from where the element will be picked
-	Prob uint32   `json:"prob"` // probability of this entry
+	List []uint32 `json:"list"` // A list from where the element will be picked
+	Prob uint32   `json:"prob"` // Probability of this entry
 }
 
 // HistogramUInt32ListParams is used for parsing the input json.
@@ -908,19 +1451,94 @@ func CreateHistogramUInt32ListEngine(params *fastjson.RawMessage, mgr *FieldEngi
 }
 
 /* ------------------------------------------------------------------------------
+						HistogramInt32ListEntry
+--------------------------------------------------------------------------------*/
+// HistogramInt32ListEntry represents a list of int32 which can be used as an
+// entry for the HistogramEngine. This entry can be picked with probability prob.
+// If the entry is picked, a value in the list will be selected uniformly.
+type HistogramInt32ListEntry struct {
+	List []int32 `json:"list"` // A list from where the element will be picked
+	Prob uint32  `json:"prob"` // Probability of this entry
+}
+
+// HistogramInt32ListParams is used for parsing the input json.
+type HistogramInt32ListParams struct {
+	HistogramEngineCommonParams                           // Common params
+	Entries                     []HistogramInt32ListEntry `json:"entries"` // Slice of entries
+}
+
+// GetValue picks a random value from the list and puts it in the byte buffer.
+func (o *HistogramInt32ListEntry) GetValue(size uint16) (b []byte, err error) {
+	if o.List == nil || len(o.List) == 0 {
+		return nil, fmt.Errorf("Empty list in HistogramUInt32ListEntry.\n")
+	}
+	index := rand.Intn(len(o.List))
+	return putValueInBuffer(size, uint32(o.List[index]))
+}
+
+// GetProb returns the probability for this entry to be picked in the histogram engine.
+func (o *HistogramInt32ListEntry) GetProb() uint32 {
+	return o.Prob
+}
+
+// CreateHistogramInt32ListEngine creates an histogram engine of int32 list from the input json.
+func CreateHistogramInt32ListEngine(params *fastjson.RawMessage, mgr *FieldEngineManager) (eng FieldEngineIF, err error) {
+	// unmarshal the data
+	p := HistogramInt32ListParams{}
+	err = fastjson.Unmarshal(*params, &p)
+	if err != nil {
+		mgr.counters.invalidJson++
+		return nil, err
+	}
+
+	// create general params
+	var histParams HistogramEngineParams
+	histParams.Size = p.Size
+	histParams.Offset = p.Offset
+	for i := range p.Entries {
+		if len(p.Entries[i].List) == 0 {
+			mgr.counters.emptyList++
+			return nil, fmt.Errorf("Entry # %v contains an empty list.\n", i)
+		}
+		for j := range p.Entries[i].List {
+			v := p.Entries[i].List[j]
+			switch p.Size {
+			case 1:
+				if v > math.MaxInt8 || v < math.MinInt8 {
+					mgr.counters.invalidSize++
+					return nil, fmt.Errorf("List value %v can't be represented with %v bytes\n.", v, p.Size)
+				}
+			case 2:
+				if v > math.MaxInt16 || v < math.MinInt16 {
+					mgr.counters.invalidSize++
+					return nil, fmt.Errorf("List value %v can't be represented with %v bytes\n.", v, p.Size)
+				}
+			case 8:
+				mgr.counters.invalidSize++
+				return nil, fmt.Errorf("Invalid size %v with type of engine.\n", p.Size)
+			}
+		}
+		histParams.Entries = append(histParams.Entries, &p.Entries[i])
+	}
+
+	// create and return new engine
+	return NewHistogramEngine(&histParams, mgr)
+}
+
+/* ------------------------------------------------------------------------------
 						HistogramUInt64Entry
 --------------------------------------------------------------------------------*/
 // HistogramUInt64Entry represents a uint64 which can be used as an entry for the
 // HistogramEngine. This entry can be picked with probability prob.
 type HistogramUInt64Entry struct {
-	V    uint64 `json:"v"`    // a value v of 64 bits
-	Prob uint32 `json:"prob"` // probability of this entry
+	V    uint64 `json:"v"`    // A value v of 64 bits
+	Prob uint32 `json:"prob"` // Probability of this entry
 }
 
 // HistogramUInt64Params is used for parsing the input json.
 type HistogramUInt64Params struct {
-	HistogramEngineCommonParams                        // common params
-	Entries                     []HistogramUInt64Entry `json:"entries"` // slice of entries
+	HistogramEngineCommonParams                        // Common params
+	Entries                     []HistogramUInt64Entry `json:"entries"` // Slice of entries
 }
 
 // GetValue puts the value in the byte buffer.
@@ -965,33 +1583,84 @@ func CreateHistogramUInt64Engine(params *fastjson.RawMessage, mgr *FieldEngineMa
 }
 
 /* ------------------------------------------------------------------------------
+						HistogramInt64Entry
+--------------------------------------------------------------------------------*/
+// HistogramInt64Entry represents a int64 which can be used as an entry for the
+// HistogramEngine. This entry can be picked with probability prob.
+type HistogramInt64Entry struct {
+	V    int64  `json:"v"`    // A value v of 64 bits
+	Prob uint32 `json:"prob"` // Probability of this entry
+}
+
+// HistogramInt64Params is used for parsing the input json.
+type HistogramInt64Params struct {
+	HistogramEngineCommonParams                       // Common params
+	Entries                     []HistogramInt64Entry `json:"entries"` // Slice of entries
+}
+
+// GetValue puts the value in the byte buffer.
+func (o *HistogramInt64Entry) GetValue(size uint16) (b []byte, err error) {
+	if size != 8 {
+		return nil, fmt.Errorf("Size in HistogramUInt64Entry GetValue is %v, want %v.\n", size, 8)
+	}
+	b = make([]byte, size)
+	binary.BigEndian.PutUint64(b, uint64(o.V))
+	return b, nil
+}
+
+// GetProb returns the probability for this entry to be picked in the histogram engine.
+func (o *HistogramInt64Entry) GetProb() uint32 {
+	return o.Prob
+}
+
+// CreateHistogramInt64Engine creates an histogram engine of int64 from the input json.
+func CreateHistogramInt64Engine(params *fastjson.RawMessage, mgr *FieldEngineManager) (eng FieldEngineIF, err error) {
+	// unmarshal the data
+	p := HistogramInt64Params{}
+	err = fastjson.Unmarshal(*params, &p)
+	if err != nil {
+		mgr.counters.invalidJson++
+		return nil, err
+	}
+	if p.Size != 8 {
+		mgr.counters.invalidSize++
+		return nil, fmt.Errorf("Invalid size %v with type of engine.\n", p.Size)
+	}
+
+	// create general params
+	var histParams HistogramEngineParams
+	histParams.Size = p.Size
+	histParams.Offset = p.Offset
+	for i := range p.Entries {
+		histParams.Entries = append(histParams.Entries, &p.Entries[i])
+	}
+
+	// create and return new engine
+	return NewHistogramEngine(&histParams, mgr)
+}
+
+/* ------------------------------------------------------------------------------
 						HistogramUInt64RangeEntry
 --------------------------------------------------------------------------------*/
 // HistogramUInt64RangeEntry represents a range of uint64 which can be used as an
 // entry for the HistogramEngine. This entry can be picked with probability prob.
 // If the entry is picked, a value in the range will be generated uniformly.
 type HistogramUInt64RangeEntry struct {
-	Min  uint64 `json:"min"`  // lower bound of the range
-	Max  uint64 `json:"max"`  // higher bound of the range
-	Prob uint32 `json:"prob"` // probability of this entry
+	Min  uint64 `json:"min"`  // Lower bound of the range
+	Max  uint64 `json:"max"`  // Higher bound of the range
+	Prob uint32 `json:"prob"` // Probability of this entry
 }
 
 // HistogramUInt64RangeParams is used for parsing the input json.
 type HistogramUInt64RangeParams struct {
-	HistogramEngineCommonParams                             // common params
-	Entries                     []HistogramUInt64RangeEntry `json:"entries"` // slice of entries
+	HistogramEngineCommonParams                             // Common params
+	Entries                     []HistogramUInt64RangeEntry `json:"entries"` // Slice of entries
 }
 
 // GetValue generates uniformly a value in the range and puts it in the byte buffer.
 func (o *HistogramUInt64RangeEntry) GetValue(size uint16) (b []byte, err error) {
-	if size != 8 {
-		return nil, fmt.Errorf("Size in HistogramUInt64Entry GetValue is %v, want %v.\n", size, 8)
-	}
-	if o.Max < o.Min {
-		return nil, fmt.Errorf("Max %v is smaller than min %v in HistogramRuneRangeEntry.\n", o.Max, o.Min)
-	}
 	b = make([]byte, size)
-	v := rand.Uint64()                    // generate random 32 bytes
+	v := rand.Uint64()                    // generate random 64 bytes
 	v = o.Min + (v % (o.Max - o.Min + 1)) // scale it to the domain
 	binary.BigEndian.PutUint64(b, v)      // put it in the bytes buffer
 	return b, nil
@@ -1034,30 +1703,89 @@ func CreateHistogramUInt64RangeEngine(params *fastjson.RawMessage, mgr *FieldEng
 }
 
 /* ------------------------------------------------------------------------------
+						HistogramInt64RangeEntry
+--------------------------------------------------------------------------------*/
+// HistogramInt64RangeEntry represents a range of int64 which can be used as an
+// entry for the HistogramEngine. This entry can be picked with probability prob.
+// If the entry is picked, a value in the range will be generated uniformly.
+type HistogramInt64RangeEntry struct {
+	Min          int64  `json:"min"`  // Lower bound of the range
+	Max          int64  `json:"max"`  // Higher bound of the range
+	Prob         uint32 `json:"prob"` // Probability of this entry
+	domainLength uint64 // Max - Min + 1
+}
+
+// HistogramInt64RangeParams is used for parsing the input json.
+type HistogramInt64RangeParams struct {
+	HistogramEngineCommonParams                            // Common params
+	Entries                     []HistogramInt64RangeEntry `json:"entries"` // Slice of entries
+}
+
+// GetValue generates uniformly a value in the range and puts it in the byte buffer.
+func (o *HistogramInt64RangeEntry) GetValue(size uint16) (b []byte, err error) {
+	b = make([]byte, size)
+	genValue := rand.Uint64()                   // generate random 64 bytes
+	v := o.Min + int64(genValue%o.domainLength) // scale it to the domain
+	binary.BigEndian.PutUint64(b, uint64(v))    // put it in the bytes buffer
+	return b, nil
+}
+
+// GetProb returns the probability for this entry to be picked in the histogram engine.
+func (o *HistogramInt64RangeEntry) GetProb() uint32 {
+	return o.Prob
+}
+
+// CreateHistogramInt64RangeEngine creates an histogram engine of uint64 range from the input json.
+func CreateHistogramInt64RangeEngine(params *fastjson.RawMessage, mgr *FieldEngineManager) (eng FieldEngineIF, err error) {
+	// unmarshal the data
+	p := HistogramInt64RangeParams{}
+	err = fastjson.Unmarshal(*params, &p)
+	if err != nil {
+		mgr.counters.invalidJson++
+		return nil, err
+	}
+
+	if p.Size != 8 {
+		mgr.counters.invalidSize++
+		return nil, fmt.Errorf("Invalid size %v with type of engine.\n", p.Size)
+	}
+
+	// create general params
+	var histParams HistogramEngineParams
+	histParams.Size = p.Size
+	histParams.Offset = p.Offset
+	for i := range p.Entries {
+		if p.Entries[i].Min > p.Entries[i].Max {
+			mgr.counters.maxSmallerThanMin++
+			return nil, fmt.Errorf("Min %v bigger than max %v in entry #%v.\n", p.Entries[i].Min, p.Entries[i].Max, i)
+		}
+		p.Entries[i].domainLength = calcDomainLenInt(p.Entries[i].Min, p.Entries[i].Max)
+		histParams.Entries = append(histParams.Entries, &p.Entries[i])
+	}
+
+	// create and return new engine
+	return NewHistogramEngine(&histParams, mgr)
+}
+
+/* ------------------------------------------------------------------------------
 						HistogramUInt64ListEntry
 --------------------------------------------------------------------------------*/
 // HistogramUInt64ListEntry represents a list of uint64 which can be used as an
 // entry for the HistogramEngine. This entry can be picked with probability prob.
 // If the entry is picked, a value in the list will be selected uniformly.
 type HistogramUInt64ListEntry struct {
-	List []uint64 `json:"list"` // a list from where the element will be picked
-	Prob uint32   `json:"prob"` // probability of this entry
+	List []uint64 `json:"list"` // A list from where the element will be picked
+	Prob uint32   `json:"prob"` // Probability of this entry
 }
 
 // HistogramUInt64ListParams is used for parsing the input json.
 type HistogramUInt64ListParams struct {
-	HistogramEngineCommonParams                            // common params
-	Entries                     []HistogramUInt64ListEntry `json:"entries"` // slice of entries
+	HistogramEngineCommonParams                            // Common params
+	Entries                     []HistogramUInt64ListEntry `json:"entries"` // Slice of entries
 }
 
 // GetValue picks a random value from the list and puts it in the byte buffer.
 func (o *HistogramUInt64ListEntry) GetValue(size uint16) (b []byte, err error) {
-	if size != 8 {
-		return nil, fmt.Errorf("Size in HistogramUInt64Entry GetValue is %v, want %v.\n", size, 8)
-	}
-	if o.List == nil || len(o.List) == 0 {
-		return nil, fmt.Errorf("Empty list in HistogramUInt32ListEntry.\n")
-	}
 	b = make([]byte, size)
 	index := rand.Intn(len(o.List))
 	binary.BigEndian.PutUint64(b, o.List[index])
@@ -1069,10 +1797,71 @@ func (o *HistogramUInt64ListEntry) GetProb() uint32 {
 	return o.Prob
 }
 
-// CreateHistogramUInt32ListEngine creates an histogram engine of uint32 list from the input json.
+// CreateHistogramUInt64ListEngine creates an histogram engine of uint64 list from the input json.
 func CreateHistogramUInt64ListEngine(params *fastjson.RawMessage, mgr *FieldEngineManager) (eng FieldEngineIF, err error) {
 	// unmarshal the data
 	p := HistogramUInt64ListParams{}
+	err = fastjson.Unmarshal(*params, &p)
+	if err != nil {
+		mgr.counters.invalidJson++
+		return nil, err
+	}
+
+	if p.Size != 8 {
+		mgr.counters.invalidSize++
+		return nil, fmt.Errorf("Invalid size %v with type of engine.\n", p.Size)
+	}
+
+	// create general params
+	var histParams HistogramEngineParams
+	histParams.Size = p.Size
+	histParams.Offset = p.Offset
+	for i := range p.Entries {
+		if len(p.Entries[i].List) == 0 {
+			mgr.counters.emptyList++
+			return nil, fmt.Errorf("Entry # %v contains an empty list.\n", i)
+		}
+		histParams.Entries = append(histParams.Entries, &p.Entries[i])
+	}
+
+	// create and return new engine
+	return NewHistogramEngine(&histParams, mgr)
+}
+
+/* ------------------------------------------------------------------------------
+						HistogramInt64ListEntry
+--------------------------------------------------------------------------------*/
+// HistogramInt64ListEntry represents a list of int64 which can be used as an
+// entry for the HistogramEngine. This entry can be picked with probability prob.
+// If the entry is picked, a value in the list will be selected uniformly.
+type HistogramInt64ListEntry struct {
+	List []int64 `json:"list"` // A list from where the element will be picked
+	Prob uint32  `json:"prob"` // Probability of this entry
+}
+
+// HistogramInt64ListParams is used for parsing the input json.
+type HistogramInt64ListParams struct {
+	HistogramEngineCommonParams                           // Common params
+	Entries                     []HistogramInt64ListEntry `json:"entries"` // Slice of entries
+}
+
+// GetValue picks a random value from the list and puts it in the byte buffer.
+func (o *HistogramInt64ListEntry) GetValue(size uint16) (b []byte, err error) {
+	b = make([]byte, size)
+	index := rand.Intn(len(o.List))
+	binary.BigEndian.PutUint64(b, uint64(o.List[index]))
+	return b, nil
+}
+
+// GetProb returns the probability for this entry to be picked in the histogram engine.
+func (o *HistogramInt64ListEntry) GetProb() uint32 {
+	return o.Prob
+}
+
+// CreateHistogramInt64ListEngine creates an histogram engine of int64 list from the input json.
+func CreateHistogramInt64ListEngine(params *fastjson.RawMessage, mgr *FieldEngineManager) (eng FieldEngineIF, err error) {
+	// unmarshal the data
+	p := HistogramInt64ListParams{}
 	err = fastjson.Unmarshal(*params, &p)
 	if err != nil {
 		mgr.counters.invalidJson++
@@ -1656,17 +2445,27 @@ func CreateHistogramStringEngine(params *fastjson.RawMessage, mgr *FieldEngineMa
 func init() {
 	// Register all the field engine types.
 	fieldEngineRegister("uint", CreateUIntEngine)
+	fieldEngineRegister("int", CreateIntEngine)
+	fieldEngineRegister("float", CreateFloatEngine)
 	fieldEngineRegister("uint_list", CreateUIntListEngine)
+	fieldEngineRegister("int_list", CreateIntListEngine)
+	fieldEngineRegister("float_list", CreateFloatListEngine)
 	fieldEngineRegister("string_list", CreateStringListEngine)
 	fieldEngineRegister("histogram_uint", CreateHistogramUInt32Engine)
+	fieldEngineRegister("histogram_int", CreateHistogramInt32Engine)
 	fieldEngineRegister("histogram_uint_range", CreateHistogramUInt32RangeEngine)
+	fieldEngineRegister("histogram_int_range", CreateHistogramInt32RangeEngine)
 	fieldEngineRegister("histogram_uint_list", CreateHistogramUInt32ListEngine)
+	fieldEngineRegister("histogram_int_list", CreateHistogramInt32ListEngine)
 	/*
 		uint64 is an exception and needs special handlers
 	*/
 	fieldEngineRegister("histogram_uint64", CreateHistogramUInt64Engine)
+	fieldEngineRegister("histogram_int64", CreateHistogramInt64Engine)
 	fieldEngineRegister("histogram_uint64_range", CreateHistogramUInt64RangeEngine)
+	fieldEngineRegister("histogram_int64_range", CreateHistogramInt64RangeEngine)
 	fieldEngineRegister("histogram_uint64_list", CreateHistogramUInt64ListEngine)
+	fieldEngineRegister("histogram_int64_list", CreateHistogramInt64ListEngine)
 
 	fieldEngineRegister("time_start", CreateTimeStartEngine)
 	fieldEngineRegister("time_end", CreateTimeEndEngine)
