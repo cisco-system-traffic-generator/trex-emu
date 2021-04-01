@@ -32,6 +32,7 @@ type DhcpTestBase struct {
 	cb           IgmpTestCb
 	cbArg1       interface{}
 	cbArg2       interface{}
+	options      []byte
 }
 
 type IgmpTestCb func(tctx *core.CThreadCtx, test *DhcpTestBase) int
@@ -45,7 +46,7 @@ func (o *DhcpTestBase) Run(t *testing.T) {
 	if o.match > 0 {
 		simVeth.match = o.match
 	}
-	tctx, _ := createSimulationEnv(&simrx, o.clientsToSim)
+	tctx, _ := createSimulationEnv(&simrx, o.clientsToSim, o)
 	if o.cb != nil {
 		o.cb(tctx, o)
 	}
@@ -79,7 +80,7 @@ func (o *DhcpTestBase) Run(t *testing.T) {
 
 }
 
-func createSimulationEnv(simRx *core.VethIFSim, num int) (*core.CThreadCtx, *core.CClient) {
+func createSimulationEnv(simRx *core.VethIFSim, num int, test *DhcpTestBase) (*core.CThreadCtx, *core.CClient) {
 	tctx := core.NewThreadCtx(0, 4510, true, simRx)
 	var key core.CTunnelKey
 	key.Set(&core.CTunnelData{Vport: 1, Vlans: [2]uint32{0x81000001, 0x81000002}})
@@ -94,7 +95,15 @@ func createSimulationEnv(simRx *core.VethIFSim, num int) (*core.CThreadCtx, *cor
 		dg)
 	ns.AddClient(client)
 	ns.PluginCtx.CreatePlugins([]string{"dhcp"}, [][]byte{})
-	client.PluginCtx.CreatePlugins([]string{"dhcp"}, [][]byte{})
+
+	var inijson [][]byte
+	if test.options == nil {
+		inijson = [][]byte{}
+	} else {
+		inijson = [][]byte{test.options}
+	}
+
+	client.PluginCtx.CreatePlugins([]string{"dhcp"}, inijson)
 	ns.Dump()
 	tctx.RegisterParserCb("dhcp")
 
@@ -230,6 +239,20 @@ func TestPluginDhcp5(t *testing.T) {
 		capture:      true,
 		duration:     120 * time.Second,
 		clientsToSim: 1,
+	}
+	a.Run(t)
+}
+
+func TestPluginDhcp6(t *testing.T) {
+	a := &DhcpTestBase{
+		testname:     "dhcp6",
+		dropAll:      false,
+		monitor:      false,
+		match:        3,
+		capture:      true,
+		duration:     120 * time.Second,
+		clientsToSim: 1,
+		options:      []byte(`{"options": {"discoverDhcpClassIdOption": "MSFT 5.0", "requestDhcpClassIdOption":"MSFT 6.0"}} `),
 	}
 	a.Run(t)
 }

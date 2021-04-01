@@ -41,9 +41,15 @@ const (
 	DHCP_STATE_BOUND      = 6
 )
 
+type DhcpOptionsT struct {
+	DiscoverDhcpClassIdOption *string `json:"discoverDhcpClassIdOption"`
+	RequestDhcpClassIdOption  *string `json:"requestDhcpClassIdOption"`
+}
+
 type DhcpInit struct {
-	TimerDiscoverSec uint32 `json:"timerd"`
-	TimerOfferSec    uint32 `json:"timero"`
+	TimerDiscoverSec uint32        `json:"timerd"`
+	TimerOfferSec    uint32        `json:"timero"`
+	Options          *DhcpOptionsT `json:"options"`
 }
 
 type DhcpStats struct {
@@ -198,11 +204,11 @@ func (o *PluginDhcpClientTimer) OnEvent(a, b interface{}) {
 //PluginDhcpClient information per client
 type PluginDhcpClient struct {
 	core.PluginBase
-	dhcpNsPlug *PluginDhcpNs
-	timerw     *core.TimerCtx
-	cnt        uint8
-	state      uint8
-
+	dhcpNsPlug                 *PluginDhcpNs
+	timerw                     *core.TimerCtx
+	cnt                        uint8
+	state                      uint8
+	init                       DhcpInit
 	ipv4                       core.Ipv4Key
 	server                     core.Ipv4Key
 	serverMac                  core.MACKey
@@ -227,10 +233,10 @@ var dhcpEvents = []string{}
 
 /*NewDhcpClient create plugin */
 func NewDhcpClient(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
-	var init DhcpInit
-	err := fastjson.Unmarshal(initJson, &init)
 
 	o := new(PluginDhcpClient)
+	err := fastjson.Unmarshal(initJson, &o.init)
+
 	o.InitPluginBase(ctx, o)             /* init base object*/
 	o.RegisterEvents(ctx, dhcpEvents, o) /* register events, only if exits*/
 	nsplg := o.Ns.PluginCtx.GetOrCreate(DHCP_PLUG)
@@ -239,14 +245,14 @@ func NewDhcpClient(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
 
 	if err == nil {
 		/* init json was provided */
-		if init.TimerDiscoverSec > 0 {
-			o.timerDiscoverRetransmitSec = init.TimerDiscoverSec
+		if o.init.TimerDiscoverSec > 0 {
+			o.timerDiscoverRetransmitSec = o.init.TimerDiscoverSec
 		}
-		if init.TimerOfferSec > 0 {
-			o.timerOfferRetransmitSec = init.TimerOfferSec
+		if o.init.TimerOfferSec > 0 {
+			o.timerOfferRetransmitSec = o.init.TimerOfferSec
 		}
-	}
 
+	}
 	return &o.PluginBase
 }
 
@@ -263,6 +269,7 @@ func (o *PluginDhcpClient) OnCreate() {
 }
 
 func (o *PluginDhcpClient) preparePacketTemplate() {
+
 	l2 := o.Client.GetL2Header(true, uint16(layers.EthernetTypeIPv4))
 	o.l3Offset = uint16(len(l2))
 
@@ -297,6 +304,10 @@ func (o *PluginDhcpClient) preparePacketTemplate() {
 			byte(layers.DHCPOptDNS),
 			byte(layers.DHCPOptInterfaceMTU),
 			byte(layers.DHCPOptNTPServers)}))
+
+	if (o.init.Options != nil) && (o.init.Options.DiscoverDhcpClassIdOption != nil) {
+		dhcp.Options = append(dhcp.Options, layers.NewDHCPOption(layers.DHCPOptClassID, []byte(*o.init.Options.DiscoverDhcpClassIdOption)))
+	}
 
 	d := core.PacketUtlBuild(
 		&layers.IPv4{Version: 4, IHL: 5, TTL: 128, Id: 0xcc,
@@ -333,7 +344,6 @@ func (o *PluginDhcpClient) preparePacketTemplate() {
 	dhcpReq.Options = append(dhcpReq.Options, layers.NewDHCPOption(layers.DHCPOptClientID, options))
 	dhcpReq.Options = append(dhcpReq.Options, layers.NewDHCPOption(layers.DHCPOptRequestIP, []byte{0, 0, 0, 0}))
 	dhcpReq.Options = append(dhcpReq.Options, layers.NewDHCPOption(layers.DHCPOptServerID, []byte{0, 0, 0, 0}))
-
 	dhcpReq.Options = append(dhcpReq.Options, layers.NewDHCPOption(layers.DHCPOptParamsRequest,
 		[]byte{byte(layers.DHCPOptSubnetMask),
 			byte(layers.DHCPOptRouter),
@@ -341,6 +351,10 @@ func (o *PluginDhcpClient) preparePacketTemplate() {
 			byte(layers.DHCPOptDNS),
 			byte(layers.DHCPOptInterfaceMTU),
 			byte(layers.DHCPOptNTPServers)}))
+
+	if (o.init.Options != nil) && (o.init.Options.RequestDhcpClassIdOption != nil) {
+		dhcpReq.Options = append(dhcpReq.Options, layers.NewDHCPOption(layers.DHCPOptClassID, []byte(*o.init.Options.RequestDhcpClassIdOption)))
+	}
 
 	dr := core.PacketUtlBuild(
 		&layers.IPv4{Version: 4, IHL: 5, TTL: 128, Id: 0xcc,
