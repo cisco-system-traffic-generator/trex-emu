@@ -19,6 +19,7 @@ TRex EMU emulates the aforementioned flow exporter for https://tools.ietf.org/ht
 
 import (
 	"emu/core"
+	engines "emu/plugins/field_engine"
 	"emu/plugins/transport"
 	"encoding/binary"
 	"external/google/gopacket/layers"
@@ -92,31 +93,32 @@ type IPFixGenParams struct {
 // IPFixGen represents a fixed collection of fields which can change over time depending on the engines
 // they are supplied. The generator generates Template and Data packets alike, given a rate for each one.
 type IPFixGen struct {
-	name                   string              // Name of this generator.
-	enabled                bool                // Is generator exporting at the moment.
-	templateRate           float32             // Template rate in PPS.
-	dataRate               float32             // Data rate in PPS.
-	templateID             uint16              // Template ID.
-	recordsNum             uint32              // Number of records in a packet as received from the user.
-	recordsNumToSent       uint32              // Number of records to send in a packet.
-	variableLengthFields   bool                // Has variable length fields?
-	optionsTemplate        bool                // Is Options Template or Data Template
-	scopeCount             uint16              // Scope Count for Option Templates, the number of fields that are scoped.
-	availableRecordPayload uint16              // Available bytes for record payloads.
-	dataTicks              uint32              // Ticks between 2 consequent Data Set packets.
-	dataPktsPerInterval    uint32              // How many data packets to send each interval
-	templateTicks          uint32              // Ticks between 2 consequent Template Set packets.
-	dataBuffer             []byte              // Data Buffer containing the field values.
-	templatePayload        []byte              // A L7 payload for template packets.
-	dataPayload            []byte              // A L7 payload for data packets.
-	fields                 []*IPFixField       // IPFixFields as parsed from the JSON.
-	templateFields         layers.IPFixFields  // IPFixFields in layers.
-	fieldNames             map[string]bool     // Set of field names.
-	engineMgr              *FieldEngineManager // Field Engine Manager
-	dataTimer              core.CHTimerObj     // Timer for Data Set packets.
-	templateTimer          core.CHTimerObj     // Timer for Template Set packets
-	timerw                 *core.TimerCtx      // Timer Wheel
-	ipfixPlug              *PluginIPFixClient  // Pointer to the IPFixClient that owns this generator.
+	name                   string                           // Name of this generator.
+	enabled                bool                             // Is generator exporting at the moment.
+	templateRate           float32                          // Template rate in PPS.
+	dataRate               float32                          // Data rate in PPS.
+	templateID             uint16                           // Template ID.
+	recordsNum             uint32                           // Number of records in a packet as received from the user.
+	recordsNumToSent       uint32                           // Number of records to send in a packet.
+	variableLengthFields   bool                             // Has variable length fields?
+	optionsTemplate        bool                             // Is Options Template or Data Template
+	scopeCount             uint16                           // Scope Count for Option Templates, the number of fields that are scoped.
+	availableRecordPayload uint16                           // Available bytes for record payloads.
+	dataTicks              uint32                           // Ticks between 2 consequent Data Set packets.
+	dataPktsPerInterval    uint32                           // How many data packets to send each interval
+	templateTicks          uint32                           // Ticks between 2 consequent Template Set packets.
+	dataBuffer             []byte                           // Data Buffer containing the field values.
+	templatePayload        []byte                           // A L7 payload for template packets.
+	dataPayload            []byte                           // A L7 payload for data packets.
+	fields                 []*IPFixField                    // IPFixFields as parsed from the JSON.
+	templateFields         layers.IPFixFields               // IPFixFields in layers.
+	fieldNames             map[string]bool                  // Set of field names.
+	engineMgr              *engines.FieldEngineManager      // Field Engine Manager
+	engineMap              map[string]engines.FieldEngineIF // Map of engine name to field engine interface
+	dataTimer              core.CHTimerObj                  // Timer for Data Set packets.
+	templateTimer          core.CHTimerObj                  // Timer for Template Set packets
+	timerw                 *core.TimerCtx                   // Timer Wheel
+	ipfixPlug              *PluginIPFixClient               // Pointer to the IPFixClient that owns this generator.
 }
 
 // NewIPFixGen creates a new IPFix generator (exporting process) based on the parameters received in the
@@ -131,7 +133,7 @@ func NewIPFixGen(ipfix *PluginIPFixClient, initJson *fastjson.RawMessage) (*IPFi
 		return nil, false
 	}
 
-	// validate fields aswell, not only outside Json.
+	// validate fields as well, not only outside Json.
 	validator := ipfix.Tctx.GetJSONValidator()
 	for i := range init.Fields {
 		err = validator.Struct(init.Fields[i])
@@ -176,11 +178,12 @@ func NewIPFixGen(ipfix *PluginIPFixClient, initJson *fastjson.RawMessage) (*IPFi
 	o.fields = init.Fields
 	// Create Engine Manager
 	if init.Engines != nil {
-		o.engineMgr = NewEngineManager(o.ipfixPlug.Tctx, init.Engines)
+		o.engineMgr = engines.NewEngineManager(o.ipfixPlug.Tctx, init.Engines)
 		if !o.engineMgr.WasCreatedSuccessfully() {
 			o.ipfixPlug.stats.failedBuildingEngineMgr++
 			return nil, false
 		}
+		o.engineMap = o.engineMgr.GetEngineMap()
 	}
 
 	o.fieldNames = make(map[string]bool, len(o.fields))
@@ -215,7 +218,7 @@ func NewIPFixGen(ipfix *PluginIPFixClient, initJson *fastjson.RawMessage) (*IPFi
 				ipfix.stats.variableLengthNoEngine++
 				return nil, false
 			} else {
-				if _, ok := o.engineMgr.engines[o.fields[i].Name]; !ok {
+				if _, ok := o.engineMap[o.fields[i].Name]; !ok {
 					ipfix.stats.variableLengthNoEngine++
 					return nil, false
 				}
@@ -225,7 +228,7 @@ func NewIPFixGen(ipfix *PluginIPFixClient, initJson *fastjson.RawMessage) (*IPFi
 
 	// verify each engine name is a correct field
 	if o.engineMgr != nil {
-		for engineName, _ := range o.engineMgr.engines {
+		for engineName, _ := range o.engineMap {
 			if _, ok := o.fieldNames[engineName]; !ok {
 				o.ipfixPlug.stats.invalidEngineName++
 			}
@@ -237,7 +240,7 @@ func NewIPFixGen(ipfix *PluginIPFixClient, initJson *fastjson.RawMessage) (*IPFi
 	o.dataTicks, o.dataPktsPerInterval = o.timerw.DurationToTicksBurst(time.Duration(float32(time.Second) / o.dataRate))
 
 	if o.ipfixPlug.dgMacResolved {
-		// If resolved before the generators were created, we call on resolve explictly.
+		// If resolved before the generators were created, we call on resolve explicitly.
 		if ok := o.OnResolve(); !ok {
 			return nil, false
 		}
@@ -282,7 +285,7 @@ func (o *IPFixGen) OnEvent(a, b interface{}) {
 	}
 }
 
-// OnResolve is called when the client succesfully resolves the mac address of the default gateway
+// OnResolve is called when the client successfully resolves the mac address of the default gateway
 // and we can create a socket.
 func (o *IPFixGen) OnResolve() bool {
 	ok := o.prepareTemplatePayload()
@@ -295,7 +298,7 @@ func (o *IPFixGen) OnResolve() bool {
 	var maxRecords uint32
 
 	if !o.variableLengthFields {
-		// in case we are working with fixed size records we know ahed of time how many records we can send.
+		// in case we are working with fixed size records we know ahead of time how many records we can send.
 		maxRecords = o.calcMaxRecords()
 	} else {
 		// Upper bound on the maximum number of records
@@ -309,7 +312,7 @@ func (o *IPFixGen) OnResolve() bool {
 		o.recordsNumToSent = o.recordsNum
 	}
 
-	// Attempt to send the first packets inorder.
+	// Attempt to send the first packets in order.
 	o.sendTemplatePkt() // template packet
 	o.sendDataPkt()     // data packet
 	return true
@@ -347,7 +350,7 @@ func (o *IPFixGen) calcLongestRecord() (length uint16) {
 		length = uint16(len(o.dataBuffer))
 		for i, _ := range o.fields {
 			if o.fields[i].isVariableLength() {
-				eng := o.engineMgr.engines[o.fields[i].Name]
+				eng := o.engineMap[o.fields[i].Name]
 				length += eng.GetSize() // Size is the upper limit.
 			}
 		}
@@ -602,7 +605,7 @@ func (o *IPFixGen) getDataRecord() (data []byte) {
 	}
 	currentOffset := 0
 	for _, field := range o.fields {
-		if eng, ok := o.engineMgr.engines[field.Name]; ok {
+		if eng, ok := o.engineMap[field.Name]; ok {
 			// field has engine
 			if field.isVariableLength() {
 				// variable length fields are not part of the data buffer
@@ -710,7 +713,7 @@ func (o *IPFixGen) GetInfo() *GenInfo {
 	i.TemplateID = o.templateID
 	i.FieldsNum = len(o.fields)
 	if o.engineMgr != nil {
-		i.EnginesNum = len(o.engineMgr.engines)
+		i.EnginesNum = len(o.engineMap)
 	} else {
 		i.EnginesNum = 0
 	}

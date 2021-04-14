@@ -2000,433 +2000,7 @@ TRex EMU emulates the aforementioned flow exporter for link:https://tools.ietf.o
 
 We designed our Netflow plugin to have the most generic and modular implementation that we can provide. As such we first introduce a new EMU object called `engine`.
 
-==== Engines
-
-Engines are instructions on how to manipulate data on a data buffer. Let's suppose we have a simple buffer of 4 bytes that represents the application identifier (`applicationID` ). We could modify
-this buffer on a variety of ways such as incrementing/decrementing or randomizing the value from iteration to iteration. However that wouldn't make much sense because the values assigned by IANA for the application identifier
-are not incremental, decremental or follow any rule per say. TRex is a real traffic generator, and as such we need to provide an engine that takes in consideration the distribution of real traffic in order to generate application
-identifiers that would make sense. There are plenty of other data fields that need specific modification from iteration to iteration, hence we designed these engines to modify data per our needs.
-
-Let us dive into it. Engines have 3 operations:
-
-[source, go]
-----
-type FieldEngineIF interface {
-    // Update updates the byte slice it receives with the new generated value.
-    // It writes from the beginning of the slice.
-    // If the length of the slice is shorter that the length of the variable we are
-    // trying to write, it will return an error.
-    // It is the responsibility of the caller to provide Update with a long enough
-    // slice. It returns the number of bytes it wrote as the first integer parameter.
-    Update(b []byte) (int, error)
-    // GetOffset returns the offset of the packet as the interface was provided with.
-    // The caller should use GetOffset to provide the interface with the correct
-    // byte slice.
-    GetOffset() uint16
-    // GetSize() returns the size of the variable that the engine will write in
-    // the slice byte the next time it will be called. In order to provide a slice
-    // long enough, the caller should use GetSize.
-    GetSize() uint16
-}
-----
-
-Engines are defined through simple JSON dictionaries. Let us look at the following example:
-
-[source, json]
-.Simple Engine
-----
-{
-    "engine_name": "interface",
-    "engine_type": "uint",
-    "params": {
-        "size": 1,
-        "offset": 1,
-        "min": 1,
-        "max": 24,
-        "init": 5,
-        "op": "inc",
-        "step": 2
-    }
-}
-----
-* `size` represents the size of the variable that the engine will update.
-* `offset` represents the offset in the byte buffer that is provided in the `Update` call.
-
-When we call `Update` with some buffer on this engine, it will write 1 byte at offset 1. The first time we call `Update` the result will be 5 (`init` value) and then 7, 9 and so on, until we wrap around and continue again.
-Possible sizes are {1, 2, 4, 8} meaning we can modify all of {uint8, uint16, uint32, uint64}.
-Possible operations are {inc, dec, rand}. The `step` and `init` value can be anything on the domain range (`max` - `min` + 1).
-
-Sometimes however, we want to generate values from a specific list of values. For this purpose we have have the following list engines.
-
-[source, json]
-.Uint List
-----
-{
-    "engine_type": "uint_list",
-    "engine_name": "uint_list_dec",
-    "params":
-        {
-            "size": 2,
-            "offset": 4,
-            "op": "dec",
-            "list": [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096],
-            "step": 2,
-            "init_index": 4
-        }
-}
-----
-In this engine we can iterate the values of the provided `list` in incremental, decremental or random order. In the first two cases the `step` and the `init_value` can be any value between 0 and the list size.
-For example with this engine, at bytes 4-5 of the provided buffer (`offset=4`, `size=2`) we will write `16` (`init_index=4`) and then `4` (`op=dec` and `step=2`), `1`, `2048` and so on.
-
-
-The same can be done with strings. For example we can write the following engine:
-[source, json]
-.String list
-----
-{
-    "engine_type": "string_list",
-    "engine_name": "string_list_inc",
-    "params":
-        {
-            "size": 20,
-            "offset": 0,
-            "op": "inc",
-            "list": ["TRex", "Cisco", "AVC", "EMU", "Golang", "🤩"]
-        }
-}
-----
-Pay attention that for list engines the default `step=1` and the default `init_index=0`. 
-
-
-The engines we saw until here are very simple and do some simple operation. In case the operation is random it will pick a random value in the domain with uniform probability. But in order to simulate real life cases we need
-fast non uniform random distribution. Hence we have the following engines:
-
-
-[source, json]
-.Simple Histogram
-----
-{
-    "engine_name": "minTTL",
-    "engine_type": "histogram_uint",
-    "params": {
-        "size": 1,
-        "offset": 0,
-        "entries": [
-            {
-                "v": 64,
-                "prob": 1
-            },
-            {
-                "v": 128,
-                "prob": 2
-            },
-            {
-                "v": 192,
-                "prob": 5
-            }
-        ]
-    }
-}
-----
-This engine will write 1 byte at `offset` 0 of the provided buffer. It will write 64 with probability 1/8, 128 with probability 2/8 and 192 with probability 5/8.
-Possible sizes for this engine type are {1, 2, 4}.
-For size 8, please use `engine_type = "histogram_uint64"`. We have to thank Golang's support of generics for that.
-
-Another type of engine would be generating values in different ranges where each range has some probability of being chosen.
-
-[source, json]
-.Range Histogram
-----
-{
-    "engine_name": "initiatorPackets",
-    "engine_type": "histogram_uint64_range",
-    "params":
-    {
-        "size": 8,
-        "offset": 0,
-        "entries": [
-            {
-                "min": 0,
-                "max": 4294967295,
-                "prob": 1
-            },
-            {
-                "min": 4294967296,
-                "max": 8589934591,
-                "prob": 3
-            }
-        ]
-    }
-}
-----
-This engine will generate an uint64 (`size` = 8) and write at `offset` 0 of the buffer a value in
-[0-4294967295] with probability 1/4 and a value in [4294967296-8589934591] with probability 3/4. After one entry is picked with the given probability, the value inside that entries domain
-is generated uniformly. For sizes {1, 2, 4} please use `"engine_type": "histogram_uint_range"`.
-
-Now, let us look at an engine that picks an entry from a list with some predefined distribution.
-
-[source, json]
-.List Histogram
-----
-{
-    "engine_name": "protocolIdentifier",
-    "engine_type": "histogram_uint_list",
-    "params": {
-        "size": 1,
-        "offset": 0,
-        "entries": [
-            {
-                "list": [17, 6],
-                "prob": 5
-            },
-            {
-                "list": [1],
-                "prob": 1
-            }
-        ]
-    }
-}
-----
-This engine for example can be used to modify the protocol identifier. The value 1 represents ICMP and is picked with probability 1/6.
-The values 17, 6 represent UDP and TCP respectively. The entry containing this value will be picked with probability 5/6 and then one between TCP and UDP will be picked uniformly.
-
-Time related fields need special handling and as such we created special engines for them. Time engines always come in couples and need an `Engine Manager` (will be defined shorty) to work. 
-Both of the engines `time_start`, `time_end` must be always provided.
-
-[source, json]
-.Time engines
-----
-{
-    "engine_name": "flowStartSysUpTime",
-    "engine_type": "time_start",
-    "params":
-        {
-            "size": 4,
-            "offset": 0,
-            "time_end_engine_name": "flowEndSysUpTime",
-            "ipg_min": 10000,
-            "ipg_max": 20000,
-            "time_offset": 200000
-        }
-},
-{
-    "engine_name": "flowEndSysUpTime",
-    "engine_type": "time_end",
-    "params":
-        {
-            "size": 4,
-            "offset": 0,
-            "time_start_engine_name": "flowStartSysUpTime",
-            "duration_min": 5000,
-            "duration_max": 10000,
-        }
-}
-----
-The `size` of these engines can be 4 or 8 bytes.
-The Inter Packet Gap (IPG) will be a random value between `ipg_min` and `ipg_max`. The `duration` of the flow will be a random value between
-`duration_min` and `duration_max`. Lastly the `time_offset` can be used to provide an offset from the beginning of time. This makes time engines quite modular, as
-the can be used for relative times (`time_offset = upTime`) or absolute times (`times_offset = UnixTime`).
-All the values are in `milliseconds`.
-
-To generate hosts realistically, we provide an engine for building URLs.
-[source, json]
-.Histogram URLs
-----
-{
-    "engine_name": "nbar2HttpHost",
-    "engine_type": "histogram_url",
-    "params":
-    {
-        "size": 60,
-        "offset": 0,
-        "entries": [
-            {
-                "schemes": ["https"],
-                "hosts": ["google.com"],
-                "random_queries": true,
-                "prob": 5
-            },
-            {
-                "schemes": ["ftp"],
-                "hosts": ["downloads.cisco.com", "software.cisco.com"],
-                "paths": ["ios-xe", "nx-os"],
-                "queries": ["version=16", "version=7"],
-                "prob": 2
-            },
-            {
-                "schemes": ["http", "https"],
-                "hosts": ["trex-tgn.cisco.com"],
-                "paths": ["doc", "releases", "sdk"],
-                "prob": 3
-            }
-        ]
-    }
-}
-----
-Let us for a moment ignore the histogram and consider what an URL is. An URL is a combination of a `scheme` + `host` + `path` + `query`. An URL must have a `scheme` and a `host` but not
-necessarily contain the other fields. The `scheme` and the `host` will be uniformly picked from the `schemes` list and the `hosts` list respectively.
-A path list can be provided if the user wants to. If a path list is provided, a `path` will be picked from the path list, which implicitly contains the empty path.
-`Queries` can be provided in a list as raw queries (which implicitly contains the empty query), or can be generated randomly using the `random_queries` flag. The `queries` list and the `random_queries`
-flag are mutually exclusive.
-
-Finally, the histogram picks an entry with that entries' probability, and generates an URL from that entry.
-
-[NOTE]
-=====================================================================
-The `histogram_url` engine is an engine that works with variable length fields for IPFix.
-For example this engine will write exactly the generated URL in the provided buffer through Update.
-It means that it will not pad the size, unlike `string_list` for example.
-The number of bytes written in the buffer, is the first return parameter of the Update function.
-The `size` parameter in this engine is an upper bound for the random queries length, or for the
-longest possible URL that can be composed.
-=====================================================================
-
-Another important histogram engine is the histogram string engine. Many IPFix fields work with strings, some are of fixed length (for example 32 bytes) and some have variable length.
-We created a generic engine that generates strings with a given probability and works both with fixed and variable length fields by padding if necessary. Thanks to Golang's native support of Unicode
-strings, the engine will support any Unicode strings.
-
-Let us look at a fixed length field string histogram:
-[source, python]
-.String histogram - Fixed length field
-----
-{
-    "engine_name": "interfaceName",
-    "engine_type": "histogram_string",              <1>
-    "params": {
-        "size": 32,                                 <2>
-        "offset": 0,
-        "should_pad": True,                         <3>
-        "entries": [
-            {
-                "str": "Te0/0/0",
-                "prob": 4,
-                "padding_value": 35,                <4>
-            },
-            {
-                "str": "Hu0/1",
-                "prob": 1,
-                "padding_value": 36,
-            },
-            {
-                "str": "Gi0",
-                "prob": 2,
-            }
-        ]
-    }
-}
-----
-<1> The type of the engine is `histogram_string`
-<2> The maximum byte size of the encoded string can be 32 bytes
-<3> Specifies that the string should be always padded to the maximum size. This should be true for fixed length fields and false for variable length fields.
-<4> Some ASCII padding value. In this case it is #. The default value is 0x00.
-
-In this engine, the generated value will be padded to 32 bytes using the `padding_value`. By using the default padding value we get exactly the required behavior for IPFix fixed length works.
-
-Let us look at a variable length field string histogram:
-[source, python]
-.String histogram - Variable length field
-----
-{
-    "engine_name": "variableLength",
-    "engine_type": "histogram_string",              <1>
-    "params": {
-        "size": 10,                                 <2>
-        "offset": 2,
-        "should_pad": False,                        <3>
-        "entries": [
-            {
-                "str": "Cisco",
-                "prob": 1,
-                "padding_value": 35,                <4>
-            },
-            {
-                "str": "TRex",
-                "prob": 2,
-            },
-            {
-                "str": "TRex-Emu",
-                "prob": 1,
-            }
-        ]
-    }
-}
-----
-<1> The type of the engine is `histogram_string` too.
-<2> The maximum size of an allowed field.
-<3> The string is not padded, it is encoded in its original length. Use this for variable length strings.
-<4> Padding value can be given but it is ignored.
-
-
-We will summarize the engines and their types in the following table:
-
-.Engine summary
-[options="header",cols="2, 1, 1, 1, 1, 4",width="100%"]
-|================= 
-| Engine Type                   | Parameters             | Histogram Entry | Type             | Mandatory | Description
-.7+| uint                       | size                .7+|                 | uint16           | Yes       | Size of the uint in bytes. Possible values are 1, 2, 4, 8.
-                                | offset                                   | uint16           | Yes       | Offset to write in the provided buffer.
-                                | op                                       | string           | Yes       | Operation. Can be `inc`, `dec` or `rand`.
-                                | step                                     | uint64           | No        | Step in case of inc, dec. Should be a value that can be expressed with `size` bytes. Default = 1.
-                                | min                                      | uint64           | Yes       | Min value to be generated. Should be a value that can be expressed with `size` bytes.
-                                | max                                      | uint64           | Yes       | Max value to be generated. Should be a value that can be expressed with `size` bytes.
-                                | init                                     | uint64           | No        | Value between min and max from where we start the generation. Default = min.
-.7+| uint_list/string_list      | size                .7+|                 | uint16           | Yes       | Size of the uint/string in bytes. For uint lists, possible values are 1, 2, 4, 8. Strings should have a value longer than any string in the `list`.
-                                | offset                                   | uint16           | Yes       | Offset to write in the provided buffer.
-                                | op                                       | string           | Yes       | Operation. Can be `inc`, `dec` or `rand`.
-                                | step                                     | uint64           | No        | Step in case of inc, dec. Should be between 0 and size of `list`. Default = 1.
-                                | init_index                               | uint64           | No        | The index from where to start in the list. Should be between 0 and size of the `list`. Default = 0.
-                                | list                                     | []uint64/[]string| Yes       | List of unsigned integers/strings. Each value must be expressed with `size` bytes.
-                                | padding_value                            | uint8            | No        | Padding value for `string_list` only. Pads the string with this value until they become of length = `size`. Default = 0.
-.5+| histogram_uint(64)         | size                .2+|                 | uint16           | Yes       | Size of uint entry in bytes. If using `histogram_uint` use size 1, 2, 4. If using `histogram_uint64` use size 8.
-                                | offset                                   | uint16           | Yes       | Offset to write in the provided buffer.
-                             .3+| entries                |                 | []dictionaries   | Yes       | List of dictionary where each dictionary represents an entry for the histogram.
-                                                         |  v              | uint32/64        | Yes       | Value for this entry. Should be a value that can be expressed with `size` bytes.
-                                                         |  prob           | uint32           | Yes       | Probability for this entry to be picked. Any integer bigger than 0. The probabilities will be scaled automatically.
-.6+| histogram_uint(64)_range   | size                .2+|                 | uint16           | Yes       | Size of uint entry in bytes. If using `histogram_uint_range` use size 1, 2, 4. If using `histogram_uint64_range` use size 8.
-                                | offset                                   | uint16           | Yes       | Offset to write in the provided buffer.
-                             .4+| entries                |                 | [] dictionaries  | Yes       | List of dictionary where each dictionary represents an entry for the histogram.
-                                                         |  min            | uint32/64        | Yes       | Min value that can be generated by this entry. Should be a value that can be expressed with `size` bytes.
-                                                         |  max            | uint32/64        | Yes       | Max value that can be generated by this entry. Should be a value that can be expressed with `size` bytes. A value between `min` and `max` will be generated uniformly.
-                                                         |  prob           | uint32           | Yes       | Probability for this entry to be picked. Any integer bigger than 0. The probabilities will be scaled automatically.
-.5+| histogram_uint(64)_list    | size                .2+|                 | uint16           | Yes       | Size of uint entry in bytes. If using `histogram_uint_list` use size 1, 2, 4. If using `histogram_uint64_list` use size 8.
-                                | offset                                   | uint16           | Yes       | Offset to write in the provided buffer.
-                             .3+| entries                |                 | []dictionaries   | Yes       | List of dictionary where each dictionary represents an entry for the histogram.
-                                                         |  list           | []uint32/64      | Yes       | List of values for this entry. Every list value must be able to fit in `size` bytes. A value from the list is uniformly picked.
-                                                         |  prob           | uint32           | Yes       | Probability for this entry to be picked. Any integer bigger than 0. The probabilities will be scaled automatically.
-.6+| time_start                 | size                .6+|                 | uint16           | Yes       | Size of the timestamp in bytes. Possible values are 4, 8.
-                                | offset                                   | uint16           | Yes       | Offset to write in the provided buffer.
-                                | time_end_engine_name                     | string           | Yes       | Exact name that will be given to the `time_end` engine.
-                                | time_offset                              | uint64           | No        | The first packet offset from the starting point in milliseconds. Can be relative (uptime) or absolute (Unix time). Default = 0.
-                                | ipg_min                                  | uint64           | Yes       | Minimal Inter Packet Gap of this flow in milliseconds.
-                                | ipg_max                                  | uint64           | Yes       | Maximal Inter Packet Gap of this flow in milliseconds. The IPG will be a uniformly picked value between min and max duration.
-.5+| time_end                   | size                .5+|                 | uint16           | Yes       | Size of the timestamp in bytes. Possible values are 4, 8. Must be the same as in `time_start` engine.
-                                | offset                                   | uint16           | Yes       | Offset to write in the provided buffer.
-                                | time_start_engine_name                   | string           | Yes       | Exact name that will be given to the `time_start` engine.
-                                | duration_min                             | uint64           | Yes       | Minimal duration for this flow in milliseconds.
-                                | duration_max                             | uint64           | Yes       | Maximal duration for this flow in milliseconds. The duration will be a uniformly picked value between min and max duration.
-.9+| histogram_url              | size                .2+|                 | uint16           | Yes       | Maximum size of url in bytes. Provide a large enough buffer to hold the longest url that can be generated.
-                                | offset                                   | uint16           | Yes       | Offset to write in the provided buffer.
-                             .7+| entries                |                 | []dictionaries   | Yes       | List of dictionary where each dictionary represents an entry for the histogram.
-                                                         |  schemes        | []strings        | Yes       | List of schemes for the URL.
-                                                         |  hosts          | []strings        | Yes       | List of hosts for the URL.
-                                                         |  paths          | []strings        | No        | List of possible paths for the URL. The empty path is implicitly provided.
-                                                         |  queries        | []strings        | No        | List of possible raw queries for the URL. The empty query is implicitly provided.
-                                                         |  random_queries | bool             | No        | Should generate random queries? Default is False. Mutually exclusive with the `queries` parameter. Will generate queries of any length smaller than size.
-                                                         |  prob           | uint32           | Yes       | Probability for this entry to be picked. Any integer bigger than 0. The probabilities will be scaled automatically.
-.7+| histogram_string           | size                .3+|                 | uint16           | Yes       | Maximum size of string in bytes. Provide a large enough value to hold the longest string encoded.
-                                | offset                                   | uint16           | Yes       | Offset to write in the provided buffer.
-                                | should_pad                               | bool             | Yes       | Pad the encoded string to the maximum size using some UTF-8 padding value. This should be true for fixed length fields (padding the value will always give a fixed length buffer) and false for variable length fields.
-                             .4+| entries                |                 | []dictionaries   | Yes       | List of dictionary where each dictionary represents an entry for the histogram.
-                                                         |  str            | string           | Yes       | String to generate. Each string's encoded length should be less or equal the maximum size.
-                                                         |  prob           | uint32           | Yes       | Probability for this entry to be picked. Any integer bigger than 0. The probabilities will be scaled automatically.
-                                                         |  padding_value  | uint8            | No        | Some UTF-8 order value for a padding character. This will be used to pad the encoded string to maximum size in case padding is set. Defaults to 0. 
-|=================
-
-==== Engine Manager
-
-Multiple engines can be defined in the same time using a list of dictionaries, where each dictionary represents one engine.
-The engine manager is a singleton that aggregates all the engines and can be used to call all of the engines one after the other.
-It has a map that maps the engines by their name to the actual engine object. It also provides aggregated error counters.
+Prior to proceeding into the Netflow plugin, knowledge of engines is required. Please refer to the xref:engines[engines] section: 
 
 ==== Netflow Plugin
 
@@ -2962,6 +2536,487 @@ Note that when using TCP in debug mode we don't need these permissions and we si
  scripts$ sudo ./t-rex-64 -i -c 1 --iom 0 --software --emu-zmq --emu-zmq-tcp
  scripts/trex_emu$ trex-emu --emu-zmq-tcp
 ----
+
+== Engines
+
+anchor:engines[]
+
+=== Intro
+
+Engines are instructions on how to manipulate data on a data buffer. Let's suppose we have a simple buffer of 4 bytes that represents the application identifier (`applicationID` ). We could modify
+this buffer on a variety of ways such as incrementing/decrementing or randomizing the value from iteration to iteration. However that wouldn't make much sense because the values assigned by IANA for the application identifier are not incremental, decremental or follow any rule per say. TRex is a real traffic generator, and as such we need to provide an engine that takes in consideration the distribution of real traffic in order to generate application identifiers that would make sense. There are plenty of other data fields that need specific modification from iteration to iteration, hence we designed these engines to modify data per our needs.
+
+Let us dive into it. Engines have 3 operations:
+
+[source, go]
+----
+type FieldEngineIF interface {
+    // Update updates the byte slice it receives with the new generated value.
+    // It writes from the beginning of the slice.
+    // If the length of the slice is shorter that the length of the variable we are
+    // trying to write, it will return an error.
+    // It is the responsibility of the caller to provide Update with a long enough
+    // slice. It returns the number of bytes it wrote as the first integer parameter.
+    Update(b []byte) (int, error)
+    // GetOffset returns the offset of the packet as the interface was provided with.
+    // The caller should use GetOffset to provide the interface with the correct
+    // byte slice.
+    GetOffset() uint16
+    // GetSize() returns the size of the variable that the engine will write in
+    // the slice byte the next time it will be called. In order to provide a slice
+    // long enough, the caller should use GetSize.
+    GetSize() uint16
+}
+----
+
+Engines are defined through simple JSON dictionaries. Let us look at the following example:
+
+[source, json]
+.Simple Uint Engine
+----
+{
+    "engine_name": "interface",
+    "engine_type": "uint",
+    "params": {
+        "size": 1,
+        "offset": 1,
+        "min": 1,
+        "max": 24,
+        "init": 5,
+        "op": "inc",
+        "step": 2
+    }
+}
+----
+* `size` represents the size of the variable that the engine will update.
+* `offset` represents the offset in the byte buffer that is provided in the `Update` call.
+
+When we call `Update` with some buffer on this engine, it will write 1 byte at offset 1. The first time we call `Update` the result will be 5 (`init` value) and then 7, 9 and so on, until we wrap around and continue again.
+Possible sizes are {1, 2, 4, 8} meaning we can modify all of {uint8, uint16, uint32, uint64}.
+Possible operations are {inc, dec, rand}. The `step` and `init` value can be anything on the domain range (`max` - `min` + 1).
+
+[NOTE]
+=====================================================================
+The `uint` engine will write the value as a unsigned integer.
+If we use `int` instead, the value will be written in 2's complementary.
+=====================================================================
+
+We can also generate floats using engines. For example:
+[source, json]
+.Simple Float Engine
+----
+{
+    "engine_name": "cool_floats",
+    "engine_type": "float",
+    "params": {
+        "size": 4,
+        "offset": 0,
+        "min": -2.5,
+        "max": 3.14,
+    }
+}
+----
+In float engines, there are no increment or decrement notations. This is because such operations don't make sense on real numbers.
+Hence the only supported operation is random. For example, this engine will generate random `float32` (4 bytes) values such that: min < = generate value < max.
+
+
+Sometimes however, we want to generate values from a specific list of values. For this purpose we have have the following list engines.
+
+[source, json]
+.Int list
+----
+{
+    "engine_type": "int_list",
+    "engine_name": "int_list_dec",
+    "params":
+        {
+            "size": 2,
+            "offset": 4,
+            "op": "dec",
+            "list": [-5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 5, 5],
+            "step": 2,
+            "init_index": 4
+        }
+}
+----
+In this engine we can iterate the values of the provided `list` in incremental, decremental or random order. In the first two cases the `step` and the `init_value` can be any value between 0 and the list size.
+For example with this engine, at bytes 4-5 of the provided buffer (`offset=4`, `size=2`) we will write `0xFF, 0xFF` (`-1` in 2's complementary) (`init_index=4`) and then `-3` in 2's complementary,  (`op=dec` and `step=2`), `-5`, `5` and so on.
+
+
+The same can be done with strings or floats. For example we can write the following engine:
+[source, json]
+.String list
+----
+{
+    "engine_type": "string_list",
+    "engine_name": "string_list_inc",
+    "params":
+        {
+            "size": 20,
+            "offset": 0,
+            "op": "inc",
+            "list": ["TRex", "Cisco", "AVC", "EMU", "Golang", "🤩"]
+        }
+}
+----
+
+[source, json]
+.Float list
+----
+{
+    "engine_type": "float_list",
+    "engine_name": "float_list_dec",
+    "params":
+        {
+            "size": 8,
+            "offset": 0,
+            "op": "dec",
+            "list": [3.14, 2.71, 1.62, 0.1, 1.44]
+            "init_index": 4
+        }
+}
+----
+Pay attention that for list engines the default `step=1` and the default `init_index=0`. 
+
+
+The engines we saw until here are very simple and do some simple operation. In case the operation is random it will pick a random value in the domain with uniform probability. But in order to simulate real life cases we need
+fast non uniform random distribution. Hence we have the following engines:
+
+
+[source, json]
+.Simple Histogram
+----
+{
+    "engine_name": "minTTL",
+    "engine_type": "histogram_uint",
+    "params": {
+        "size": 1,
+        "offset": 0,
+        "entries": [
+            {
+                "v": 64,
+                "prob": 1
+            },
+            {
+                "v": 128,
+                "prob": 2
+            },
+            {
+                "v": 192,
+                "prob": 5
+            }
+        ]
+    }
+}
+----
+This engine will write 1 byte at `offset` 0 of the provided buffer. It will write 64 with probability 1/8, 128 with probability 2/8 and 192 with probability 5/8.
+Possible sizes for this engine type are {1, 2, 4}.
+For size 8, please use `engine_type = "histogram_uint64"`. We have to thank Golang's support of generics for that.
+
+Another type of engine would be generating values in different ranges where each range has some probability of being chosen.
+
+[source, json]
+.Range Histogram
+----
+{
+    "engine_name": "initiatorPackets",
+    "engine_type": "histogram_uint64_range",
+    "params":
+    {
+        "size": 8,
+        "offset": 0,
+        "entries": [
+            {
+                "min": 0,
+                "max": 4294967295,
+                "prob": 1
+            },
+            {
+                "min": 4294967296,
+                "max": 8589934591,
+                "prob": 3
+            }
+        ]
+    }
+}
+----
+This engine will generate an uint64 (`size` = 8) and write at `offset` 0 of the buffer a value in
+[0-4294967295] with probability 1/4 and a value in [4294967296-8589934591] with probability 3/4. After one entry is picked with the given probability, the value inside that entries domain
+is generated uniformly. For sizes {1, 2, 4} please use `"engine_type": "histogram_uint_range"`.
+
+Now, let us look at an engine that picks an entry from a list with some predefined distribution.
+
+[source, json]
+.List Histogram
+----
+{
+    "engine_name": "protocolIdentifier",
+    "engine_type": "histogram_uint_list",
+    "params": {
+        "size": 1,
+        "offset": 0,
+        "entries": [
+            {
+                "list": [17, 6],
+                "prob": 5
+            },
+            {
+                "list": [1],
+                "prob": 1
+            }
+        ]
+    }
+}
+----
+This engine for example can be used to modify the protocol identifier. The value 1 represents ICMP and is picked with probability 1/6.
+The values 17, 6 represent UDP and TCP respectively. The entry containing this value will be picked with probability 5/6 and then one between TCP and UDP will be picked uniformly.
+
+Time related fields need special handling and as such we created special engines for them. Time engines always come in couples and need an `Engine Manager` (will be defined shorty) to work. 
+Both of the engines `time_start`, `time_end` must be always provided.
+
+[source, json]
+.Time engines
+----
+{
+    "engine_name": "flowStartSysUpTime",
+    "engine_type": "time_start",
+    "params":
+        {
+            "size": 4,
+            "offset": 0,
+            "time_end_engine_name": "flowEndSysUpTime",
+            "ipg_min": 10000,
+            "ipg_max": 20000,
+            "time_offset": 200000
+        }
+},
+{
+    "engine_name": "flowEndSysUpTime",
+    "engine_type": "time_end",
+    "params":
+        {
+            "size": 4,
+            "offset": 0,
+            "time_start_engine_name": "flowStartSysUpTime",
+            "duration_min": 5000,
+            "duration_max": 10000,
+        }
+}
+----
+The `size` of these engines can be 4 or 8 bytes.
+The Inter Packet Gap (IPG) will be a random value between `ipg_min` and `ipg_max`. The `duration` of the flow will be a random value between
+`duration_min` and `duration_max`. Lastly the `time_offset` can be used to provide an offset from the beginning of time. This makes time engines quite modular, as
+the can be used for relative times (`time_offset = upTime`) or absolute times (`times_offset = UnixTime`).
+All the values are in `milliseconds`.
+
+To generate hosts realistically, we provide an engine for building URLs.
+[source, json]
+.Histogram URLs
+----
+{
+    "engine_name": "nbar2HttpHost",
+    "engine_type": "histogram_url",
+    "params":
+    {
+        "size": 60,
+        "offset": 0,
+        "entries": [
+            {
+                "schemes": ["https"],
+                "hosts": ["google.com"],
+                "random_queries": true,
+                "prob": 5
+            },
+            {
+                "schemes": ["ftp"],
+                "hosts": ["downloads.cisco.com", "software.cisco.com"],
+                "paths": ["ios-xe", "nx-os"],
+                "queries": ["version=16", "version=7"],
+                "prob": 2
+            },
+            {
+                "schemes": ["http", "https"],
+                "hosts": ["trex-tgn.cisco.com"],
+                "paths": ["doc", "releases", "sdk"],
+                "prob": 3
+            }
+        ]
+    }
+}
+----
+Let us for a moment ignore the histogram and consider what an URL is. An URL is a combination of a `scheme` + `host` + `path` + `query`. An URL must have a `scheme` and a `host` but not
+necessarily contain the other fields. The `scheme` and the `host` will be uniformly picked from the `schemes` list and the `hosts` list respectively.
+A path list can be provided if the user wants to. If a path list is provided, a `path` will be picked from the path list, which implicitly contains the empty path.
+`Queries` can be provided in a list as raw queries (which implicitly contains the empty query), or can be generated randomly using the `random_queries` flag. The `queries` list and the `random_queries`
+flag are mutually exclusive.
+
+Finally, the histogram picks an entry with that entries' probability, and generates an URL from that entry.
+
+[NOTE]
+=====================================================================
+The `histogram_url` engine is an engine that works with variable length fields for IPFix.
+For example this engine will write exactly the generated URL in the provided buffer through Update.
+It means that it will not pad the size, unlike `string_list` for example.
+The number of bytes written in the buffer, is the first return parameter of the Update function.
+The `size` parameter in this engine is an upper bound for the random queries length, or for the
+longest possible URL that can be composed.
+=====================================================================
+
+Another important histogram engine is the histogram string engine. Many IPFix fields work with strings, some are of fixed length (for example 32 bytes) and some have variable length.
+We created a generic engine that generates strings with a given probability and works both with fixed and variable length fields by padding if necessary. Thanks to Golang's native support of Unicode
+strings, the engine will support any Unicode strings.
+
+Let us look at a fixed length field string histogram:
+[source, python]
+.String histogram - Fixed length field
+----
+{
+    "engine_name": "interfaceName",
+    "engine_type": "histogram_string",              <1>
+    "params": {
+        "size": 32,                                 <2>
+        "offset": 0,
+        "should_pad": True,                         <3>
+        "entries": [
+            {
+                "str": "Te0/0/0",
+                "prob": 4,
+                "padding_value": 35,                <4>
+            },
+            {
+                "str": "Hu0/1",
+                "prob": 1,
+                "padding_value": 36,
+            },
+            {
+                "str": "Gi0",
+                "prob": 2,
+            }
+        ]
+    }
+}
+----
+<1> The type of the engine is `histogram_string`
+<2> The maximum byte size of the encoded string can be 32 bytes
+<3> Specifies that the string should be always padded to the maximum size. This should be true for fixed length fields and false for variable length fields.
+<4> Some ASCII padding value. In this case it is #. The default value is 0x00.
+
+In this engine, the generated value will be padded to 32 bytes using the `padding_value`. By using the default padding value we get exactly the required behavior for IPFix fixed length works.
+
+Let us look at a variable length field string histogram:
+[source, python]
+.String histogram - Variable length field
+----
+{
+    "engine_name": "variableLength",
+    "engine_type": "histogram_string",              <1>
+    "params": {
+        "size": 10,                                 <2>
+        "offset": 2,
+        "should_pad": False,                        <3>
+        "entries": [
+            {
+                "str": "Cisco",
+                "prob": 1,
+                "padding_value": 35,                <4>
+            },
+            {
+                "str": "TRex",
+                "prob": 2,
+            },
+            {
+                "str": "TRex-Emu",
+                "prob": 1,
+            }
+        ]
+    }
+}
+----
+<1> The type of the engine is `histogram_string` too.
+<2> The maximum size of an allowed field.
+<3> The string is not padded, it is encoded in its original length. Use this for variable length strings.
+<4> Padding value can be given but it is ignored.
+
+
+We will summarize the engines and their types in the following table:
+
+.Engine summary
+[options="header",cols="2, 1, 1, 1, 1, 4",width="100%"]
+|================= 
+| Engine Type                               | Parameters             | Histogram Entry | Type             | Mandatory | Description
+.7+| (u)int                                 | size                .7+|                 | uint16           | Yes       | Size of the (u)int in bytes. Possible values for (u)int are 1, 2, 4, 8.
+                                            | offset                                   | uint16           | Yes       | Offset to write in the provided buffer.
+                                            | op                                       | string           | Yes       | Operation. Can be `inc`, `dec` or `rand`.
+                                            | step                                     | uint64           | No        | Step in case of inc, dec. Should be a value that can be expressed with `size` bytes. Default = 1.
+                                            | min                                      | (u)int64         | Yes       | Min value to be generated. Should be a value that can be expressed with `size` bytes.
+                                            | max                                      | (u)int64         | Yes       | Max value to be generated. Should be a value that can be expressed with `size` bytes.
+                                            | init                                     | (u)int64         | No        | Value between min and max from where we start the generation. Default = min.
+.4+| float                                  | size                .4+|                 | uint16           | Yes       | Size of the float in bytes. Possible values for float are 4, 8 (float32, float64).
+                                            | offset                                   | uint16           | Yes       | Offset to write in the provided buffer.
+                                            | min                                      | float64          | Yes       | Min value to be generated. In case of size=4 it will be represented by float32.
+                                            | max                                      | float64          | Yes       | Max value to be generated. In case of size=4 it will be represented by float32.
+.7+| (u)int_list / float_list / string_list | size                .7+|                 | uint16           | Yes       | Size of the (u)int/float/string in bytes. For (u)int/float lists, possible values are as aforementioned. Strings should have a value longer than any string in the `list`.
+                                            | offset                                   | uint16           | Yes       | Offset to write in the provided buffer.
+                                            | op                                       | string           | Yes       | Operation. Can be `inc`, `dec` or `rand`.
+                                            | step                                     | uint64           | No        | Step in case of inc, dec. Should be between 0 and size of `list`. Default = 1.
+                                            | init_index                               | uint64           | No        | The index from where to start in the list. Should be between 0 and size of the `list`. Default = 0.
+                                            | list                                     | [](u)int64 / []float64 / []string| Yes   | List of (unsigned) integers/floats/strings. Each value must be expressed with `size`            bytes.
+                                            | padding_value                            | uint8            | No        | Padding value for `string_list` only. Pads the string with this value until they become of          length = `size`. Default = 0.
+.5+| histogram_(u)int(64)                   | size                .2+|                 | uint16           | Yes       | Size of (u)int entry in bytes. If using `histogram_(u)int` use size 1, 2, 4. If using `histogram_(u)int64` use size 8.
+                                            | offset                                   | uint16           | Yes       | Offset to write in the provided buffer.
+                                         .3+| entries                |                 | []dictionaries   | Yes       | List of dictionary where each dictionary represents an entry for the histogram.
+                                                         |  v              | (u)int32/64      | Yes       | Value for this entry. Should be a value that can be expressed with `size` bytes.
+                                                         |  prob           | uint32           | Yes       | Probability for this entry to be picked. Any integer bigger than 0. The probabilities will be scaled automatically.
+.6+| histogram_(u)int(64)_range             | size                .2+|                 | uint16           | Yes       | Size of (u)int entry in bytes. If using `histogram_(u)int_range` use size 1, 2, 4. If using `histogram_(u)int64_range` use size 8.
+                                            | offset                                   | uint16           | Yes       | Offset to write in the provided buffer.
+                                         .4+| entries                |                 | [] dictionaries  | Yes       | List of dictionary where each dictionary represents an entry for the histogram.
+                                                                     |  min            | (u)int32/64      | Yes       | Min value that can be generated by this entry. Should be a value that can be expressed with `size` bytes.
+                                                                     |  max            | (u)int32/64      | Yes       | Max value that can be generated by this entry. Should be a value that can be expressed with `size` bytes. A value between `min` and `max` will be generated uniformly.
+                                                                     |  prob           | uint32           | Yes       | Probability for this entry to be picked. Any integer bigger than 0. The probabilities will be scaled automatically.
+.5+| histogram_(u)int(64)_list              | size                .2+|                 | uint16           | Yes       | Size of (u)int entry in bytes. If using `histogram_(u)int_list` use size 1, 2, 4. If using `histogram_(u)int64_list` use size 8.
+                                            | offset                                   | uint16           | Yes       | Offset to write in the provided buffer.
+                                         .3+| entries                |                 | []dictionaries   | Yes       | List of dictionary where each dictionary represents an entry for the histogram.
+                                                                     |  list           | [](u)int32/64    | Yes       | List of values for this entry. Every list value must be able to fit in `size` bytes. A value from the list is uniformly picked.
+                                                                     |  prob           | uint32           | Yes       | Probability for this entry to be picked. Any integer bigger than 0. The probabilities will be scaled automatically.
+.6+| time_start                             | size                .6+|                 | uint16           | Yes       | Size of the timestamp in bytes. Possible values are 4, 8.
+                                            | offset                                   | uint16           | Yes       | Offset to write in the provided buffer.
+                                            | time_end_engine_name                     | string           | Yes       | Exact name that will be given to the `time_end` engine.
+                                            | time_offset                              | uint64           | No        | The first packet offset from the starting point in milliseconds. Can be relative (uptime) or            absolute (Unix time). Default = 0.
+                                            | ipg_min                                  | uint64           | Yes       | Minimal Inter Packet Gap of this flow in milliseconds.
+                                            | ipg_max                                  | uint64           | Yes       | Maximal Inter Packet Gap of this flow in milliseconds. The IPG will be a uniformly picked value             between min and max duration.
+.5+| time_end                               | size                .5+|                 | uint16           | Yes       | Size of the timestamp in bytes. Possible values are 4, 8. Must be the same as in `time_start` engine.
+                                            | offset                                   | uint16           | Yes       | Offset to write in the provided buffer.
+                                            | time_start_engine_name                   | string           | Yes       | Exact name that will be given to the `time_start` engine.
+                                            | duration_min                             | uint64           | Yes       | Minimal duration for this flow in milliseconds.
+                                            | duration_max                             | uint64           | Yes       | Maximal duration for this flow in milliseconds. The duration will be a uniformly picked value between min and max duration.
+.9+| histogram_url                          | size                .2+|                 | uint16           | Yes       | Maximum size of url in bytes. Provide a large enough buffer to hold the longest url that can be generated.
+                                            | offset                                   | uint16           | Yes       | Offset to write in the provided buffer.
+                                         .7+| entries                |                 | []dictionaries   | Yes       | List of dictionary where each dictionary represents an entry for the histogram.
+                                                                     |  schemes        | []strings        | Yes       | List of schemes for the URL.
+                                                                     |  hosts          | []strings        | Yes       | List of hosts for the URL.
+                                                                     |  paths          | []strings        | No        | List of possible paths for the URL. The empty path is implicitly provided.
+                                                                     |  queries        | []strings        | No        | List of possible raw queries for the URL. The empty query is implicitly provided.
+                                                                     |  random_queries | bool             | No        | Should generate random queries? Default is False. Mutually exclusive with the `queries` parameter. Will generate queries of any length smaller than size.
+                                                                     |  prob           | uint32           | Yes       | Probability for this entry to be picked. Any integer bigger than 0. The probabilities will be         scaled automatically.
+.7+| histogram_string                       | size                .3+|                 | uint16           | Yes       | Maximum size of string in bytes. Provide a large enough value to hold the longest string encoded.
+                                            | offset                                   | uint16           | Yes       | Offset to write in the provided buffer.
+                                            | should_pad                               | bool             | Yes       | Pad the encoded string to the maximum size using some UTF-8 padding value. This should be true for fixed length fields (padding the value will always give a fixed length buffer) and false for variable length fields.
+                                         .4+| entries                |                 | []dictionaries   | Yes       | List of dictionary where each dictionary represents an entry for the histogram.
+                                                                     |  str            | string           | Yes       | String to generate. Each string's encoded length should be less or equal the maximum size.
+                                                                     |  prob           | uint32           | Yes       | Probability for this entry to be picked. Any integer bigger than 0. The probabilities will be scaled automatically.
+                                                                     |  padding_value  | uint8            | No        | Some UTF-8 order value for a padding character. This will be used to pad the encoded string to maximum size in case padding is set. Defaults to 0. 
+|=================
+
+[NOTE]
+=====================================================================
+(u)int means that *both* uint and int types are supported.
+=====================================================================
+
+==== Engine Manager
+
+Multiple engines can be defined in the same time using a list of dictionaries, where each dictionary represents one engine.
+The engine manager is a singleton that aggregates all the engines and can be used to call all of the engines one after the other.
+It has a map that maps the engines by their name to the actual engine object. It also provides aggregated error counters.
 
 == Simulator
 
