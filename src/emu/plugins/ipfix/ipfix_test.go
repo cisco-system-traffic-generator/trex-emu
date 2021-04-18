@@ -1845,7 +1845,7 @@ func TestPluginIPFix14(t *testing.T) {
 }
 
 func TestPluginIPFix15(t *testing.T) {
-	// Big Data Rate to see bursts
+	// Big Data Rate to see burts
 
 	initJson := fmt.Sprintf(`
 	{
