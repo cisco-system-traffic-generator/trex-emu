@@ -52,9 +52,20 @@ const (
 	DEFAULT_TIMEOUT_T2_SEC = 3600
 )
 
+type DhcpOptionsT struct {
+	Solicit  *[]byte `json:"sol"` // a few options in binary format [option][len][len][data..] ..[option][len][len][data]
+	Request  *[]byte `json:"req"`
+	Release  *[]byte `json:"rel"`
+	Rebind   *[]byte `json:"reb"`
+	Renew    *[]byte `json:"ren"`
+	RemoveOR bool    `json:"rm_or"` // remove default option request
+	RemoveVC bool    `json:"rm_vc"` // remove default vendor class
+}
+
 type DhcpInit struct {
-	TimerDiscoverSec uint32 `json:"timerd"`
-	TimerOfferSec    uint32 `json:"timero"`
+	TimerDiscoverSec uint32        `json:"timerd"`
+	TimerOfferSec    uint32        `json:"timero"`
+	Options          *DhcpOptionsT `json:"options"`
 }
 
 type DhcpStats struct {
@@ -302,6 +313,7 @@ type PluginDhcpClient struct {
 	core.PluginBase
 	dhcpNsPlug                 *PluginDhcpNs
 	timerw                     *core.TimerCtx
+	init                       DhcpInit
 	cnt                        uint8
 	state                      uint8
 	ticksStart                 uint64
@@ -323,6 +335,7 @@ type PluginDhcpClient struct {
 	l3Offset                   uint16
 	l4Offset                   uint16
 	l7Offset                   uint16
+	l7TimeOffset               uint16
 	xid                        uint32
 	iaid                       uint32
 	serverOption               []byte
@@ -333,25 +346,25 @@ var dhcpEvents = []string{}
 
 /*NewDhcpClient create plugin */
 func NewDhcpClient(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
-	var init DhcpInit
-	err := fastjson.Unmarshal(initJson, &init)
 
 	o := new(PluginDhcpClient)
+
+	err := fastjson.Unmarshal(initJson, &o.init)
+	if err == nil {
+		/* init json was provided */
+		if o.init.TimerDiscoverSec > 0 {
+			o.timerDiscoverRetransmitSec = o.init.TimerDiscoverSec
+		}
+		if o.init.TimerOfferSec > 0 {
+			o.timerOfferRetransmitSec = o.init.TimerOfferSec
+		}
+	}
+
 	o.InitPluginBase(ctx, o)             /* init base object*/
 	o.RegisterEvents(ctx, dhcpEvents, o) /* register events, only if exits*/
 	nsplg := o.Ns.PluginCtx.GetOrCreate(DHCPV6_PLUG)
 	o.dhcpNsPlug = nsplg.Ext.(*PluginDhcpNs)
 	o.OnCreate()
-
-	if err == nil {
-		/* init json was provided */
-		if init.TimerDiscoverSec > 0 {
-			o.timerDiscoverRetransmitSec = init.TimerDiscoverSec
-		}
-		if init.TimerOfferSec > 0 {
-			o.timerOfferRetransmitSec = init.TimerOfferSec
-		}
-	}
 
 	return &o.PluginBase
 }
@@ -445,10 +458,19 @@ func (o *PluginDhcpClient) preparePacketTemplate() {
 
 	clientid := &layers.DHCPv6DUID{Type: layers.DHCPv6DUIDTypeLL, HardwareType: []byte{0, 1}, LinkLayerAddress: o.Client.Mac[:]}
 	o.cid = append(o.cid, clientid.Encode()[:]...)
+	pad := 0
 
 	dhcp.Options = append(dhcp.Options, layers.NewDHCPv6Option(layers.DHCPv6OptClientID, clientid.Encode()))
-	dhcp.Options = append(dhcp.Options, layers.NewDHCPv6Option(layers.DHCPv6OptOro, []byte{0, 0x11, 0, 0x17, 0, 0x18, 0x00, 0x27}))
-	dhcp.Options = append(dhcp.Options, layers.NewDHCPv6Option(layers.DHCPv6OptVendorClass, []byte{0x00, 0x00, 0x01, 0x37, 0x00, 0x08, 0x4d, 0x53, 0x46, 0x54, 0x20, 0x35, 0x2e, 0x30}))
+	if o.init.Options != nil && o.init.Options.RemoveOR == true {
+		pad += 12
+	} else {
+		dhcp.Options = append(dhcp.Options, layers.NewDHCPv6Option(layers.DHCPv6OptOro, []byte{0, 0x11, 0, 0x17, 0, 0x18, 0x00, 0x27}))
+	}
+	if o.init.Options != nil && o.init.Options.RemoveVC == true {
+		pad += 18
+	} else {
+		dhcp.Options = append(dhcp.Options, layers.NewDHCPv6Option(layers.DHCPv6OptVendorClass, []byte{0x00, 0x00, 0x01, 0x37, 0x00, 0x08, 0x4d, 0x53, 0x46, 0x54, 0x20, 0x35, 0x2e, 0x30}))
+	}
 
 	ianao := []byte{0x00, 0x00, 0x00, 0x00,
 		0x00, 0x00, 0x00, 0x00,
@@ -459,6 +481,7 @@ func (o *PluginDhcpClient) preparePacketTemplate() {
 	dhcp.Options = append(dhcp.Options, layers.NewDHCPv6Option(layers.DHCPv6OptIANA, ianao))
 	dhcp.Options = append(dhcp.Options, layers.NewDHCPv6Option(layers.DHCPv6OptElapsedTime, []byte{0x00, 0x00}))
 
+	o.l7TimeOffset = 68 - uint16(pad)
 	o.l4Offset = o.l3Offset + IPV6_HEADER_SIZE
 	o.l7Offset = o.l4Offset + 8
 
@@ -471,10 +494,36 @@ func (o *PluginDhcpClient) SendDhcpPacket(
 
 	var msec uint32
 	msec = uint32(o.timerw.Ticks-o.ticksStart) * o.timerw.MinTickMsec()
-
 	pad := 0
 	if serverOption {
 		pad = len(o.sidOption)
+	}
+	if o.init.Options != nil {
+		// add option
+		switch msgType {
+		case byte(layers.DHCPv6MsgTypeSolicit):
+			if o.init.Options.Solicit != nil {
+				pad += len(*o.init.Options.Solicit)
+			}
+		case byte(layers.DHCPv6MsgTypeRequest):
+			if o.init.Options.Request != nil {
+				pad += len(*o.init.Options.Request)
+			}
+		case byte(layers.DHCPv6MsgTypeRenew):
+			if o.init.Options.Renew != nil {
+				pad += len(*o.init.Options.Renew)
+			}
+
+		case byte(layers.DHCPv6MsgTypeRebind):
+			if o.init.Options.Rebind != nil {
+				pad += len(*o.init.Options.Rebind)
+			}
+
+		case byte(layers.DHCPv6MsgTypeRelease):
+			if o.init.Options.Release != nil {
+				pad += len(*o.init.Options.Release)
+			}
+		}
 	}
 
 	m := o.Ns.AllocMbuf(uint16(len(o.discoverPktTemplate) + pad))
@@ -484,9 +533,34 @@ func (o *PluginDhcpClient) SendDhcpPacket(
 		m.Append(o.sidOption)
 	}
 
+	if o.init.Options != nil {
+		switch msgType {
+		case byte(layers.DHCPv6MsgTypeSolicit):
+			if o.init.Options.Solicit != nil {
+				m.Append(*o.init.Options.Solicit)
+			}
+		case byte(layers.DHCPv6MsgTypeRequest):
+			if o.init.Options.Request != nil {
+				m.Append(*o.init.Options.Request)
+			}
+		case byte(layers.DHCPv6MsgTypeRenew):
+			if o.init.Options.Renew != nil {
+				m.Append(*o.init.Options.Renew)
+			}
+		case byte(layers.DHCPv6MsgTypeRebind):
+			if o.init.Options.Rebind != nil {
+				m.Append(*o.init.Options.Rebind)
+			}
+		case byte(layers.DHCPv6MsgTypeRelease):
+			if o.init.Options.Release != nil {
+				m.Append(*o.init.Options.Release)
+			}
+		}
+	}
+
 	p := m.GetData()
 
-	of := o.l7Offset + 68 // time
+	of := o.l7Offset + o.l7TimeOffset
 	binary.BigEndian.PutUint16(p[of:of+2], uint16(msec/10))
 	of = o.l7Offset
 	p[of] = byte(msgType)
@@ -494,7 +568,7 @@ func (o *PluginDhcpClient) SendDhcpPacket(
 	ipv6o := o.l3Offset
 	ipv6 := layers.IPv6Header(p[ipv6o : ipv6o+IPV6_HEADER_SIZE])
 
-	if serverOption {
+	if pad > 0 {
 		newlen := ipv6.PayloadLength() + uint16(pad)
 		ipv6.SetPyloadLength(newlen)
 		binary.BigEndian.PutUint16(p[o.l4Offset+4:o.l4Offset+6], newlen)
