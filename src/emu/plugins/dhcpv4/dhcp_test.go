@@ -257,6 +257,20 @@ func TestPluginDhcp6(t *testing.T) {
 	a.Run(t)
 }
 
+func TestPluginDhcp7(t *testing.T) {
+	a := &DhcpTestBase{
+		testname:     "dhcp7",
+		dropAll:      false,
+		monitor:      false,
+		match:        3,
+		capture:      true,
+		duration:     120 * time.Second,
+		clientsToSim: 1,
+		options:      []byte(`{"options": {"dis": [[60,8,77,83,70,84,32,53,46,48],[60,8,77,83,70,84,32,53,46,48]], "req":[[60,8,77,83,70,84,32,53,46,48],[60,8,77,83,70,84,32,53,46,48],[60,8,77,83,70,84,32,53,46,48]],"ren":[[60,8,77,83,70,84,32,53,46,48]] }} `),
+	}
+	a.Run(t)
+}
+
 func getL2() []byte {
 	l2 := []byte{0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 2, 0x81, 00, 0x00, 0x01, 0x81, 00, 0x00, 0x02, 0x08, 00}
 	return l2

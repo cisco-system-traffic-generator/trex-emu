@@ -42,8 +42,11 @@ const (
 )
 
 type DhcpOptionsT struct {
-	DiscoverDhcpClassIdOption *string `json:"discoverDhcpClassIdOption"`
-	RequestDhcpClassIdOption  *string `json:"requestDhcpClassIdOption"`
+	DiscoverDhcpClassIdOption *string   `json:"discoverDhcpClassIdOption"`
+	RequestDhcpClassIdOption  *string   `json:"requestDhcpClassIdOption"`
+	Discover                  *[][]byte `json:"dis"` // a way to add a few option
+	Request                   *[][]byte `json:"req"`
+	Renew                     *[][]byte `json:"ren"`
 }
 
 type DhcpInit struct {
@@ -309,6 +312,13 @@ func (o *PluginDhcpClient) preparePacketTemplate() {
 		dhcp.Options = append(dhcp.Options, layers.NewDHCPOption(layers.DHCPOptClassID, []byte(*o.init.Options.DiscoverDhcpClassIdOption)))
 	}
 
+	if (o.init.Options != nil) && (o.init.Options.Discover != nil) {
+		for _, op := range *o.init.Options.Discover {
+			dhcp.Options = append(dhcp.Options,
+				layers.NewDHCPOption(layers.DHCPOpt(op[0]), op[1:]))
+		}
+	}
+
 	d := core.PacketUtlBuild(
 		&layers.IPv4{Version: 4, IHL: 5, TTL: 128, Id: 0xcc,
 			SrcIP:    net.IPv4(0, 0, 0, 0),
@@ -356,6 +366,13 @@ func (o *PluginDhcpClient) preparePacketTemplate() {
 		dhcpReq.Options = append(dhcpReq.Options, layers.NewDHCPOption(layers.DHCPOptClassID, []byte(*o.init.Options.RequestDhcpClassIdOption)))
 	}
 
+	if (o.init.Options != nil) && (o.init.Options.Request != nil) {
+		for _, op := range *o.init.Options.Request {
+			dhcpReq.Options = append(dhcpReq.Options,
+				layers.NewDHCPOption(layers.DHCPOpt(op[0]), op[1:]))
+		}
+	}
+
 	dr := core.PacketUtlBuild(
 		&layers.IPv4{Version: 4, IHL: 5, TTL: 128, Id: 0xcc,
 			SrcIP:    net.IPv4(0, 0, 0, 0),
@@ -390,6 +407,13 @@ func (o *PluginDhcpClient) preparePacketTemplate() {
 	dhcpReqRenew.Options = append(dhcpReqRenew.Options, layers.NewDHCPOption(layers.DHCPOptMessageType, []byte{byte(layers.DHCPMsgTypeRequest)}))
 	dhcpReqRenew.Options = append(dhcpReqRenew.Options, layers.NewDHCPOption(layers.DHCPOptClientID, options))
 
+	if (o.init.Options != nil) && (o.init.Options.Renew != nil) {
+		for _, op := range *o.init.Options.Renew {
+			dhcpReqRenew.Options = append(dhcpReqRenew.Options,
+				layers.NewDHCPOption(layers.DHCPOpt(op[0]), op[1:]))
+		}
+	}
+
 	drn := core.PacketUtlBuild(
 		&layers.IPv4{Version: 4, IHL: 5, TTL: 128, Id: 0xcc,
 			SrcIP:    net.IPv4(0, 0, 0, 0),
@@ -399,6 +423,7 @@ func (o *PluginDhcpClient) preparePacketTemplate() {
 		&layers.UDP{SrcPort: 68, DstPort: 67},
 		dhcpReqRenew,
 	)
+
 	ipv4 = layers.IPv4Header(drn[0:20])
 	ipv4.SetLength(uint16(len(drn)))
 	ipv4.UpdateChecksum()
