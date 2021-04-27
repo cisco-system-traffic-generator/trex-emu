@@ -23,6 +23,7 @@ import (
 	"emu/plugins/igmp"
 	"emu/plugins/ipfix"
 	"emu/plugins/ipv6"
+	"emu/plugins/lldp"
 	"emu/plugins/tdl"
 	"emu/plugins/transport"
 	"emu/plugins/transport_example"
@@ -42,6 +43,7 @@ func RegisterPlugins(tctx *core.CThreadCtx) {
 	dot1x.Register(tctx)
 	ipfix.Register(tctx)
 	tdl.Register(tctx)
+	lldp.Register(tctx)
 	transport.Register(tctx)
 	transport_example.Register(tctx)
 }
