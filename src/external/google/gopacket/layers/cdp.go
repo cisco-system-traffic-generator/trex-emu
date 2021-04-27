@@ -60,6 +60,16 @@ type CiscoDiscoveryValue struct {
 	Value  []byte
 }
 
+func NewCdpVal(t CDPTLVType, d []byte) CiscoDiscoveryValue {
+	o := CiscoDiscoveryValue{Type: t}
+	o.Length = 4
+	if d != nil {
+		o.Value = d
+		o.Length += uint16(len(d))
+	}
+	return o
+}
+
 // CiscoDiscovery is a packet layer containing the Cisco Discovery Protocol.
 // See http://www.cisco.com/univercd/cc/td/doc/product/lan/trsrb/frames.htm#31885
 type CiscoDiscovery struct {
@@ -212,9 +222,74 @@ type CiscoDiscoveryInfo struct {
 	Unknown          []CiscoDiscoveryValue
 }
 
+// Calculate CDP checksum which is not like IPv4 checksum
+
+func CdpChecksum(data []byte, csum uint32) uint16 {
+	// to handle odd lengths, we loop to length - 1, incrementing by 2, then
+	// handle the last byte specifically by checking against the original
+	// length.
+	length := len(data) - 1
+	for i := 0; i < length; i += 2 {
+		// For our test packet, doing this manually is about 25% faster
+		// (740 ns vs. 1000ns) than doing it by calling binary.BigEndian.Uint16.
+		csum += uint32(data[i]) << 8
+		csum += uint32(data[i+1])
+	}
+	if len(data)%2 == 1 {
+		csum += uint32(data[length]) // don't swap
+	}
+	for csum > 0xffff {
+		csum = (csum >> 16) + (csum & 0xffff)
+	}
+	if data[length]&0x80 == 0x80 {
+		csum -= 0x100
+	}
+
+	return ^uint16(csum & 0xffff)
+}
+
+func (o *CiscoDiscoveryValue) encode(b []byte) error {
+	binary.BigEndian.PutUint16(b[0:2], uint16(o.Type))
+	binary.BigEndian.PutUint16(b[2:4], o.Length)
+	copy(b[4:], o.Value)
+	return nil
+}
+
 // LayerType returns gopacket.LayerTypeCiscoDiscovery.
 func (c *CiscoDiscovery) LayerType() gopacket.LayerType {
 	return LayerTypeCiscoDiscovery
+}
+
+func (c *CiscoDiscovery) Len() uint16 {
+	n := uint16(4) // header
+	for _, o := range c.Values {
+		n += uint16(o.Length)
+	}
+	return n
+}
+
+func (c *CiscoDiscovery) SerializeTo(b gopacket.SerializeBuffer, opts gopacket.SerializeOptions) error {
+	plen := int(c.Len())
+
+	data, err := b.PrependBytes(plen)
+
+	if err != nil {
+		return err
+	}
+	data[0] = c.Version
+	data[1] = c.TTL
+	data[2] = 0
+	data[3] = 0
+	if len(c.Values) > 0 {
+		offset := uint16(4)
+		for _, o := range c.Values {
+			if err := o.encode(data[offset:]); err != nil {
+				return err
+			}
+			offset += o.Length
+		}
+	}
+	return nil
 }
 
 func decodeCiscoDiscovery(data []byte, p gopacket.PacketBuilder) error {

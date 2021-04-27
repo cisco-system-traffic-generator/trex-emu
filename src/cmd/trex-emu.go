@@ -16,6 +16,7 @@ import (
 	"github.com/akamensky/argparse"
 
 	"emu/plugins/arp"
+	"emu/plugins/cdp"
 	dhcp "emu/plugins/dhcpv4"
 	"emu/plugins/dhcpv6"
 	"emu/plugins/dot1x"
@@ -44,6 +45,7 @@ func RegisterPlugins(tctx *core.CThreadCtx) {
 	ipfix.Register(tctx)
 	tdl.Register(tctx)
 	lldp.Register(tctx)
+	cdp.Register(tctx)
 	transport.Register(tctx)
 	transport_example.Register(tctx)
 }
