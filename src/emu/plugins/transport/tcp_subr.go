@@ -570,9 +570,9 @@ func (o *TcpSocket) removeFlowAssociation() {
 }
 
 // build template
-func (o *TcpSocket) initphase2(cb ISocketCb) {
+func (o *TcpSocket) initphase2(cb ISocketCb, dstMac *core.MACKey) {
 	o.cb = cb
-	o.baseSocket.initphase2(false)
+	o.baseSocket.initphase2(false, dstMac)
 	o.maxseg = o.ctx.tcp_mssdflt_ - (o.l4Offset - (20 + 14))
 	o.socket = new(socketData)
 	o.socket.so_snd.init(o.tctx, o.ctx.tcp_tx_socket_bsize)

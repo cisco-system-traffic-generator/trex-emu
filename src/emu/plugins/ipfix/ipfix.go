@@ -1041,7 +1041,7 @@ func (o *PluginIPFixClient) OnResolve() {
 	o.dgMacResolved = true
 	if o.transportCtx != nil {
 		var err error
-		o.socket, err = o.transportCtx.Dial("udp", o.dstAddress, o, nil)
+		o.socket, err = o.transportCtx.Dial("udp", o.dstAddress, o, nil, nil)
 		if err != nil {
 			o.stats.invalidSocket++
 			return

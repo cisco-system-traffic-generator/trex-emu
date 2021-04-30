@@ -163,11 +163,15 @@ func (o *baseSocket) buildIpv6Template(udp bool) {
 	o.pktTemplate = append(l2, dr...)
 }
 
-func (o *baseSocket) initphase2(udp bool) {
+func (o *baseSocket) initphase2(udp bool, dstMac *core.MACKey) {
 	if o.ipv6 {
 		o.buildIpv6Template(udp)
 	} else {
 		o.buildIpv4Template(udp)
+	}
+	if dstMac != nil {
+		o.resolved = true
+		layers.EthernetHeader(o.pktTemplate).SetDestAddress(dstMac[:])
 	}
 }
 

@@ -51,7 +51,7 @@ func newSimCtx(app iSockeApp, c *core.CClient, server bool, ioctl *map[string]in
 		if params.ipv6 {
 			d = "[2001:db8::3000:1]:80"
 		}
-		ap, err := o.ctx.Dial(net, d, app.getCb(), mioctl)
+		ap, err := o.ctx.Dial(net, d, app.getCb(), mioctl, nil)
 		if err != nil {
 			fmt.Printf(" ERROR %v \n", err)
 			return nil

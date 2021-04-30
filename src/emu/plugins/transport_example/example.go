@@ -222,7 +222,7 @@ func (o *PluginTransportEClient) OnEvent(msg string, a, b interface{}) {
 		if resolvedIPv4 {
 			// now we can dial
 			o.ctx = transport.GetTransportCtx(o.Client)
-			s, err := o.ctx.Dial("tcp", o.cfg.Addr, o, nil)
+			s, err := o.ctx.Dial("tcp", o.cfg.Addr, o, nil, nil)
 			if err != nil {
 				return
 			}

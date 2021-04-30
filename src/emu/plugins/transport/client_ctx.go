@@ -814,7 +814,7 @@ func (o *TransportCtx) handleRxCmnNewFlow(ps *core.ParserPacketState,
 		o.flowTableStats.ft_new_ipv6++
 		o.addFlowv6(keyv6, s)
 	}
-	s.initphase2(cb)
+	s.initphase2(cb, nil)
 	// defer ioctl
 	ioc := s.getServerIoctl()
 	if ioc != nil {
@@ -906,7 +906,6 @@ func (o *TransportCtx) handleRxUdpNewFlow(ps *core.ParserPacketState,
 // per client handler, for both ipv4 and ipv6
 func (o *TransportCtx) handleRxPacket(ps *core.ParserPacketState) int {
 
-
 	m := ps.M
 	p := m.GetData()
 	/* checksum was tested by parser already */
@@ -966,11 +965,13 @@ func (o *TransportCtx) handleRxPacket(ps *core.ParserPacketState) int {
 
 // network tcp,udp
 // address addr:port
+// dstMac &core.MACKey{0xff, 0xff, 0xff, 0xff, 0xff, 0xff}
 // for example
-//	Dial("tcp", "192.0.2.1:80",cb,nil)
+//	Dial("tcp", "192.0.2.1:80",cb,nil, nil)
 //	Dial("tcp", "[2001:db8::1]:80",cb,nil)
 //	Dial("tcp", "[2001:db8::1]:80",cb,{"tos":12})
-func (o *TransportCtx) Dial(network, address string, cb ISocketCb, ioctl IoctlMap) (SocketApi, error) {
+//	Dial("udp", "192.0.2.1:80",cb,nil, &core.MACKey{0xff, 0xff, 0xff, 0xff, 0xff, 0xff})
+func (o *TransportCtx) Dial(network, address string, cb ISocketCb, ioctl IoctlMap, dstMac *core.MACKey) (SocketApi, error) {
 
 	o.flowTableStats.dial++
 
@@ -1000,9 +1001,9 @@ func (o *TransportCtx) Dial(network, address string, cb ISocketCb, ioctl IoctlMa
 
 	switch network {
 	case "tcp":
-		return o.dialTcp(dst, port16, cb, ioctl)
+		return o.dialTcp(dst, port16, cb, ioctl, dstMac)
 	case "udp":
-		return o.dialUdp(dst, port16, cb, ioctl)
+		return o.dialUdp(dst, port16, cb, ioctl, dstMac)
 	}
 	return nil, fmt.Errorf(" unsupported %v network", network)
 }
@@ -1015,7 +1016,7 @@ func toV6(ip net.IP, ipv6 *core.Ipv6Key) {
 	copy(ipv6[:], ip[0:16])
 }
 
-func (o *TransportCtx) dialCmn(s internalSocketApi, socket SocketApi, dst net.IP, port uint16, cb ISocketCb, ioctl IoctlMap) (SocketApi, error) {
+func (o *TransportCtx) dialCmn(s internalSocketApi, socket SocketApi, dst net.IP, port uint16, cb ISocketCb, ioctl IoctlMap, dstMac *core.MACKey) (SocketApi, error) {
 	s.init(o.Client, o)
 	var sourceport uint16
 	proto := s.getProto()
@@ -1068,7 +1069,7 @@ func (o *TransportCtx) dialCmn(s internalSocketApi, socket SocketApi, dst net.IP
 		o.addFlowv6(&tuple, s)
 	}
 
-	s.initphase2(cb)
+	s.initphase2(cb, dstMac)
 	if ioctl != nil {
 		socket.SetIoctl(ioctl)
 	}
@@ -1076,14 +1077,14 @@ func (o *TransportCtx) dialCmn(s internalSocketApi, socket SocketApi, dst net.IP
 	return socket, nil
 }
 
-func (o *TransportCtx) dialTcp(dst net.IP, port uint16, cb ISocketCb, ioctl IoctlMap) (SocketApi, error) {
+func (o *TransportCtx) dialTcp(dst net.IP, port uint16, cb ISocketCb, ioctl IoctlMap, dstMac *core.MACKey) (SocketApi, error) {
 	s := new(TcpSocket)
-	return o.dialCmn(s, s, dst, port, cb, ioctl)
+	return o.dialCmn(s, s, dst, port, cb, ioctl, dstMac)
 }
 
-func (o *TransportCtx) dialUdp(dst net.IP, port uint16, cb ISocketCb, ioctl IoctlMap) (SocketApi, error) {
+func (o *TransportCtx) dialUdp(dst net.IP, port uint16, cb ISocketCb, ioctl IoctlMap, dstMac *core.MACKey) (SocketApi, error) {
 	s := new(UdpSocket)
-	return o.dialCmn(s, s, dst, port, cb, ioctl)
+	return o.dialCmn(s, s, dst, port, cb, ioctl, dstMac)
 }
 
 func (o *TransportCtx) addServerCb(port uint16, proto uint8, cb IServerSocketCb) bool {

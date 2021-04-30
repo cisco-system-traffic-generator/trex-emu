@@ -450,7 +450,7 @@ func (o *PluginTdlClient) OnResolve() {
 		if o.udpDebug {
 			l4Protocol = "udp"
 		}
-		o.socket, err = o.transportCtx.Dial(l4Protocol, o.dstAddress, o, nil)
+		o.socket, err = o.transportCtx.Dial(l4Protocol, o.dstAddress, o, nil, nil)
 		if err != nil {
 			o.stats.invalidSocket++
 			return

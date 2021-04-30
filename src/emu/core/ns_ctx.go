@@ -74,7 +74,10 @@ func (key *MACKey) IsBroadcast() bool {
 		return true
 	}
 	return false
+}
 
+func (key *MACKey) IsMulticast() bool {
+	return key[0]&0x01 != 0
 }
 
 type RpcCmdMac struct {

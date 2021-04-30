@@ -153,7 +153,7 @@ type SocketApi interface {
 type internalSocketApi interface {
 	init(client *core.CClient, ctx *TransportCtx)
 	connect() SocketErr
-	initphase2(cb ISocketCb)
+	initphase2(cb ISocketCb, dstMac *core.MACKey)
 
 	setTupleIpv4(src core.Ipv4Key,
 		dst core.Ipv4Key,

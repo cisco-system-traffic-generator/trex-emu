@@ -39,9 +39,9 @@ func (o *UdpSocket) connect() SocketErr {
 	return SeOK
 }
 
-func (o *UdpSocket) initphase2(cb ISocketCb) {
+func (o *UdpSocket) initphase2(cb ISocketCb, dstMac *core.MACKey) {
 	o.cb = cb
-	o.baseSocket.initphase2(true)
+	o.baseSocket.initphase2(true, dstMac)
 }
 
 func (o *UdpSocket) LocalAddr() net.Addr {
