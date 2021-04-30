@@ -28,8 +28,6 @@ import (
 	"net"
 	"sort"
 	"unsafe"
-
-	"github.com/intel-go/fastjson"
 )
 
 const (
@@ -60,7 +58,7 @@ const (
 )
 
 type MldNsInit struct {
-	Mtu           uint16         `json:"mtu" validate:"required,gte=256,lte=9000"`
+	Mtu           uint16         `json:"mtu" validate:"gte=256,lte=9000"`
 	DesignatorMac core.MACKey    `json:"dmac"`
 	Vec           []core.Ipv6Key `json:"vec"`     // add mc
 	Version       uint16         `json:"version"` // the init version, 1 or 2 (default)
@@ -118,12 +116,6 @@ func calcTimerInfo(totalrecords uint32,
 		pktsPerTick = uint32(factor)
 	}
 	return timerticks, pktsPerTick, breachMaxRate
-}
-
-type mldNsInit struct {
-	Mtu           uint16         `json:"mtu" validate:"required,gte=256,lte=9000"`
-	DesignatorMac core.MACKey    `json:"dmac"`
-	Vec           []core.Ipv4Key `json:"vec"` // add mc
 }
 
 type MldSGRecord struct {
@@ -781,14 +773,27 @@ func (o *mldNsCtx) OnEvent(a, b interface{}) {
 }
 
 func (o *mldNsCtx) Init(base *PluginIpv6Ns, ctx *core.CThreadCtx, initJson []byte) {
-	var init MldNsInit
-	err := fastjson.Unmarshal(initJson, &init)
+	init := MldNsInit{Mtu: 1500, Version: MLD_VERSION_2}
+
+	if len(initJson) > 0 {
+		// init json was provided
+		err := ctx.UnmarshalValidate(initJson, &init)
+		if err != nil {
+			return
+		}
+	}
 
 	o.base = base
 	o.tbl.OnCreate(&o.stats)
 	o.tbl.ns = o.base.Ns
-	o.mldVersion = MLD_VERSION_2
-	o.mtu = 1500
+	if !init.DesignatorMac.IsZero() {
+		o.designatorMac = init.DesignatorMac
+	}
+	if len(init.Vec) > 0 {
+		o.addMc(init.Vec)
+	}
+	o.mldVersion = init.Version
+	o.mtu = init.Mtu
 	o.qrv = 2
 	o.qqi = 125
 	o.maxresp = 10000
@@ -802,20 +807,7 @@ func (o *mldNsCtx) Init(base *PluginIpv6Ns, ctx *core.CThreadCtx, initJson []byt
 
 	o.preparePacketTemplate()
 	o.cdb = NewMldNsStatsDb(&o.stats)
-	if err == nil {
-		if init.Mtu > 0 {
-			o.mtu = init.Mtu
-		}
-		if !init.DesignatorMac.IsZero() {
-			o.designatorMac = init.DesignatorMac
-		}
-		if len(init.Vec) > 0 {
-			o.addMc(init.Vec)
-		}
-		if init.Version == 1 {
-			o.mldVersion = MLD_VERSION_1
-		}
-	}
+
 }
 
 func (o *mldNsCtx) addMcSG(ivec []*MldSGRecord) error {

@@ -21,7 +21,7 @@ However this implementation can scale
 
 inijson :
 	type IgmpNsInit struct {
-		Mtu           uint16         `json:"mtu" validate:"required,gte=256,lte=9000"`
+		Mtu           uint16         `json:"mtu" validate:"gte=256,lte=9000"`
 		DesignatorMac core.MACKey    `json:"dmac"`  // mac addrees of the client that represent the network
 		Vec           []core.Ipv4Key `json:"vec"` // add mc
 		Version       uint16 		 `json:"version"` // the init version
@@ -120,7 +120,7 @@ func calcTimerInfo(totalrecords uint32,
 }
 
 type IgmpNsInit struct {
-	Mtu           uint16         `json:"mtu" validate:"required,gte=256,lte=9000"`
+	Mtu           uint16         `json:"mtu" validate:"gte=256,lte=9000"`
 	DesignatorMac core.MACKey    `json:"dmac"`
 	Vec           []core.Ipv4Key `json:"vec"`     // add mc (*) include all mask (EXCLUDE {}) to add (s,g) use RPC
 	Version       uint16         `json:"version"` // the init version of IGMP, it will learn from Query
@@ -739,10 +739,15 @@ type PluginIgmpNs struct {
 }
 
 func NewIgmpNs(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
-	var init IgmpNsInit
-	err := fastjson.Unmarshal(initJson, &init)
 
 	o := new(PluginIgmpNs)
+	init := IgmpNsInit{Mtu: 1500, Version: IGMP_VERSION_3}
+	err := ctx.Tctx.UnmarshalValidate(initJson, &init)
+
+	if err != nil {
+		return &o.PluginBase
+	}
+
 	o.InitPluginBase(ctx, o)
 	o.RegisterEvents(ctx, []string{}, o)
 	o.cdb = NewIgmpNsStatsDb(&o.stats)
@@ -751,29 +756,21 @@ func NewIgmpNs(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
 	o.tbl.OnCreate(&o.stats)
 	fmt.Printf(" ns : %v \n", o.Ns)
 	o.tbl.ns = o.Ns // save the ns
-	o.igmpVersion = IGMP_VERSION_3
-	o.mtu = 1500
+	if !init.DesignatorMac.IsZero() {
+		o.designatorMac = init.DesignatorMac
+	}
+	if len(init.Vec) > 0 {
+		o.addMc(init.Vec)
+	}
+
+	o.mtu = init.Mtu
+	o.igmpVersion = init.Version
 	o.qrv = 2
 	o.qqi = 125
 	o.maxresp = 100
 	o.timerw = ctx.Tctx.GetTimerCtx()
 	o.timer.SetCB(&o.timerCb, o, 0) // set the callback to OnEvent
 	o.preparePacketTemplate()
-	if err == nil {
-		/* init json was provided */
-		if init.Mtu > 0 {
-			o.mtu = init.Mtu
-		}
-		if !init.DesignatorMac.IsZero() {
-			o.designatorMac = init.DesignatorMac
-		}
-		if len(init.Vec) > 0 {
-			o.addMc(init.Vec)
-		}
-		if init.Version == 2 {
-			o.igmpVersion = IGMP_VERSION_2
-		}
-	}
 
 	return &o.PluginBase
 }

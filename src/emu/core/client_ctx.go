@@ -514,11 +514,11 @@ func (o *CClient) ResolveDGv6() (ipv6 Ipv6Key, mac MACKey, ok bool) {
 
 func (o *CClient) GetIPv6MTU() (mtu uint16) {
 	if o.Ipv6Router != nil {
-		// Router Advertisment received from the router.
+		// Router Advertisement received from the router.
 		if o.Ipv6Router.MTU != 0 {
 			mtu = o.Ipv6Router.MTU
 		} else {
-			// Router Selicitation not received yet.
+			// Router Solicitation not received yet.
 			mtu = 1500
 		}
 	} else {

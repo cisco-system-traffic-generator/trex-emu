@@ -653,12 +653,26 @@ func (o *CThreadCtx) GetNsRpc(params *fastjson.RawMessage) (*CNSCtx, error) {
 	return ns, nil
 }
 
+// UnmarshalValidate unmarshals the data and validates the struct fields.
 func (o *CThreadCtx) UnmarshalValidate(data []byte, v interface{}) error {
 	err := fastjson.Unmarshal(data, v)
 	if err != nil {
 		return err
 	}
 	err = o.validate.Struct(v)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+// UnmarshalValidateDive unmarshals the data, validates it by diving. Fits for slices, maps, arrays.
+func (o *CThreadCtx) UnmarshalValidateDive(data []byte, v interface{}) error {
+	err := fastjson.Unmarshal(data, v)
+	if err != nil {
+		return err
+	}
+	err = o.validate.Var(v, "dive")
 	if err != nil {
 		return err
 	}

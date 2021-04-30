@@ -357,6 +357,7 @@ func TestTypeDefLayerKey(t *testing.T) {
 				"name": "layer_key",
 				"type": "type_def",
 				"data": {
+					"luid": [152, 42, 180, 178, 139, 238, 133, 137, 119, 185, 8, 111, 18, 0, 136, 234],
 					"entries": [
 						{
 							"name": "layer_flag",

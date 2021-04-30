@@ -9,6 +9,7 @@ tree.
 */
 
 import (
+	"emu/core"
 	engines "emu/plugins/field_engine"
 	"encoding/binary"
 	"fmt"
@@ -86,7 +87,7 @@ type ConstructedTdlTypeIF interface {
 // through meta data.
 type TdlMetaDataIF interface {
 	// ParseMeta parses and processes the metadata.
-	ParseMeta(*fastjson.RawMessage, *TdlStats) error
+	ParseMeta(*fastjson.RawMessage, *TdlStats, *core.CThreadCtx) error
 
 	// GetType returns the type of the meta data.
 	GetType() string
@@ -917,15 +918,15 @@ TdlEnum
 
 // TdlEnumEntry represents an entry in a TdlEnumDef. An Enum entry consists of a name and value.
 type TdlEnumEntry struct {
-	Name  string `json:"name" validate:"required"`  // Name of enum entry
-	Value int32  `json:"value" validate:"required"` // Value of enum entry
+	Name  string `json:"name" validate:"required"`       // Name of enum entry
+	Value int32  `json:"value" validate:"eq=0|required"` // Value of enum entry
 }
 
 // TdlEnumDef implements a Tdl Enum Definition. A Tdl Enum Definition consists
 // of multiple Tdl Enum Entries. The definition is used for metadata purposes.
 type TdlEnumDef struct {
-	Entries     []TdlEnumEntry   `json:"entries" validate:"required"` // List of Enum entries in the enum
-	Luid        LUID             `json:"luid" validate:"required"`    // Luid of the new enum type we are defining
+	Entries     []TdlEnumEntry   `json:"entries" validate:"required,dive"` // List of Enum entries in the enum
+	Luid        LUID             `json:"luid" validate:"required"`         // Luid of the new enum type we are defining
 	nameToValue map[string]int32 // Fast Lookup Name To Value
 	valueToName map[int32]string // Fast Lookup Value to Name
 	metaMgr     *TdlMetaDataMgr  // Back pointer to the Manager.
@@ -951,9 +952,9 @@ func (o *TdlEnumDef) processEnumDef() error {
 }
 
 // ParseMeta parses and processes the meta data defining a new type of Enum.
-func (o *TdlEnumDef) ParseMeta(meta *fastjson.RawMessage, stats *TdlStats) error {
-	// TODO: Should validate and not only unmarshal.
-	err := fastjson.Unmarshal(*meta, o)
+func (o *TdlEnumDef) ParseMeta(meta *fastjson.RawMessage, stats *TdlStats, tctx *core.CThreadCtx) error {
+	err := tctx.UnmarshalValidate(*meta, o)
+
 	if err != nil {
 		stats.invalidEnumDef++
 		return err
@@ -1127,8 +1128,8 @@ func (o *TdlFlagDef) processFlagDef() error {
 }
 
 // ParseMeta parses and processes the meta data defining a new type of Flag.
-func (o *TdlFlagDef) ParseMeta(meta *fastjson.RawMessage, stats *TdlStats) error {
-	err := fastjson.Unmarshal(*meta, o)
+func (o *TdlFlagDef) ParseMeta(meta *fastjson.RawMessage, stats *TdlStats, tctx *core.CThreadCtx) error {
+	err := tctx.UnmarshalValidate(*meta, o)
 	if err != nil {
 		stats.invalidFlagDef++
 		return err
@@ -1308,15 +1309,14 @@ type TdlTypeDefEntry struct {
 
 // TdlTypeDef defines a new Tdl type definition. Used by metadata only.
 type TdlTypeDef struct {
-	TypeDefEntries []TdlTypeDefEntry `json:"entries" validate:"required"` // The entries in the new type definition.
-	Luid           LUID              `json:"luid" validate:"required"`    // Luid of the new type we are defining.
+	TypeDefEntries []TdlTypeDefEntry `json:"entries" validate:"required,dive"` // The entries in the new type definition.
+	Luid           LUID              `json:"luid" validate:"required"`         // Luid of the new type we are defining.
 	metaMgr        *TdlMetaDataMgr   // Back pointer to the Manager.
 }
 
 // ParseMeta parses and processes the meta data defining a new type of Type.
-func (o *TdlTypeDef) ParseMeta(meta *fastjson.RawMessage, stats *TdlStats) error {
-	// TODO: Should validate and not only unmarshal.
-	err := fastjson.Unmarshal(*meta, o)
+func (o *TdlTypeDef) ParseMeta(meta *fastjson.RawMessage, stats *TdlStats, tctx *core.CThreadCtx) error {
+	err := tctx.UnmarshalValidate(*meta, o)
 	if err != nil {
 		stats.invalidTypeDef++
 		return err
@@ -1509,10 +1509,7 @@ func NewTdlMetaDataMgr(tdlPlugin *PluginTdlClient, metaData *fastjson.RawMessage
 	o.tdlClient = tdlPlugin
 	o.metaMap = make(map[string]TdlMetaDataIF)
 
-	// TODO: We need to validate the data, but UnmarshalValidate doesn't work with
-	// lists. You can get the JSON validator using o.tdlClient.Tctx.GetJSONValidator()
-	// and make some smarter validation.
-	err := fastjson.Unmarshal(*metaData, &o.metaDataList)
+	err := o.tdlClient.Tctx.UnmarshalValidateDive(*metaData, &o.metaDataList)
 	if err != nil {
 		o.tdlClient.stats.invalidMetaData++
 		return nil, err
@@ -1525,7 +1522,7 @@ func NewTdlMetaDataMgr(tdlPlugin *PluginTdlClient, metaData *fastjson.RawMessage
 			return nil, err
 		}
 		tdlMeta := ctor(o)
-		err = tdlMeta.ParseMeta(o.metaDataList[i].Data, &tdlPlugin.stats)
+		err = tdlMeta.ParseMeta(o.metaDataList[i].Data, &tdlPlugin.stats, tdlPlugin.Tctx)
 		if err != nil {
 			o.tdlClient.stats.failedCreatingTdlType++
 			return nil, err
