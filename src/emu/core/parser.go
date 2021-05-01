@@ -87,6 +87,8 @@ type ParserStats struct {
 	igmpBytes             uint64
 	dhcpPkts              uint64
 	dhcpBytes             uint64
+	mDnsPkts              uint64
+	mDnsBytes             uint64
 	tcpPkts               uint64
 	tcpBytes              uint64
 	udpPkts               uint64
@@ -313,6 +315,22 @@ func newParserStatsDb(o *ParserStats) *CCounterDb {
 		Info:     ScINFO})
 
 	db.Add(&CCounterRec{
+		Counter:  &o.mDnsPkts,
+		Name:     "mDnsPkts",
+		Help:     "mDns packets",
+		Unit:     "pkts",
+		DumpZero: false,
+		Info:     ScINFO})
+
+	db.Add(&CCounterRec{
+		Counter:  &o.mDnsBytes,
+		Name:     "mDnsBytes",
+		Help:     "mDns bytes",
+		Unit:     "bytes",
+		DumpZero: false,
+		Info:     ScINFO})
+
+	db.Add(&CCounterRec{
 		Counter:  &o.tcpPkts,
 		Name:     "tcpPkts",
 		Help:     "tcp packets",
@@ -470,6 +488,7 @@ type Parser struct {
 	igmp   ParserCb
 	dhcp   ParserCb
 	dhcpv6 ParserCb
+	mdns   ParserCb
 	tcp    ParserCb
 	udp    ParserCb
 	icmpv6 ParserCb
@@ -503,6 +522,9 @@ func (o *Parser) Register(protocol string) {
 	if protocol == "dot1x" {
 		o.eapol = getProto("dot1x")
 	}
+	if protocol == "mdns" {
+		o.mdns = getProto("mdns")
+	}
 
 	if protocol == "transport" {
 		o.tcp = getProto("transport")
@@ -520,6 +542,7 @@ func (o *Parser) Init(tctx *CThreadCtx) {
 	o.udp = parserNotSupported
 	o.icmpv6 = parserNotSupported
 	o.dhcpv6 = parserNotSupported
+	o.mdns = parserNotSupported
 	o.Cdb = newParserStatsDb(&o.stats)
 }
 
@@ -591,6 +614,13 @@ func (o *Parser) parsePacketL4(ps *ParserPacketState,
 		}
 		o.stats.udpPkts++
 		o.stats.udpBytes += uint64(packetSize)
+
+		if udp.DstPort() == 5353 {
+			o.stats.mDnsPkts++
+			o.stats.mDnsBytes += uint64(packetSize)
+			ps.L7 = ps.L4 + 8
+			return o.mdns(ps)
+		}
 
 		if layer3 == uint16(layers.EthernetTypeIPv6) {
 			if (udp.SrcPort() == 547) && (udp.DstPort() == 546) {

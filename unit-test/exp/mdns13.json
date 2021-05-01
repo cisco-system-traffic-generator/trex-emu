@@ -1,0 +1,70 @@
+[
+	{
+		"rpc-req": {
+			"id": 3,
+			"jsonrpc": "2.0",
+			"method": "mdns_c_query",
+			"params": {
+				"mac": [
+					0,
+					0,
+					1,
+					0,
+					0,
+					0
+				],
+				"queries": [
+					{
+						"dns_class": "IN",
+						"dns_type": "PTR",
+						"ipv6": false,
+						"name": "trex-04"
+					}
+				],
+				"tun": {
+					"vport": 1
+				}
+			}
+		}
+	},
+	{
+		"rpc-res": {
+			"id": 3,
+			"jsonrpc": "2.0",
+			"result": true
+		}
+	},
+	{
+		"time": 2.1,
+		"meta": "tx",
+		"len": 67,
+		"data": "01|00|5e|00|00|fb|00|00|01|00|00|00|08|00|45|00|00|35|00|cc|00|00|ff|11|c9|f0|10|00|00|00|e0|00|00|fb|14|e9|14|e9|00|21|b5|a2|00|00|00|00|00|01|00|00|00|00|00|00|07|74|72|65|78|2d|30|34|00|00|0c|00|01|"
+	},
+	{
+		"time": 2.1,
+		"meta": "rx",
+		"len": 67,
+		"data": "01|00|5e|00|00|fb|00|00|01|00|00|00|08|00|45|00|00|35|00|cc|00|00|ff|11|c9|f0|10|00|00|00|e0|00|00|fb|14|e9|14|e9|00|21|b5|a2|00|00|00|00|00|01|00|00|00|00|00|00|07|74|72|65|78|2d|30|34|00|00|0c|00|01|"
+	},
+	{
+		"pktRxMDnsQuery": 0,
+		"pktTxMDnsQuery": 1,
+		"pktTxMDnsResponse": 0
+	},
+	{
+		"pktRxMDnsQuery": 1,
+		"pktTxMDnsQuery": 0,
+		"pktTxMDnsResponse": 0,
+		"queryPTRNoDomainName": 1
+	},
+	{
+		"mbufAlloc": 1,
+		"mbufFreeCache": 1
+	},
+	{
+		"RxBytes": 67,
+		"RxPkts": 1,
+		"TxBytes": 67,
+		"TxPkts": 1
+	}
+]

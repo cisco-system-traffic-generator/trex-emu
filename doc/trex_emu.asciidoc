@@ -67,14 +67,15 @@ The framework has an event driven architecture, this way it can scale. The frame
 |=================
 | Plug-in | Description
 | ARP     | RFC 826
-| ICMP    | RFC 777
+| CDP     | Cisco Delivery Protocol
 | DHCPv4  | RFC 2131 client side
-| IGMP    | IGMP v3/v2/v1 RFC3376
-| IPv6    | IPv6 ND, RFC 4443, RFC 4861, RFC 4862 and MLD and MLDv2 RFC 3810
 | DHCPv6  | RFC 8415 client side
 | DOT1X   | EAP-MD5/EAP-MSCHAPv2  RFC 3748/2759, IEEE 802.1X-2001
+| ICMP    | RFC 777
+| IGMP    | IGMP v3/v2/v1 RFC3376
+| IPv6    | IPv6 ND, RFC 4443, RFC 4861, RFC 4862 and MLD and MLDv2 RFC 3810
 | LLDP    | IEEE 802.1AB
-| CDP     | Cisco Delivery Protocol
+| mDNS    | Multicast DNS, RFC 6762
 | Netflow | Netflow v9, RFC 3954 and Netflow v10 (IPFix), RFC 7011
 | Transport | User space TCP (based on BSD, converted to native golang) and UDP
 | Cisco telemetry TDL | Under tests simulate network device
@@ -1989,6 +1990,261 @@ class Prof1():
         7         5  dot1xSup
         13        10  webauth
         10        15  mab
+----
+
+=== Tutorial: mDNS
+
+Multicast DNS (mDNS) is a protocol aimed at helping with name resolution in smaller networks. In doing so, it takes a different approach than the well-known DNS. Instead of querying a name server, all participants in the network are directly addressed. The appropriate client sends a multicast into the network while asking which network participant matches up with the host name.
+
+[NOTE]
+=====================================================================
+Multicast DNS was developed in the early 2010s and is described in RFC 6762.
+=====================================================================
+
+==== Init JSON and mDNS definition
+
+To define a client which runs mDNS in Emu, we need to activate it in the client plugins and provide an initial JSON. The JSON supports the following keys:
+
+* `hosts` - A list of host names this client owns.
+* `domain_name` - The domain name this client answers when queried with a PTR query.
+* `txt` - A list of name, value entries this client answers when queried with a TXT query.
+* `ttl` - The time to live in seconds for each response the client sends. Defaults to 240.
+
+
+For a more updated version refer to the link:https://trex-tgn.cisco.com/trex/doc/cp_emu_docs/api/plugins/mdns.html[SDK].
+
+.mDNS init Json example
+[source, python]
+----
+initJson = {
+        "hosts": ['UCS', 'trex-04', "10.56.1.1.cisco.il.lab"], <1>
+        "txt": [
+            {
+                "field": "HW",
+                "value": "Cisco UCS 220M5"
+            },
+            {
+                "field": "OS",
+                "value": "Ubuntu 20.04",
+            }
+        ],
+        "domain_name": "cisco.il.lab",
+        "ttl": 180,
+    }
+----
+<1> Note that you can add an IP address as a host for PTR queries.
+
+We need to apply the mDNS plugin both at namespace and client level like this:
+
+.mDNS as a namespace plugin
+[source, python]
+----
+self.def_ns_plugs  = {'icmp': {},
+                      'arp' : {'enable': True},
+                      'mdns': {}, <1>
+                      'ipv6' : {'dmac':Mac('00:00:00:70:00:01').V()}} 
+}
+----
+<1> Apply mDNS as a namespace plugin.
+
+
+.mDNS as a client plugin
+[source, python]
+----
+client = EMUClientObj(mac     = Mac('00:00:00:70:00:05').V(),
+                              ipv4    = Ipv4('1.1.1.5').V(),
+                              ipv4_dg = Ipv4('1.1.1.1').V(),
+                              ipv6 = Ipv6("2001:DB8:1::5").V(),
+                              plugs  =  {'mdns': initJson, <1>
+                                         'ipv6': {}
+                                        })
+----
+<1> Apply mDNS as a client plugin with the init Json we defined before.
+
+Let us suppose we have created a profile with mDNS, and it looks this:
+
+[source, bash]
+----
+trex(service-filtered)>emu_show_all
+Namespace 1 Information
+
+Port | Vlan tags | Tpids |        Plugins        | Clients
+-----+-----------+-------+-----------------------+---------
+ 0   |     -     |   -   | arp, icmp, ipv6, mdns |    2
+
+Clients Information
+
+       MAC        |  IPv4   | DG-IPv4  | MTU  |        Plugins
+------------------+---------+----------+------+----------------------
+00:00:00:70:00:03 | 1.1.1.3 | 1.1.1.16 | 1500 | arp, icmp, ipv6, mdns
+00:00:00:70:00:04 | 1.1.1.4 | 1.1.1.16 | 1500 | arp, icmp, ipv6, mdns
+
+Press Enter to see more namespaces
+Namespace 2 Information
+
+Port | Vlan tags | Tpids |        Plugins        | Clients
+-----+-----------+-------+-----------------------+---------
+ 1   |     -     |   -   | arp, icmp, ipv6, mdns |    2
+
+Clients Information
+
+       MAC        |  IPv4   | DG-IPv4 | MTU  |        Plugins
+------------------+---------+---------+------+----------------------
+00:00:00:70:00:05 | 1.1.1.5 | 1.1.1.1 | 1500 | arp, icmp, ipv6, mdns
+00:00:00:70:00:06 | 1.1.1.6 | 1.1.1.1 | 1500 | arp, icmp, ipv6, mdns
+
+1.80 [sec]
+----
+
+==== Add, Remove and Show Hosts
+
+We can see the hostnames of each client:
+
+[source, bash]
+----
+trex(service-filtered)>emu_mdns_show_hosts -p 1 --mac 00:00:00:70:00:05
+Hostnames
+
+Number |        Hostname
+-------+-----------------------
+  1    |          UCS
+  2    |        trex-04
+  3    | 10.56.1.1.cisco.il.lab
+----
+
+We can add hostnames to each client:
+
+[source, bash]
+----
+trex(service-filtered)>emu_mdns_add_hosts -p 1 --mac 00:00:00:70:00:05 --hosts vxnet3 docs.local UCS
+Hosts: ['UCS'] were not added because they already exist. #<1>
+
+[SUCCESS]
+
+trex(service-filtered)>emu_mdns_show_hosts -p 1 --mac 00:00:00:70:00:05
+Hostnames
+
+Number |        Hostname
+-------+-----------------------
+  1    |          UCS
+  2    |        trex-04
+  3    | 10.56.1.1.cisco.il.lab
+  4    |         vxnet3
+  5    |       docs.local
+
+----
+<1> UCS already existed but the other hostnames were added successfully.
+
+
+We can remove hostnames from each client:
+
+[source, bash]
+----
+trex(service-filtered)>emu_mdns_remove_hosts -p 1 --mac 00:00:00:70:00:05 --hosts docs.local invalid
+Hosts: ['invalid'] did not exist.  #<1>
+
+[SUCCESS]
+
+trex(service-filtered)>emu_mdns_show_hosts -p 1 --mac 00:00:00:70:00:05
+Hostnames
+
+Number |        Hostname
+-------+-----------------------
+  1    |        trex-04
+  2    | 10.56.1.1.cisco.il.lab
+  3    |         vxnet3
+  4    |          UCS
+----
+<1> The existing hostnames are removed correctly.
+
+==== Query and Cache
+
+We can query with different possibilities:
+
+[source, bash]
+----
+trex(service-filtered)>emu_mdns_query -p 0 --mac 00:00:00:70:00:03 -n trex-04 #<1>
+[SUCCESS]
+
+trex(service-filtered)>emu_mdns_query -p 0 --mac 00:00:00:70:00:03 -n trex-04 -t AAAA #<2>
+[SUCCESS]
+
+trex(service-filtered)>
+trex(service-filtered)>emu_mdns_query -p 0 --mac 00:00:00:70:00:03 -n vxnet3 -6 -t TXT #<3>
+[SUCCESS]
+
+trex(service-filtered)>emu_mdns_query -p 0 --mac 00:00:00:70:00:03 -n 10.56.1.1.cisco.il.lab -t PTR #<4>
+[SUCCESS]
+
+trex(service-filtered)>emu_mdns_query -p 0 --mac 00:00:00:70:00:03 -n UCS -c Any #<5>
+[SUCCESS]
+----
+<1> The default DNS type is **A** and the default DNS class is **IN**.
+<2> We can send **AAAA** queries.
+<3> -6 represents that the packet should be sent using IPv6. **TXT** queries are supported as well.
+<4> We can also send **PTR** queries.
+<5> We can also set the class to **Any**.
+
+[NOTE]
+=====================================================================
+We support only A, AAAA, PTR and TXT types at the moment. Also, QU is
+not supported at the moment.
+=====================================================================
+
+Let us see the resolved entries in the DNS cache table like this:
+
+[source, bash]
+----
+trex(service-filtered)>emu_mdns_show_resolved -p 0
+Resolved Hostnames
+
+       Hostname        | IP/Domain Name | Type | Class | Time To Live
+-----------------------+----------------+------+-------+-------------
+         UCS           |    1.1.1.5     |  A   |  Any  |     179
+       trex-04         |    1.1.1.5     |  A   |  IN   |      61
+       trex-04         | 2001:db8:1::5  | AAAA |  IN   |      75
+10.56.1.1.cisco.il.lab |  cisco.il.lab  | PTR  |  IN   |     122
+----
+
+[NOTE]
+=====================================================================
+Only A, AAAA, and PTR responses are added to the table. The time to 
+live can be set in the init Json of the responding client.
+=====================================================================
+
+We can see the response to the PTR query:
+
+image::images/mdns_ptr_response.png[title="mDNS PTR response",align="left",width={p_width}, link="images/mdns_ptr_response.png"]
+
+And the response to the TXT query:
+
+
+image::images/mdns_txt_response.png[title="mDNS TXT response",align="left",width={p_width}, link="images/mdns_txt_response.png"]
+
+==== Counters
+
+In mDNS there are counters both at client and namespace level which you can access:
+
+[source, bash]
+----
+trex(service-filtered)>emu_mdns_show_c_counters -p 1 --mac 00:00:00:70:00:05
+Mdns Counters
+
+      name        | value
+------------------+------
+pktRxMDnsQuery    | 5
+pktTxMDnsResponse | 5
+
+11.65 [ms]
+
+
+trex(service-filtered)>emu_mdns_show_ns_counters -p 0 -v
+Mdns Counters
+
+  name    | value | unit  | zero |                    help
+----------+-------+-------+------+-------------------------------------------
+rxPkts    |   5   | pkts  | True | Num of mDNS pkts received
+rxAnswers |   5   | reply | True | Numb of mDNS answers received in namespace
 ----
 
 === Tutorial: Netflow

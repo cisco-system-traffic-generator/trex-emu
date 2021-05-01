@@ -1,0 +1,55 @@
+[
+	{
+		"rpc-req": {
+			"id": 3,
+			"jsonrpc": "2.0",
+			"method": "mdns_c_query",
+			"params": {
+				"mac": [
+					0,
+					0,
+					1,
+					0,
+					0,
+					0
+				],
+				"queries": [
+					{
+						"dns_class": "IN",
+						"ipv6": false,
+						"name": "trex.local"
+					}
+				],
+				"tun": {
+					"vport": 1
+				}
+			}
+		}
+	},
+	{
+		"rpc-res": {
+			"id": 3,
+			"jsonrpc": "2.0",
+			"result": true
+		}
+	},
+	{
+		"time": 2.1,
+		"meta": "tx",
+		"len": 70,
+		"data": "01|00|5e|00|00|fb|00|00|01|00|00|00|08|00|45|00|00|38|00|cc|00|00|ff|11|c9|ed|10|00|00|00|e0|00|00|fb|14|e9|14|e9|00|24|ba|25|00|00|00|00|00|01|00|00|00|00|00|00|04|74|72|65|78|05|6c|6f|63|61|6c|00|00|01|00|01|"
+	},
+	{
+		"pktRxMDnsQuery": 0,
+		"pktTxMDnsQuery": 1,
+		"pktTxMDnsResponse": 0
+	},
+	{
+		"mbufAlloc": 1,
+		"mbufFreeCache": 1
+	},
+	{
+		"TxBytes": 70,
+		"TxPkts": 1
+	}
+]

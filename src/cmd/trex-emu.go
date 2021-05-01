@@ -25,6 +25,7 @@ import (
 	"emu/plugins/ipfix"
 	"emu/plugins/ipv6"
 	"emu/plugins/lldp"
+	"emu/plugins/mdns"
 	"emu/plugins/tdl"
 	"emu/plugins/transport"
 	"emu/plugins/transport_example"
@@ -35,17 +36,19 @@ const (
 )
 
 func RegisterPlugins(tctx *core.CThreadCtx) {
+	// These are order alphabetically, just like in the imports.
 	arp.Register(tctx)
-	icmp.Register(tctx)
-	igmp.Register(tctx)
-	ipv6.Register(tctx)
+	cdp.Register(tctx)
 	dhcp.Register(tctx)
 	dhcpv6.Register(tctx)
 	dot1x.Register(tctx)
+	icmp.Register(tctx)
+	igmp.Register(tctx)
 	ipfix.Register(tctx)
-	tdl.Register(tctx)
+	ipv6.Register(tctx)
 	lldp.Register(tctx)
-	cdp.Register(tctx)
+	mdns.Register(tctx)
+	tdl.Register(tctx)
 	transport.Register(tctx)
 	transport_example.Register(tctx)
 }

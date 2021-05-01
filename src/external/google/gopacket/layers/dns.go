@@ -46,6 +46,24 @@ func (dc DNSClass) String() string {
 	}
 }
 
+// StringToDNSClass converts a string to the DNSClass value represented by that string.
+func StringToDNSClass(dc string) (DNSClass, error) {
+	switch dc {
+	default:
+		return 0, fmt.Errorf("Unknown DNSClass %v\n", dc)
+	case "IN":
+		return DNSClassIN, nil
+	case "CS":
+		return DNSClassCS, nil
+	case "CH":
+		return DNSClassCH, nil
+	case "HS":
+		return DNSClassHS, nil
+	case "Any":
+		return DNSClassAny, nil
+	}
+}
+
 // DNSType defines the type of data being requested/returned in a
 // question/answer.
 type DNSType uint16
@@ -115,6 +133,52 @@ func (dt DNSType) String() string {
 		return "SRV"
 	case DNSTypeOPT:
 		return "OPT"
+	}
+}
+
+// StringToDNSType converts a string to the DNSType value represented by that string.
+func StringToDNSType(dt string) (DNSType, error) {
+	switch dt {
+	default:
+		return 0, fmt.Errorf("Unknown DNS Type %v\n", dt)
+	case "A":
+		return DNSTypeA, nil
+	case "NS":
+		return DNSTypeNS, nil
+	case "MD":
+		return DNSTypeMD, nil
+	case "MF":
+		return DNSTypeMF, nil
+	case "CNAME":
+		return DNSTypeCNAME, nil
+	case "SOA":
+		return DNSTypeSOA, nil
+	case "MB":
+		return DNSTypeMB, nil
+	case "MG":
+		return DNSTypeMG, nil
+	case "MR":
+		return DNSTypeMR, nil
+	case "NULL":
+		return DNSTypeNULL, nil
+	case "WKS":
+		return DNSTypeWKS, nil
+	case "PTR":
+		return DNSTypePTR, nil
+	case "HINFO":
+		return DNSTypeHINFO, nil
+	case "MINFO":
+		return DNSTypeMINFO, nil
+	case "MX":
+		return DNSTypeMX, nil
+	case "TXT":
+		return DNSTypeTXT, nil
+	case "AAAA":
+		return DNSTypeAAAA, nil
+	case "SRV":
+		return DNSTypeSRV, nil
+	case "OPT":
+		return DNSTypeOPT, nil
 	}
 }
 
