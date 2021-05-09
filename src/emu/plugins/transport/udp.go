@@ -197,6 +197,11 @@ func (o *UdpSocket) resolve() bool {
 	if o.resolved {
 		return true
 	}
+	if o.multicast {
+		o.resolved = true
+		return true
+	}
+
 	if o.ipv6 == false {
 		mac, ok := o.client.ResolveIPv4DGMac()
 		if ok {

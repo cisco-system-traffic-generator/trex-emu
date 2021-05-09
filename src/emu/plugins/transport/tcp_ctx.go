@@ -189,6 +189,7 @@ type baseSocket struct {
 	dstPort      uint16
 	ipv6         bool
 	resolved     bool
+	multicast    bool
 	interrupt    bool
 	srcPortAlloc bool
 

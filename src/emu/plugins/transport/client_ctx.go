@@ -903,6 +903,11 @@ func (o *TransportCtx) handleRxUdpNewFlow(ps *core.ParserPacketState,
 	return s.input(ps)
 }
 
+//DebugSimulationHandleRxPacket use for debug only
+func (o *TransportCtx) DebugSimulationHandleRxPacket(ps *core.ParserPacketState) int {
+	return o.handleRxPacket(ps)
+}
+
 // per client handler, for both ipv4 and ipv6
 func (o *TransportCtx) handleRxPacket(ps *core.ParserPacketState) int {
 

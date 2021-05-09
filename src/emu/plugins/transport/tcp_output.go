@@ -28,6 +28,11 @@ func (o *TcpSocket) resolve() bool {
 	if o.resolved {
 		return true
 	}
+	if o.multicast {
+		o.resolved = true
+		return true
+	}
+
 	if o.ipv6 == false {
 		mac, ok := o.client.ResolveIPv4DGMac()
 		if ok {
@@ -38,6 +43,7 @@ func (o *TcpSocket) resolve() bool {
 			o.ctx.tcpStats.tcps_drop_unresolved++
 		}
 	} else {
+
 		mac, ok := o.client.ResolveIPv6DGMac()
 		if ok {
 			layers.EthernetHeader(o.pktTemplate).SetDestAddress(mac[:])

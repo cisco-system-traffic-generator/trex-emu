@@ -361,6 +361,10 @@ func (o *TcpSocket) handleDpc() {
 		}
 		if o.dpc&DPC_EVENTS > 0 {
 			if ((o.lastmask & SocketClosed) == 0) && ((o.cbmask & SocketClosed) > 0) {
+				if (o.cbmask & SocketClosed) > 0 {
+					o.cbmask &= (^(uint16(0x0001)))
+
+				}
 				o.cb.OnRxEvent(SocketEventType(o.cbmask))
 			}
 		}
