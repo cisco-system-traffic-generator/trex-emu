@@ -73,7 +73,11 @@ The framework has an event driven architecture, this way it can scale. The frame
 | IPv6    | IPv6 ND, RFC 4443, RFC 4861, RFC 4862 and MLD and MLDv2 RFC 3810
 | DHCPv6  | RFC 8415 client side
 | DOT1X   | EAP-MD5/EAP-MSCHAPv2  RFC 3748/2759, IEEE 802.1X-2001
+| LLDP    | IEEE 802.1AB
+| CDP     | Cisco Delivery Protocol
 | Netflow | Netflow v9, RFC 3954 and Netflow v10 (IPFix), RFC 7011
+| Transport | User space TCP (based on BSD, converted to native golang) and UDP
+| Cisco telemetry TDL | Under tests simulate network device
 |=================
 
 === TRex Architecture with TRex-EMU
@@ -3642,11 +3646,11 @@ type SocketApp struct {
 func (o *SocketApp) CreateSockets(client *core.CClient) error {
     o.ctx = transport.GetTransportCtx(client) // <1>
     var err error
-    o.ipv4, err = o.ctx.Dial("udp", "48.0.0.1:80", o, nil) // <2>
+    o.ipv4, err = o.ctx.Dial("udp", "48.0.0.1:80", o, nil, nil, 0) // <2>
     if err != nil {
         return err
     }
-    o.ipv6, err = o.ctx.Dial("tcp", "[2001:db8::3000:1]:80", o, nil) // <3>
+    o.ipv6, err = o.ctx.Dial("tcp", "[2001:db8::3000:1]:80", o, nil, nil, 65001) // <3>
     if err != nil {
         return err
     }
@@ -3655,25 +3659,52 @@ func (o *SocketApp) CreateSockets(client *core.CClient) error {
 ----
 <1> Get the client transport context.
 <2> Create an HTTP/UDP/IPv4 socket.
-<3> Create an HTTP/TCP/IPv6 socket.
+<3> Create an HTTP/TCP/IPv6 socket with source port 65001.
 
-While the first two arguments of `Dial` are self explanatory, let us discuss the last two.
-The last argument is an `IoctlMap` for TCP flags.
-The third argument is a callback object. A socket is an interface, and in case of events in needs a callback. So in our `SocketApp` we need to implement the following three functions which will be called
-by the socket in case of an event.
+While the first two arguments of `Dial` are self explanatory, let us discuss the other ones:
+
+* The third argument is a callback object. A socket is an interface, and in case of events in needs a callback. So in our `SocketApp` we need to implement the following three functions which will be called by the socket in case of an event.
+
 
 .Socket callbacks
 [source, go]
 ----
-func (o *SocketApp) OnRxEvent(event transport.SocketEventType) {
-}
+func (o *SocketApp) OnRxEvent(event transport.SocketEventType) { }
 
-func (o *SocketApp) OnRxData(d []byte) {
-}
+func (o *SocketApp) OnRxData(d []byte) { }
 
-func (o *SocketApp) OnTxEvent(event transport.SocketEventType) {
-}
+func (o *SocketApp) OnTxEvent(event transport.SocketEventType) { }
 ----
+
+* The fourth argument is an `IoctlMap` for TCP flags. See how for example we can set TTL to 255.
+
+.Socket creation example
+[source, go]
+----
+    var ioctlMap transport.IoctlMap = make(map[string]interface{})
+    // According to RFC 3171 a packet sent to the Local Network Control Block (224.0.0.0/24)
+    // should be sent with TTL=255
+    ioctlMap["ttl"] = 255
+    o.ipv4, err = transportCtx.Dial("udp", Ipv4Address, o, ioctlMap, nil, 0)
+----
+
+* The fifth argument is a pointer to MacAddress. In case it is not `nil`, this will be the destination MacAddress. It is especially useful for multicast or broadcast.
+For example, in the *mDns* protocol we can see:
+[source, go]
+----
+/* RFC 6762
+   A compliant Multicast DNS querier, which implements the rules
+   specified in this document, MUST send its Multicast DNS queries from
+   UDP source port 5353 (the well-known port assigned to mDNS), and MUST
+   listen for Multicast DNS replies sent to UDP destination port 5353 at
+   the mDNS link-local multicast address (224.0.0.251 and/or its IPv6
+   equivalent FF02::FB).
+*/
+o.ipv4, err = transportCtx.Dial("udp", Ipv4Address, o, ioctlMap, &Ipv4McastMacAddress, 5353)
+----
+
+* The last argument specifies the source port. If provided and not zero, the socket will not allocate a source port but use the one provided. Use this with great care, as there is no mechanism that indentifies already used ports. The previous example shows one possible use.
+
 
 The socket API is quite simple:
 

@@ -22,19 +22,19 @@ The framework has an event driven architecture, this way it can scale. The frame
 
 [options="header",cols="1,2",width="60%"]
 |=================
-| Plug-in | Description
-| ARP     | RFC 826
-| ICMP    | RFC 777
-| DHCPv4  | RFC 2131 client side
-| IGMP    | IGMP v3/v2/v1 RFC3376
-| IPv6    | IPv6 ND, RFC 4443, RFC 4861, RFC 4862 and MLD and MLDv2 RFC 3810
-| DHCPv6  | RFC 8415 client side
-| DOT1X   | EAP-MD5/EAP-MSCHAPv2  RFC 3748, IEEE 802.1X-2001
-| LLDP    | IEEE 802.1AB
-| CDP     | Cisco CDP 
-| Netflow | Netflow v9, RFC 3954 and Netflow v10 (IPFix), RFC 7011
-| transport | user space TCP based on BSD (converted to native golang) and UDP 
-| Cisco telemetry TDL | under tests simulate network device
+| Plug-in  | Description
+| ARP      | RFC 826
+| ICMP     | RFC 777
+| DHCPv4   | RFC 2131 client side
+| IGMP     | IGMP v3/v2/v1 RFC3376
+| IPv6     | IPv6 ND, RFC 4443, RFC 4861, RFC 4862 and MLD and MLDv2 RFC 3810
+| DHCPv6   | RFC 8415 client side
+| DOT1X    | EAP-MD5/EAP-MSCHAPv2  RFC 3748, IEEE 802.1X-2001
+| LLDP     | IEEE 802.1AB
+| CDP      | Cisco Delivery Protocol
+| Netflow  | Netflow v9, RFC 3954 and Netflow v10 (IPFix), RFC 7011
+| Transport | User space TCP (based on BSD, converted to native golang) and UDP
+| Cisco telemetry TDL | Under tests simulate network device
 |=================
 
 **TRex Architecture with TRex-EMU**:

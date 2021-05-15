@@ -967,11 +967,12 @@ func (o *TransportCtx) handleRxPacket(ps *core.ParserPacketState) int {
 // address addr:port
 // dstMac &core.MACKey{0xff, 0xff, 0xff, 0xff, 0xff, 0xff}
 // for example
-//	Dial("tcp", "192.0.2.1:80",cb,nil, nil)
-//	Dial("tcp", "[2001:db8::1]:80",cb,nil)
-//	Dial("tcp", "[2001:db8::1]:80",cb,{"tos":12})
+//	Dial("tcp", "192.0.2.1:80",cb,nil, nil, 0)
+//	Dial("tcp", "[2001:db8::1]:80",cb,nil, 0)
+//	Dial("tcp", "[2001:db8::1]:80",cb,{"tos":12}, 0)
 //	Dial("udp", "192.0.2.1:80",cb,nil, &core.MACKey{0xff, 0xff, 0xff, 0xff, 0xff, 0xff})
-func (o *TransportCtx) Dial(network, address string, cb ISocketCb, ioctl IoctlMap, dstMac *core.MACKey) (SocketApi, error) {
+//	Dial("tcp", "192.0.2.1:80",cb,nil, nil, 5353)
+func (o *TransportCtx) Dial(network, address string, cb ISocketCb, ioctl IoctlMap, dstMac *core.MACKey, srcPort uint16) (SocketApi, error) {
 
 	o.flowTableStats.dial++
 
@@ -1001,9 +1002,9 @@ func (o *TransportCtx) Dial(network, address string, cb ISocketCb, ioctl IoctlMa
 
 	switch network {
 	case "tcp":
-		return o.dialTcp(dst, port16, cb, ioctl, dstMac)
+		return o.dialTcp(dst, port16, cb, ioctl, dstMac, srcPort)
 	case "udp":
-		return o.dialUdp(dst, port16, cb, ioctl, dstMac)
+		return o.dialUdp(dst, port16, cb, ioctl, dstMac, srcPort)
 	}
 	return nil, fmt.Errorf(" unsupported %v network", network)
 }
@@ -1016,15 +1017,21 @@ func toV6(ip net.IP, ipv6 *core.Ipv6Key) {
 	copy(ipv6[:], ip[0:16])
 }
 
-func (o *TransportCtx) dialCmn(s internalSocketApi, socket SocketApi, dst net.IP, port uint16, cb ISocketCb, ioctl IoctlMap, dstMac *core.MACKey) (SocketApi, error) {
+func (o *TransportCtx) dialCmn(s internalSocketApi, socket SocketApi, dst net.IP, port uint16, cb ISocketCb, ioctl IoctlMap, dstMac *core.MACKey, srcPort uint16) (SocketApi, error) {
 	s.init(o.Client, o)
 	var sourceport uint16
 	proto := s.getProto()
-	sourceport = o.srcPorts.allocPort(proto)
-	if sourceport == 0 {
-		return nil, fmt.Errorf(" can't allocate free source port for client %v  ", o.Client.Mac)
+	if srcPort == 0 {
+		sourceport = o.srcPorts.allocPort(proto)
+		if sourceport == 0 {
+			return nil, fmt.Errorf(" can't allocate free source port for client %v  ", o.Client.Mac)
+		}
+		s.setPortAlloc(true)
+	} else {
+		sourceport = srcPort
+		s.setPortAlloc(false)
 	}
-	s.setPortAlloc(true)
+
 	ipv4 := dst.To4()
 	if ipv4 != nil {
 		if o.Client.Ipv4.IsZero() {
@@ -1077,14 +1084,14 @@ func (o *TransportCtx) dialCmn(s internalSocketApi, socket SocketApi, dst net.IP
 	return socket, nil
 }
 
-func (o *TransportCtx) dialTcp(dst net.IP, port uint16, cb ISocketCb, ioctl IoctlMap, dstMac *core.MACKey) (SocketApi, error) {
+func (o *TransportCtx) dialTcp(dst net.IP, port uint16, cb ISocketCb, ioctl IoctlMap, dstMac *core.MACKey, srcPort uint16) (SocketApi, error) {
 	s := new(TcpSocket)
-	return o.dialCmn(s, s, dst, port, cb, ioctl, dstMac)
+	return o.dialCmn(s, s, dst, port, cb, ioctl, dstMac, srcPort)
 }
 
-func (o *TransportCtx) dialUdp(dst net.IP, port uint16, cb ISocketCb, ioctl IoctlMap, dstMac *core.MACKey) (SocketApi, error) {
+func (o *TransportCtx) dialUdp(dst net.IP, port uint16, cb ISocketCb, ioctl IoctlMap, dstMac *core.MACKey, srcPort uint16) (SocketApi, error) {
 	s := new(UdpSocket)
-	return o.dialCmn(s, s, dst, port, cb, ioctl, dstMac)
+	return o.dialCmn(s, s, dst, port, cb, ioctl, dstMac, srcPort)
 }
 
 func (o *TransportCtx) addServerCb(port uint16, proto uint8, cb IServerSocketCb) bool {
