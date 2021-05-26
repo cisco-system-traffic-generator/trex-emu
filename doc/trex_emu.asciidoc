@@ -727,6 +727,8 @@ The TRex Emu server offers the ping functionality both for ICMPv4 and ICMPv6. In
 
 ==== ICMPv4
 
+anchor:icmpv4[]
+
 We have the following ICMP command available in the console. (And a few more in the API)
 
 .Console ICMPv4 Command
@@ -1993,6 +1995,8 @@ class Prof1():
 ----
 
 === Tutorial: mDNS
+
+Before proceeding, make sure you are familiar with the xref:l2_communication[network topology] required for mDNS.
 
 Multicast DNS (mDNS) is a protocol aimed at helping with name resolution in smaller networks. In doing so, it takes a different approach than the well-known DNS. Instead of querying a name server, all participants in the network are directly addressed. The appropriate client sends a multicast into the network while asking which network participant matches up with the host name.
 
@@ -4380,4 +4384,123 @@ pktTxEvent  | 100
 From the client's counters we see that the TCP server running on top of the Linux Kernels, echoes back. We can see this even better if we run the EMU in monitor mode, but we will leave this as an exercise for the reader.
 
 
+
+== Network Topologies
+
+Different protocols require different network topologies to test. EMU supports protocols in all layers.
+
+- L2 multicast protocols (CDP, LLDP, mDNS)
+- Protocols between L2-L3 such as ARP
+- L3 protocols such as IPv6
+- L4 is provided by ICMP and the transport plugin (TCP/UDP)
+- L7 protocols such as Netflow, TDL
+
+Clearly, the network topology you need for mDNS is not the same as the network topology you need for Netflow. This section's purpose is to provide common examples of network topologies.
+
+=== L2 communication
+
+anchor:l2_communication[]
+
+Multiple protocols communicate in L2. This includes L2 unicast communication but also L2 multicast communication such as mDNS, CDP, LLDP.
+
+Let's recap how EMU clients work. Each client belongs to some namespace, which can be uniquely identified by a tuple of `(Tpid, Tci, Port)`. Pay attention to the following limitation.
+
+[IMPORTANT]
+=====================================================================
+Clients behind the same physical port can't communicate at L2.
+=====================================================================
+
+A very common L2 communication case is that clients in the same namespace communicate one with the other. Unfortunately this is not supported at the moment. For L2 communication, two clients must sit behind different physical ports.
+
+There are two common setups for L2 communication:
+
+
+==== Loopback
+
+A loopback connection looks like this:
+
+image::images/loopback_setup.png[title="Loopback setup",align="left",width={p_width}, link="images/loopback_setup.png"]
+
+In this case, everything transmitted from port 0 will get to port 1 and vice-versa. For L2 communication, we set the TRex port addresses in the same subnet. For example, if we assume CIDR /24, we can use the following `trex_cfg.yaml`:
+
+[source, bash]
+----
+- port_limit: 2
+  version: 2
+  interfaces: ['87:00.0', '87:00.1']
+  port_info:
+      - ip: 1.1.1.1
+        default_gw: 1.1.1.128
+      - ip: 1.1.1.128
+        default_gw: 1.1.1.1
+----
+
+
+At EMU level, we can create a namespace at each port and attach clients. One such example, can be the following profile:
+
+link:{github_emu_path}/simple_mdns.py[emu/simple_mdns.py]
+
+[source, bash]
+----
+trex(service-filtered)>emu_show_all
+Namespace 1 Information
+
+Port | Vlan tags | Tpids |        Plugins        | Clients
+-----+-----------+-------+-----------------------+---------
+ 0   |     -     |   -   | arp, icmp, ipv6, mdns |    2
+
+Clients Information
+
+       MAC        |  IPv4   | DG-IPv4  | MTU  |        Plugins
+------------------+---------+----------+------+----------------------
+00:00:00:70:00:03 | 1.1.1.3 | 1.1.1.16 | 1500 | arp, icmp, ipv6, mdns
+00:00:00:70:00:04 | 1.1.1.4 | 1.1.1.16 | 1500 | arp, icmp, ipv6, mdns
+
+Press Enter to see more namespaces
+Namespace 2 Information
+
+Port | Vlan tags | Tpids |        Plugins        | Clients
+-----+-----------+-------+-----------------------+---------
+ 1   |     -     |   -   | arp, icmp, ipv6, mdns |    2
+
+Clients Information
+
+       MAC        |  IPv4   | DG-IPv4 | MTU  |        Plugins
+------------------+---------+---------+------+----------------------
+00:00:00:70:00:05 | 1.1.1.5 | 1.1.1.1 | 1500 | arp, icmp, ipv6, mdns
+00:00:00:70:00:06 | 1.1.1.6 | 1.1.1.1 | 1500 | arp, icmp, ipv6, mdns
+
+1.80 [sec]
+----
+
+Note that clients in the same namespace won't be able to communicate, however clients in different namespaces can communicate at L2 without any problem.
+
+==== L2 switch
+
+A setup using a L2 switch looks like this:
+
+image::images/switch_setup.png[title="L2 Switch setup",align="left",width={p_width}, link="images/switch_setup.png"]
+
+Even in this case, two clients sitting behind the same physical port can't communicate because:
+
+[NOTE]
+=====================================================================
+If the port on which the frame is received is the same port where the target destination resides,
+the switch can simply discard the frame because it can be assumed that the target will have
+received the frame through the normal LAN delivery mechanisms.
+=====================================================================
+
+That also means, that two clients in the same namespace won't be able to communicate.
+
+=== L3 communication
+
+Most of the protocols require L3 communication. An L3 setup can use two different ports of a router, or one single port with multiple sub-interfaces. In this type of communication, the EMU client will always use the default gateway's MAC address as the destination MAC address. The default gateway's MAC address can be learnt using ARP or Router Advertisement.
+
+
+[NOTE]
+=====================================================================
+Two EMU clients in the same namespace can communicate at L3 through the default gateway.
+=====================================================================
+
+One such example can be found in the xref:icmpv4[ICMPv4] tutorial.
 

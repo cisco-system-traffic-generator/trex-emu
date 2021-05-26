@@ -109,6 +109,7 @@ func (o *MDnsTestBase) Run(t *testing.T, compare bool) {
 
 		}
 	}
+	ns.OnRemove()
 }
 
 // createSimulationEnv creates the simulation event.

@@ -23,6 +23,7 @@ import (
 	"math/rand"
 	"net"
 	"time"
+	"unsafe"
 
 	"github.com/intel-go/fastjson"
 )
@@ -164,6 +165,7 @@ type MDnsNsStats struct {
 	pktRxBadDstMac         uint64 // mDns packet received with invalid dst Mac
 	pktRxBadDstIp          uint64 // mDns packet received with invalid dst IP
 	pktRxBadEthType        uint64 // mDns packet received with invalid ethernet type
+	pktRxBadTTL            uint64 // mDns packet received with invalid TTL
 	rxPkts                 uint64 // Num of mDNS packets received
 	rxQuestions            uint64 // Num of mDNS questions received in namespace
 	rxAnswers              uint64 // Num of mDNS answers received in namespace
@@ -203,6 +205,14 @@ func NewMDnsNsStatsDb(o *MDnsNsStats) *core.CCounterDb {
 		Counter:  &o.pktRxBadEthType,
 		Name:     "pktRxBadEthType",
 		Help:     "mDns packet received with invalid Ethernet Type",
+		Unit:     "ops",
+		DumpZero: false,
+		Info:     core.ScERROR})
+
+	db.Add(&core.CCounterRec{
+		Counter:  &o.pktRxBadTTL,
+		Name:     "pktRxBadTTL",
+		Help:     "mDns packet received with invalid TTL",
 		Unit:     "ops",
 		DumpZero: false,
 		Info:     core.ScERROR})
@@ -653,20 +663,31 @@ func (o *PluginMDnsClient) GetHosts() []string {
 
 // MDnsCacheEntry represents an entry in the MDns Cache Table.
 type MDnsCacheEntry struct {
+	dlist core.DList `json:"-"` // Node in the double linked list.
+	// Note that the dlist must be kept first because of the unsafe conversion.
 	Name   string          `json:"name"`      // Name
 	Type   string          `json:"dns_type"`  // DNS Type
 	Class  string          `json:"dns_class"` // DNS Class
 	TTL    uint32          `json:"ttl"`       // Time to live in seconds
 	Answer string          `json:"answer"`    // IP address or Domain Name
+	epoch  uint64          `json:"-"`         // Epoch in which the entry was added to the table.
 	timer  core.CHTimerObj `json:"-"`         // Timer to decrement TTL
+
+}
+
+// convertToMDnsCacheEntry dlist to the MDnsCacheEntry that contains the dlist.
+// Note: For the conversion to work, the dlist must be kept first in the MDnsCacheEntry.
+func convertToMDnsCacheEntry(dlist *core.DList) *MDnsCacheEntry {
+	return (*MDnsCacheEntry)(unsafe.Pointer(dlist))
 }
 
 // ToSha256 makes an MDnsCacheEntry hashable. The only thing that changes in an MDnsCacheEntry is the TTL,
 // as such it is excluded from the hash.
 func (o *MDnsCacheEntry) ToSHA256() string {
 	h := sha256.New()
-	// TTL can change - The other 4 values must be unique.
-	h.Write([]byte(fmt.Sprintf("%v-%v-%v-%v", o.Name, o.Type, o.Class, o.Answer)))
+	// TTL can change - The other values must be unique.
+	// Epoch is important, same entry in two different epochs is different.
+	h.Write([]byte(fmt.Sprintf("%v-%v-%v-%v-%v", o.Name, o.Type, o.Class, o.Answer, o.epoch)))
 	return fmt.Sprintf("%x", h.Sum(nil))
 }
 
@@ -675,16 +696,23 @@ type MDnsCacheTbl map[string]*MDnsCacheEntry
 
 // MDnsCache reprents the MDns cache which includes the cache table, and a mechanism to add/remove entries (timer-based).
 type MDnsCache struct {
-	timerw *core.TimerCtx // Timer wheel
-	tbl    MDnsCacheTbl   // Cache Table.
-	stats  *MDnsNsStats   // mDns namespace stats
+	timerw     *core.TimerCtx // Timer wheel
+	tbl        MDnsCacheTbl   // Cache Table.
+	head       core.DList     // Head pointer to double linked list.
+	activeIter *core.DList    // Double Linked list iterator
+	iterReady  bool           // Is iterator ready?
+	epoch      uint64         // Cache Epoch, incremented with each flush.
+	stats      *MDnsNsStats   // mDns namespace stats
 }
 
-// Create a new MDnsCache.
-func (o *MDnsCache) Create(timerw *core.TimerCtx, stats *MDnsNsStats) {
+// NewMDnsCache creates a new MDnsCache.
+func NewMDnsCache(timerw *core.TimerCtx, stats *MDnsNsStats) *MDnsCache {
+	o := new(MDnsCache)
 	o.tbl = make(MDnsCacheTbl)
 	o.stats = stats
 	o.timerw = timerw
+	o.head.SetSelf() // Set pointer to itself.
+	return o
 }
 
 // OnEvent is called each second and decreases the TTL by one. Each entry in the table calls *this* function.
@@ -699,16 +727,10 @@ func (o *MDnsCache) OnEvent(a, b interface{}) {
 	}
 }
 
-// OnRemove is called when the cache is removed.
-func (o *MDnsCache) OnRemove() {
-	for k := range o.tbl {
-		o.RemoveEntry(k)
-	}
-}
-
 // AddEntry adds a new entry to the cache table.
 func (o *MDnsCache) AddEntry(name string, dnsType layers.DNSType, class layers.DNSClass, ttl uint32, answer string) {
-	entry := MDnsCacheEntry{Name: name, Type: dnsType.String(), Class: class.String(), TTL: ttl, Answer: answer}
+	entry := MDnsCacheEntry{Name: name, Type: dnsType.String(), Class: class.String(), TTL: ttl, Answer: answer, epoch: o.epoch}
+	o.head.AddLast(&entry.dlist)
 	entry.timer.SetCB(o, &entry, 0)                                            // The OnEvent is in table, calls with entry.
 	o.timerw.StartTicks(&entry.timer, o.timerw.DurationToTicks(1*time.Second)) // Start timer
 	o.tbl[entry.ToSHA256()] = &entry
@@ -721,10 +743,105 @@ func (o *MDnsCache) RemoveEntry(key string) {
 		// nothing to remove
 		return
 	}
+
+	// Stop timer
 	if entry.timer.IsRunning() {
 		o.timerw.Stop(&entry.timer)
 	}
+
+	// Remove from Linked List
+	if o.activeIter == &entry.dlist {
+		// it is going to be removed
+		o.activeIter = entry.dlist.Next()
+	}
+	o.head.RemoveNode(&entry.dlist)
+
 	delete(o.tbl, key)
+}
+
+// IterReset resets the iterator. Returns if the iterator is resetted or not.
+func (o *MDnsCache) IterReset() bool {
+	o.activeIter = o.head.Next()
+	if o.head.IsEmpty() {
+		o.iterReady = false
+		return true
+	}
+	o.iterReady = true
+	return false
+}
+
+// IterIsStopped indicates if the iterator is not ready.
+func (o *MDnsCache) IterIsStopped() bool {
+	return !o.iterReady
+}
+
+// GetNext gets the next @param: count entries in the cache.
+func (o *MDnsCache) GetNext(count int) ([]*MDnsCacheEntry, error) {
+	r := make([]*MDnsCacheEntry, 0)
+	if !o.iterReady {
+		return r, fmt.Errorf("Iterator is not ready. Reset the iterator!")
+	}
+
+	for i := 0; i < count; i++ {
+		if o.activeIter == &o.head {
+			o.iterReady = false // require a new reset
+			break
+		}
+		entry := convertToMDnsCacheEntry(o.activeIter)
+		if entry.epoch == o.epoch {
+			// Values from older epochs are irrelevant
+			r = append(r, entry)
+		}
+		o.activeIter = o.activeIter.Next()
+	}
+	return r, nil
+}
+
+// Flush flushes the mDNS cache.
+func (o *MDnsCache) Flush() {
+	o.epoch++
+	/* We can't remove the whole table since it won't scale.
+	What we do instead is that we increment an epoch, and when iterating we return only entries
+	on the current epoch. The entries in old epochs will be removed upon timer expiration. */
+}
+
+/*======================================================================================================
+										Ns Cache Remover
+======================================================================================================*/
+
+// MDNsCacheRemover is a special struct which is used by MDns Namespace plugins to remove the mDNS cache.
+// Since the cache table can be enormous, we can't iterate it. Hence it requires a special solution.
+type MDnsCacheRemover struct {
+	cache  *MDnsCache      // Pointer to cache to remove
+	timerw *core.TimerCtx  // Timer wheel
+	timer  core.CHTimerObj // Timer
+}
+
+// NewMDnsCacheRemover creates a new MDnsCacheRemover.
+func NewMDnsCacheRemover(cache *MDnsCache, timerw *core.TimerCtx) *MDnsCacheRemover {
+	o := new(MDnsCacheRemover)
+	o.cache = cache
+	o.timerw = timerw
+	o.timer.SetCB(o, 0, 0)
+	o.OnEvent(0, 0)
+	return o
+}
+
+// OnEvent is called each tick and removes a THRESHOLD entries from the table.
+func (o *MDnsCacheRemover) OnEvent(a, b interface{}) {
+	THRESHOLD := 1000
+	i := 0
+	for k := range o.cache.tbl {
+		if i >= THRESHOLD {
+			break
+		}
+		o.cache.RemoveEntry(k)
+		i++
+	}
+	if len(o.cache.tbl) > 0 {
+		// Table is not empty.
+		o.timerw.StartTicks(&o.timer, 1)
+	}
 }
 
 /*======================================================================================================
@@ -734,7 +851,7 @@ func (o *MDnsCache) RemoveEntry(key string) {
 //PluginMDnsNs represents the mDNS plugin in namespace level.
 type PluginMDnsNs struct {
 	core.PluginBase                              // Embed plugin base
-	cache           MDnsCache                    // mDns cache
+	cache           *MDnsCache                   // mDns cache
 	mapHostClient   map[string]*PluginMDnsClient // Map hosts to client database
 	stats           MDnsNsStats                  // mDns namespace statistics
 	cdb             *core.CCounterDb             // mDns counters
@@ -744,11 +861,11 @@ type PluginMDnsNs struct {
 // NewMDnsNs creates a new mDNS namespace plugin.
 func NewMDnsNs(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
 	o := new(PluginMDnsNs)
-	o.InitPluginBase(ctx, o)                             // Init the base plugin
-	o.RegisterEvents(ctx, []string{}, o)                 // No events to register in namespace level.
-	o.cache.Create(ctx.Tctx.GetTimerCtx(), &o.stats)     // Create cache
-	o.mapHostClient = make(map[string]*PluginMDnsClient) // Create hosts -> client database
-	o.cdb = NewMDnsNsStatsDb(&o.stats)                   // Create new stats database
+	o.InitPluginBase(ctx, o)                                 // Init the base plugin
+	o.RegisterEvents(ctx, []string{}, o)                     // No events to register in namespace level.
+	o.cache = NewMDnsCache(ctx.Tctx.GetTimerCtx(), &o.stats) // Create cache
+	o.mapHostClient = make(map[string]*PluginMDnsClient)     // Create hosts -> client database
+	o.cdb = NewMDnsNsStatsDb(&o.stats)                       // Create new stats database
 	o.cdbv = core.NewCCounterDbVec("mDns")
 	o.cdbv.Add(o.cdb)
 	return &o.PluginBase
@@ -756,7 +873,8 @@ func NewMDnsNs(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
 
 // OnRemove when removing mDNS namespace plugin.
 func (o *PluginMDnsNs) OnRemove(ctx *core.PluginCtx) {
-	o.cache.OnRemove()
+	_ = NewMDnsCacheRemover(o.cache, ctx.Tctx.GetTimerCtx())
+	o.cache = nil // GC can now remove the namespace plugin.
 }
 
 // OnEvent for events the namespace plugin is registered.
@@ -855,6 +973,12 @@ func (o *PluginMDnsNs) HandleRxMDnsPacket(ps *core.ParserPacketState) int {
 			o.stats.pktRxBadDstIp++
 			return core.PARSER_ERR
 		}
+		if ipv6.HopLimit() != 255 {
+			// According to RFC 3171 a packet sent to the Local Network Control Block (224.0.0.0/24)
+			// should be sent with TTL=255
+			o.stats.pktRxBadTTL++
+			return core.PARSER_ERR
+		}
 	} else {
 		host, _, _ := net.SplitHostPort(Ipv4HostPort)
 		expDstIp := net.IP(net.ParseIP(host))
@@ -863,6 +987,12 @@ func (o *PluginMDnsNs) HandleRxMDnsPacket(ps *core.ParserPacketState) int {
 		dstIp.SetUint32(ipv4.GetIPDst())
 		if !expDstIp.Equal(dstIp.ToIP()) {
 			o.stats.pktRxBadDstIp++
+			return core.PARSER_ERR
+		}
+		if ipv4.GetTTL() != 255 {
+			// According to RFC 3171 a packet sent to the Local Network Control Block (224.0.0.0/24)
+			// should be sent with TTL=255
+			o.stats.pktRxBadTTL++
 			return core.PARSER_ERR
 		}
 	}
@@ -900,14 +1030,6 @@ func (o *PluginMDnsNs) HandleRxMDnsPacket(ps *core.ParserPacketState) int {
 
 // SetTruncated to complete the gopacket.DecodeFeedback interface.
 func (o *PluginMDnsNs) SetTruncated() {}
-
-// GetResolved returns the resolved DNS entries.
-func (o *PluginMDnsNs) GetResolved() (resolved []*MDnsCacheEntry) {
-	for _, entry := range o.cache.tbl {
-		resolved = append(resolved, entry)
-	}
-	return resolved
-}
 
 // RegisterHosts registers the hosts of a client. If host is already registered, we ignore.
 // Returns hosts successfully registered
@@ -996,8 +1118,18 @@ type (
 		Op    bool     `json:"op"`    // false for add, true for remove
 		Hosts []string `json:"hosts"` // hosts to add/remove
 	}
-	ApiMDnsGetHostsHandler    struct{} // Get Hosts of a client
-	ApiMDnsGetResolvedHandler struct{} // GetEntries RPC Handler
+	ApiMDnsGetHostsHandler struct{} // Get Hosts of a client
+	ApiMDnsCacheIterParams struct {
+		Reset bool   `json:"reset"`
+		Count uint16 `json:"count" validate:"required,gte=0,lte=255"`
+	} // Params for a namespace cache iteration
+	ApiMDnsCacheIterHandler struct{} // Iterate namespace cache
+	ApiMDnsCacheIterResults struct {
+		Empty   bool              `json:"empty"`
+		Stopped bool              `json:"stopped"`
+		Vec     []*MDnsCacheEntry `json:"data"`
+	} // Results for a namespace cache iteration
+	ApiMDnsCacheFlushHandler struct{} // Flush the mDNS cache
 )
 
 // getClientPlugin gets the client plugin given the client parameters (Mac & Tunnel Key)
@@ -1135,8 +1267,12 @@ func (h ApiMDnsGetHostsHandler) ServeJSONRPC(ctx interface{}, params *fastjson.R
 	return c.GetHosts(), nil
 }
 
-// ApiMDnsGetEntriesHandler handles the RPC get entries request.
-func (h ApiMDnsGetResolvedHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
+// ApiMDnsCacheIterHandler handles the namespace cache iteration.
+func (h ApiMDnsCacheIterHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
+
+	var p ApiMDnsCacheIterParams
+	var res ApiMDnsCacheIterResults
+	tctx := ctx.(*core.CThreadCtx)
 
 	ns, err := getNsPlugin(ctx, params)
 	if err != nil {
@@ -1145,8 +1281,47 @@ func (h ApiMDnsGetResolvedHandler) ServeJSONRPC(ctx interface{}, params *fastjso
 			Message: err.Error(),
 		}
 	}
-	res := ns.GetResolved()
-	return res, nil
+	err = tctx.UnmarshalValidate(*params, &p)
+	if err != nil {
+		return nil, &jsonrpc.Error{
+			Code:    jsonrpc.ErrorCodeInvalidRequest,
+			Message: err.Error(),
+		}
+	}
+
+	if p.Reset {
+		res.Empty = ns.cache.IterReset()
+	}
+	if res.Empty {
+		return &res, nil
+	}
+
+	if ns.cache.IterIsStopped() {
+		res.Stopped = true
+		return &res, nil
+	}
+	keys, err := ns.cache.GetNext(int(p.Count))
+	if err != nil {
+		return nil, &jsonrpc.Error{
+			Code:    jsonrpc.ErrorCodeInvalidRequest,
+			Message: err.Error(),
+		}
+	}
+	res.Vec = keys
+	return &res, nil
+}
+
+// ApiMDnsCacheFlushHandler flushes the mDNS cache
+func (h ApiMDnsCacheFlushHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
+	ns, err := getNsPlugin(ctx, params)
+	if err != nil {
+		return nil, &jsonrpc.Error{
+			Code:    jsonrpc.ErrorCodeInvalidRequest,
+			Message: err.Error(),
+		}
+	}
+	ns.cache.Flush()
+	return nil, nil
 }
 
 func init() {
@@ -1177,7 +1352,8 @@ func init() {
 	core.RegisterCB("mdns_c_get_hosts", ApiMDnsGetHostsHandler{}, false)              // show the hosts of a client
 	core.RegisterCB("mdns_c_query", ApiMDnsQueryHandler{}, false)                     // query
 	core.RegisterCB("mdns_ns_cnt", ApiMDnsNsCntHandler{}, true)                       // get counters / meta per ns
-	core.RegisterCB("mdns_ns_get_resolved", ApiMDnsGetResolvedHandler{}, false)       // get resolved entries
+	core.RegisterCB("mdns_ns_cache_iter", ApiMDnsCacheIterHandler{}, false)           // iterate namespace cache
+	core.RegisterCB("mdns_ns_cache_flush", ApiMDnsCacheFlushHandler{}, false)         // flush the cache
 
 	/* register callback for rx side*/
 	core.ParserRegister(MDNS_PLUG, HandleRxMDnsPacket)
