@@ -26,6 +26,7 @@ type MDnsTestBase struct {
 	ipv6         bool
 	counters     MDnsClientStats
 	initJSON     [][][]byte
+	nsInitJson   [][]byte
 	cb           MDnsTestCb
 	cbArg1       interface{}
 	cbArg2       interface{}
@@ -96,6 +97,17 @@ func (o *MDnsTestBase) Run(t *testing.T, compare bool) {
 		c.OnRemove()
 	}
 
+	if o.nsInitJson != nil {
+		// dump namespace counters too
+		nsPlug := ns.PluginCtx.Get(MDNS_PLUG)
+		if nsPlug == nil {
+			t.Fatalf(" can't find plugin")
+		}
+		mDnsNsPlug := nsPlug.Ext.(*PluginMDnsNs)
+		mDnsNsPlug.cdbv.Dump()
+		tctx.SimRecordAppend(mDnsNsPlug.cdb.MarshalValues(false))
+	}
+
 	if compare {
 		if o.monitor {
 			tctx.SimRecordCompare(o.testname, t)
@@ -118,7 +130,7 @@ func createSimulationEnv(simRx *core.VethIFSim, t *MDnsTestBase) (*core.CThreadC
 	var key core.CTunnelKey
 	key.Set(&core.CTunnelData{Vport: 1})
 	ns := core.NewNSCtx(tctx, &key)
-	ns.PluginCtx.CreatePlugins([]string{MDNS_PLUG}, [][]byte{})
+	ns.PluginCtx.CreatePlugins([]string{MDNS_PLUG}, t.nsInitJson)
 	nsPlg := ns.PluginCtx.Get(MDNS_PLUG)
 	if nsPlg == nil {
 		panic(" can't find plugin")
@@ -717,6 +729,458 @@ func TestPluginMDns13(t *testing.T) {
 		clientsToSim: 2,
 		query:        query,
 		cb:           queryCb,
+	}
+	a.Run(t, true)
+}
+
+func TestPluginMDns14(t *testing.T) {
+
+	// Auto Play with 2 clients and defaults
+	initJson1 := [][]byte{[]byte(`{
+		"hosts": ["AppleTV", "Brother", "client-1"],
+	}`)}
+
+	initJson2 := [][]byte{[]byte(`{
+		"hosts": ["UCS", "16.0.0.1.cisco.com", "trex-04", "client-0"],
+		"domain_name": "cisco_il",
+		"ttl": 180
+	}`)}
+
+	var initJsonArray = [][][]byte{initJson1, initJson2}
+
+	// Pay attention to this test, we are loopbacked
+	// query (TX) --(loopback)-> query(RX) --(logic) -> response (TX) --(loopback) -> response (RX)
+
+	nsInitJson := [][]byte{[]byte(`{
+		"auto_play": true,
+		"auto_play_params": {
+			"rate": 1.0,
+			"min_client": "00:00:01:00:00:00",
+			"max_client": "00:00:01:00:00:01",
+			"client_step": 1,
+			"hostname_base": "client-"
+			"min_hostname": 0,
+			"max_hostname": 1,
+			"hostname_step": 1
+		}
+	}`)}
+
+	a := &MDnsTestBase{
+		testname:     "mdns14",
+		dropAll:      false,
+		monitor:      true,
+		capture:      true,
+		initJSON:     initJsonArray,
+		nsInitJson:   nsInitJson,
+		duration:     10 * time.Second,
+		clientsToSim: 2,
+	}
+	a.Run(t, true)
+}
+
+func TestPluginMDns15(t *testing.T) {
+
+	// Auto Play with 2 clients and defaults
+	initJson1 := [][]byte{[]byte(`{
+		"hosts": ["AppleTV", "Brother", "client-1"],
+	}`)}
+
+	initJson2 := [][]byte{[]byte(`{
+		"hosts": ["UCS", "16.0.0.1.cisco.com", "trex-04", "client-0"],
+		"domain_name": "cisco_il",
+		"ttl": 180
+	}`)}
+
+	var initJsonArray = [][][]byte{initJson1, initJson2}
+
+	// Pay attention to this test, we are loopbacked
+	// query (TX) --(loopback)-> query(RX) --(logic) -> response (TX) --(loopback) -> response (RX)
+
+	nsInitJson := [][]byte{[]byte(`{
+		"auto_play": true,
+		"auto_play_params": {
+			"rate": 5.0,
+			"min_client": "00:00:01:00:00:00",
+			"max_client": "00:00:01:00:00:01",
+			"client_step": 1,
+			"hostname_base": "client-"
+			"min_hostname": 0,
+			"max_hostname": 1,
+			"hostname_step": 1,
+			"type": "AAAA"
+		}
+	}`)}
+
+	a := &MDnsTestBase{
+		testname:     "mdns15",
+		dropAll:      false,
+		monitor:      true,
+		capture:      true,
+		initJSON:     initJsonArray,
+		nsInitJson:   nsInitJson,
+		duration:     10 * time.Second,
+		clientsToSim: 2,
+	}
+	a.Run(t, true)
+}
+
+func TestPluginMDns16(t *testing.T) {
+
+	// More clients, different steps, including query with no response for client 5.
+	initJson1 := [][]byte{[]byte(`{
+		"hosts": ["AppleTV", "Brother", "client-0"],
+	}`)}
+
+	initJson2 := [][]byte{[]byte(`{
+		"hosts": ["UCS", "16.0.0.1.cisco.com", "trex-04", "client-1"],
+		"domain_name": "cisco_il",
+		"ttl": 180
+	}`)}
+
+	initJson3 := [][]byte{[]byte(`{
+		"hosts": ["client-2"],
+	}`)}
+
+	initJson4 := [][]byte{[]byte(`{
+		"hosts": ["client-3"],
+	}`)}
+
+	initJson5 := [][]byte{[]byte(`{
+		"hosts": ["client-4"],
+	}`)}
+
+	var initJsonArray = [][][]byte{initJson1, initJson2, initJson3, initJson4, initJson5}
+
+	// Pay attention to this test, we are loopbacked
+	// query (TX) --(loopback)-> query(RX) --(logic) -> response (TX) --(loopback) -> response (RX)
+
+	nsInitJson := [][]byte{[]byte(`{
+		"auto_play": true,
+		"auto_play_params": {
+			"rate": 1.0,
+			"min_client": "00:00:01:00:00:00",
+			"max_client": "00:00:01:00:00:05",
+			"client_step": 2,
+			"hostname_base": "client-"
+			"min_hostname": 0,
+			"max_hostname": 5,
+			"hostname_step": 1
+		}
+	}`)}
+
+	a := &MDnsTestBase{
+		testname:     "mdns16",
+		dropAll:      false,
+		monitor:      true,
+		capture:      true,
+		initJSON:     initJsonArray,
+		nsInitJson:   nsInitJson,
+		duration:     10 * time.Second,
+		clientsToSim: 5,
+	}
+	a.Run(t, true)
+}
+
+func TestPluginMDns17(t *testing.T) {
+
+	// Missing clients and hostname step
+	initJson1 := [][]byte{[]byte(`{
+		"hosts": ["AppleTV", "Brother", "client-0"],
+	}`)}
+
+	initJson2 := [][]byte{[]byte(`{
+		"hosts": ["UCS", "16.0.0.1.cisco.com", "trex-04", "client-1"],
+		"domain_name": "cisco_il",
+		"ttl": 180
+	}`)}
+
+	initJson3 := [][]byte{[]byte(`{
+		"hosts": ["client-2"],
+	}`)}
+
+	var initJsonArray = [][][]byte{initJson1, initJson2, initJson3}
+
+	// Pay attention to this test, we are loopbacked
+	// query (TX) --(loopback)-> query(RX) --(logic) -> response (TX) --(loopback) -> response (RX)
+
+	nsInitJson := [][]byte{[]byte(`{
+		"auto_play": true,
+		"auto_play_params": {
+			"rate": 1.0,
+			"min_client": "00:00:01:00:00:00",
+			"max_client": "00:00:01:00:00:05",
+			"hostname_base": "client-"
+			"min_hostname": 0,
+			"max_hostname": 2,
+			"init_hostname": 2,
+			"hostname_step": 2
+		}
+	}`)}
+
+	a := &MDnsTestBase{
+		testname:     "mdns17",
+		dropAll:      false,
+		monitor:      true,
+		capture:      true,
+		initJSON:     initJsonArray,
+		nsInitJson:   nsInitJson,
+		duration:     10 * time.Second,
+		clientsToSim: 3,
+	}
+	a.Run(t, true)
+}
+
+func TestPluginMDns18(t *testing.T) {
+
+	// Ipv6 autoplay
+	initJson1 := [][]byte{[]byte(`{
+		"hosts": ["AppleTV", "Brother", "client-0"],
+	}`)}
+
+	initJson2 := [][]byte{[]byte(`{
+		"hosts": ["UCS", "16.0.0.1.cisco.com", "trex-04", "client-1"],
+		"domain_name": "cisco_il",
+		"ttl": 180
+	}`)}
+
+	initJson3 := [][]byte{[]byte(`{
+		"hosts": ["client-2"],
+	}`)}
+
+	var initJsonArray = [][][]byte{initJson1, initJson2, initJson3}
+
+	// Pay attention to this test, we are loopbacked
+	// query (TX) --(loopback)-> query(RX) --(logic) -> response (TX) --(loopback) -> response (RX)
+
+	nsInitJson := [][]byte{[]byte(`{
+		"auto_play": true,
+		"auto_play_params": {
+			"rate": 1.0,
+			"min_client": "00:00:01:00:00:00",
+			"max_client": "00:00:01:00:00:02",
+			"hostname_base": "client-"
+			"min_hostname": 0,
+			"max_hostname": 2,
+			"init_hostname": 1,
+			"hostname_step": 1,
+			"ipv6": true
+		}
+	}`)}
+
+	a := &MDnsTestBase{
+		testname:     "mdns18",
+		dropAll:      false,
+		monitor:      true,
+		capture:      true,
+		initJSON:     initJsonArray,
+		nsInitJson:   nsInitJson,
+		duration:     10 * time.Second,
+		clientsToSim: 3,
+	}
+	a.Run(t, true)
+}
+
+func TestPluginMDns19(t *testing.T) {
+
+	// Program with PTR and Any
+	initJson1 := [][]byte{[]byte(`{
+		"hosts": ["AppleTV", "Brother", "client-0"],
+	}`)}
+
+	initJson2 := [][]byte{[]byte(`{
+		"hosts": ["UCS", "16.0.0.1.cisco.com", "trex-04", "client-1"],
+		"domain_name": "cisco_il",
+		"ttl": 180
+	}`)}
+
+	initJson3 := [][]byte{[]byte(`{
+		"hosts": ["client-2"],
+	}`)}
+
+	var initJsonArray = [][][]byte{initJson1, initJson2, initJson3}
+
+	// Pay attention to this test, we are loopbacked
+	// query (TX) --(loopback)-> query(RX) --(logic) -> response (TX) --(loopback) -> response (RX)
+
+	nsInitJson := [][]byte{[]byte(`{
+		"auto_play": true,
+		"auto_play_params": {
+			"rate": 1.0,
+			"min_client": "00:00:01:00:00:00",
+			"max_client": "00:00:01:00:00:02",
+			"hostname_base": "client-"
+			"min_hostname": 0,
+			"max_hostname": 2,
+			"init_hostname": 1,
+			"hostname_step": 1,
+			"program": {
+				"00:00:01:00:00:00": {
+					"hostnames": ["16.0.0.1.cisco.com"],
+					"type": "PTR",
+					"class": "Any"
+				}
+			}
+		}
+	}`)}
+
+	a := &MDnsTestBase{
+		testname:     "mdns19",
+		dropAll:      false,
+		monitor:      true,
+		capture:      true,
+		initJSON:     initJsonArray,
+		nsInitJson:   nsInitJson,
+		duration:     10 * time.Second,
+		clientsToSim: 3,
+	}
+	a.Run(t, true)
+}
+
+func TestPluginMDns20(t *testing.T) {
+
+	// TXT Ipv6 vs normal IPv4
+	initJson1 := [][]byte{[]byte(`{
+		"hosts": ["AppleTV", "Brother", "client-0"],
+		"txt": [
+			{
+				"field": "am",
+				"value": "AppleTV3,2"
+			},
+			{
+				"field": "ty",
+				"value": "Brother HL-L2340D series"
+			},
+			{
+				"field": "OS",
+				"value": "Windows 10",
+			}
+		]
+	}`)}
+
+	initJson2 := [][]byte{[]byte(`{
+		"hosts": ["UCS", "16.0.0.1.cisco.com", "trex-04", "client-1"],
+		"domain_name": "cisco_il",
+		"ttl": 180
+	}`)}
+
+	initJson3 := [][]byte{[]byte(`{
+		"hosts": ["client-2"],
+	}`)}
+
+	var initJsonArray = [][][]byte{initJson1, initJson2, initJson3}
+
+	// Pay attention to this test, we are loopbacked
+	// query (TX) --(loopback)-> query(RX) --(logic) -> response (TX) --(loopback) -> response (RX)
+
+	nsInitJson := [][]byte{[]byte(`{
+		"auto_play": true,
+		"auto_play_params": {
+			"rate": 1.0,
+			"min_client": "00:00:01:00:00:00",
+			"max_client": "00:00:01:00:00:02",
+			"hostname_base": "client-"
+			"min_hostname": 0,
+			"max_hostname": 2,
+			"init_hostname": 1,
+			"hostname_step": 1,
+			"program": {
+				"00:00:01:00:00:01": {
+					"hostnames": ["AppleTV"],
+					"type": "TXT",
+					"ipv6": true
+				},
+				"00:00:01:00:00:00": {
+					"hostnames": ["BadHost"]
+				}
+			}
+		}
+	}`)}
+
+	a := &MDnsTestBase{
+		testname:     "mdns20",
+		dropAll:      false,
+		monitor:      true,
+		capture:      true,
+		initJSON:     initJsonArray,
+		nsInitJson:   nsInitJson,
+		duration:     10 * time.Second,
+		clientsToSim: 3,
+	}
+	a.Run(t, true)
+}
+
+func TestPluginMDns21(t *testing.T) {
+
+	// multiple hostnames in program
+	initJson1 := [][]byte{[]byte(`{
+		"hosts": ["AppleTV", "Brother", "client-0"],
+		"txt": [
+			{
+				"field": "am",
+				"value": "AppleTV3,2"
+			},
+			{
+				"field": "ty",
+				"value": "Brother HL-L2340D series"
+			},
+			{
+				"field": "OS",
+				"value": "Windows 10",
+			}
+		]
+	}`)}
+
+	initJson2 := [][]byte{[]byte(`{
+		"hosts": ["UCS", "16.0.0.1.cisco.com", "trex-04", "client-1"],
+		"domain_name": "cisco_il",
+		"ttl": 180
+		"txt": [
+			{
+				"field": "HW",
+				"value": "UCS C-220"
+			}
+		]
+	}`)}
+
+	initJson3 := [][]byte{[]byte(`{
+		"hosts": ["client-2"],
+	}`)}
+
+	var initJsonArray = [][][]byte{initJson1, initJson2, initJson3}
+
+	// Pay attention to this test, we are loopbacked
+	// query (TX) --(loopback)-> query(RX) --(logic) -> response (TX) --(loopback) -> response (RX)
+
+	nsInitJson := [][]byte{[]byte(`{
+		"auto_play": true,
+		"auto_play_params": {
+			"rate": 1.0,
+			"min_client": "00:00:01:00:00:00",
+			"max_client": "00:00:01:00:00:02",
+			"hostname_base": "client-"
+			"min_hostname": 0,
+			"max_hostname": 2,
+			"init_hostname": 1,
+			"hostname_step": 1,
+			"program": {
+				"00:00:01:00:00:02": {
+					"hostnames": ["Brother", "AppleTV"],
+					"type": "TXT",
+				},
+	
+			}
+		}
+	}`)}
+
+	a := &MDnsTestBase{
+		testname:     "mdns21",
+		dropAll:      false,
+		monitor:      true,
+		capture:      true,
+		initJSON:     initJsonArray,
+		nsInitJson:   nsInitJson,
+		duration:     10 * time.Second,
+		clientsToSim: 3,
 	}
 	a.Run(t, true)
 }

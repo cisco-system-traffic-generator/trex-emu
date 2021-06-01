@@ -17,11 +17,13 @@ import (
 	"crypto/sha256"
 	"emu/core"
 	"emu/plugins/transport"
+	"encoding/binary"
 	"external/google/gopacket/layers"
 	"external/osamingo/jsonrpc"
 	"fmt"
 	"math/rand"
 	"net"
+	"strconv"
 	"time"
 	"unsafe"
 
@@ -35,6 +37,9 @@ const (
 	DefaultMDnsQueryType   = "A"                // A = host
 	DefaultMDnsQueryClass  = "IN"               // IN = Internet
 	DefaultMDnsResponseTTL = 240                // Default TTL value
+	DefaultAutoPlayRate    = 1                  // Default Rate in case of Namespace Auto Play
+	DefaultClientStep      = 1                  // Default step to increment clients in Auto Play
+	DefaultHostnameStep    = 1                  // Default step to increment hostname in Auto Play
 )
 
 var Ipv4McastMacAddress core.MACKey = core.MACKey{0x01, 0x00, 0x5E, 0x00, 0x00, 0xFB} // L2 multicast MAC for Ipv4
@@ -161,6 +166,7 @@ func NewMDnsClientStatsDb(o *MDnsClientStats) *core.CCounterDb {
 
 // MDnsNsStats defines a number of stats for an mDNS namespace.
 type MDnsNsStats struct {
+	invalidInitJson        uint64 // Error while decoding namespace init Json
 	pktRxErrTooShort       uint64 // Received packet is too short
 	pktRxBadDstMac         uint64 // mDns packet received with invalid dst Mac
 	pktRxBadDstIp          uint64 // mDns packet received with invalid dst IP
@@ -171,11 +177,23 @@ type MDnsNsStats struct {
 	rxAnswers              uint64 // Num of mDNS answers received in namespace
 	rxAuthoritiesUnhandled uint64 // Num of authorities unhandled in Rx packets
 	rxAddRecordsUnhandled  uint64 // Num of additional records unhandled in Rx packets
+	autoPlayClientNotFound uint64 // Auto Play client was not found
+	clientNoMDns           uint64 // Auto Play client doesn't have MDns plugin
+	autoPlayQueries        uint64 // Number of queries sent by Auto Play
+	autoPlayBadQuery       uint64 // Number of bad queries created by Auto Play
 }
 
 // NewMDnsNsStatsDb creates a new counter database for MDnsNsStats.
 func NewMDnsNsStatsDb(o *MDnsNsStats) *core.CCounterDb {
 	db := core.NewCCounterDb(MDNS_PLUG)
+
+	db.Add(&core.CCounterRec{
+		Counter:  &o.invalidInitJson,
+		Name:     "invalidInitJson",
+		Help:     "Error while decoding init Json",
+		Unit:     "ops",
+		DumpZero: false,
+		Info:     core.ScERROR})
 
 	db.Add(&core.CCounterRec{
 		Counter:  &o.pktRxErrTooShort,
@@ -257,6 +275,37 @@ func NewMDnsNsStatsDb(o *MDnsNsStats) *core.CCounterDb {
 		DumpZero: false,
 		Info:     core.ScINFO})
 
+	db.Add(&core.CCounterRec{
+		Counter:  &o.autoPlayClientNotFound,
+		Name:     "autoPlayClientNotFound",
+		Help:     "AutoPlay client was not found",
+		Unit:     "ops",
+		DumpZero: false,
+		Info:     core.ScERROR})
+
+	db.Add(&core.CCounterRec{
+		Counter:  &o.clientNoMDns,
+		Name:     "clientNoMDns",
+		Help:     "AutoPlay client doesn't have MDns plugin",
+		Unit:     "ops",
+		DumpZero: false,
+		Info:     core.ScERROR})
+
+	db.Add(&core.CCounterRec{
+		Counter:  &o.autoPlayQueries,
+		Name:     "autoPlayQueries",
+		Help:     "Number of queries sent by Auto Play",
+		Unit:     "query",
+		DumpZero: false,
+		Info:     core.ScINFO})
+
+	db.Add(&core.CCounterRec{
+		Counter:  &o.clientNoMDns,
+		Name:     "clientNoMDns",
+		Help:     "Number of bad queries created by Auto Play",
+		Unit:     "ops",
+		DumpZero: false,
+		Info:     core.ScERROR})
 	return db
 }
 
@@ -265,16 +314,16 @@ var mdnsEvents = []string{}
 
 // TxtEntries represents an entry in the TXT response.
 type TxtEntries struct {
-	Field string `json:"field" validate=required` // Field type
-	Value string `json:"value" validate=required` // Value of the field
+	Field string `json:"field" validate:"required"` // Field type
+	Value string `json:"value" validate:"required"` // Value of the field
 }
 
 // MDnsClientParams represents the entries of the Init Json passed to a new MDns client.
 type MDnsClientParams struct {
-	Hosts       []string     `json:"hosts"`             // Hosts owned by this client. Note that this can include IP addresses for PTR support.
-	DomainName  string       `json:"domain_name"`       // Domain name for the client in case of PTR query.
-	Txt         []TxtEntries `json:"txt" validate=dive` // Txt to answer in case the TXT query.
-	ResponseTTL uint32       `json:"ttl"`               // TTL for response. Will override the default value if provided.
+	Hosts       []string     `json:"hosts"`               // Hosts owned by this client. Note that this can include IP addresses for PTR support.
+	DomainName  string       `json:"domain_name"`         // Domain name for the client in case of PTR query.
+	Txt         []TxtEntries `json:"txt" validate:"dive"` // Txt to answer in case the TXT query.
+	ResponseTTL uint32       `json:"ttl"`                 // TTL for response. Will override the default value if provided.
 }
 
 // PluginMDNsClient represents a MDns client.
@@ -730,10 +779,16 @@ func (o *MDnsCache) OnEvent(a, b interface{}) {
 // AddEntry adds a new entry to the cache table.
 func (o *MDnsCache) AddEntry(name string, dnsType layers.DNSType, class layers.DNSClass, ttl uint32, answer string) {
 	entry := MDnsCacheEntry{Name: name, Type: dnsType.String(), Class: class.String(), TTL: ttl, Answer: answer, epoch: o.epoch}
+	key := entry.ToSHA256()
+	_, ok := o.tbl[key]
+	if ok {
+		// Entry already exists as old entry, same epoch. Remove the old one so the dlist remains chronologic.
+		o.RemoveEntry(key)
+	}
 	o.head.AddLast(&entry.dlist)
 	entry.timer.SetCB(o, &entry, 0)                                            // The OnEvent is in table, calls with entry.
 	o.timerw.StartTicks(&entry.timer, o.timerw.DurationToTicks(1*time.Second)) // Start timer
-	o.tbl[entry.ToSHA256()] = &entry
+	o.tbl[key] = &entry
 }
 
 // RemoveEntry removes an entry from the cache table. If the entry is not in the table, nothing to do.
@@ -845,17 +900,244 @@ func (o *MDnsCacheRemover) OnEvent(a, b interface{}) {
 }
 
 /*======================================================================================================
+										Ns mDNS auto play
+======================================================================================================*/
+
+// ProgramEntry represents a single entry in the program which will override the default query.
+type ProgramEntry struct {
+	Hostnames []string `json:"hostnames" validate:"required"` // Hostnames to query
+	DnsType   string   `json:"type"`                          // Query Type
+	DnsClass  string   `json:"class"`                         // Query class
+	Ipv6      bool     `json:"ipv6"`                          // Send IPv6 query
+}
+
+// MDnsNsParams represents the params provided to an mDNS namespace as init Json.
+type MDnsAutoPlayParams struct {
+	Rate         float32                 `json:"rate"`                                  // Rate in seconds between two consequent queries in the program
+	MinClient    string                  `json:"min_client" validate:"required"`        // MAC address representing the first client
+	MaxClient    string                  `json:"max_client" validate:"required"`        // MAC address representing the last client
+	ClientStep   uint16                  `json:"client_step"`                           // Client incremental step, Defaults to DefaultClientStep
+	HostnameBase string                  `json:"hostname_base" validate:"required"`     // Base hostname, will append number
+	MinHostname  uint16                  `json:"min_hostname" validate:"eq=0|required"` // The first number to append to `hostname_base`
+	MaxHostname  uint16                  `json:"max_hostname" validate:"eq=0|required"` // The last number to append to `hostname_base`
+	InitHostname uint16                  `json:"init_hostname"`                         // The number we start to append from
+	HostnameStep uint16                  `json:"hostname_step"`                         // Hostname incremental step, defaults to DefaultHostnameStep
+	DnsType      string                  `json:"type"`                                  // Query Type, Defaults to DefaultDnsQueryType
+	DnsClass     string                  `json:"class"`                                 // Query class, Defaults to DefaultDnsQueryClass
+	Ipv6         bool                    `json:"ipv6"`                                  // Send IPv6 query, Defaults to False
+	Program      map[string]ProgramEntry `json:"program" validate:"dive"`               // Program for specific clients with specific queries
+}
+
+// MDnsNsAutoPlay defines a struct that is responsible for automatic queries based on the program defined
+// in the namespace's init Json. These queries are sent on a rate that can also be specified in said
+// init Json.
+type MDnsNsAutoPlay struct {
+	timerw          *core.TimerCtx     // Timer wheel
+	timer           core.CHTimerObj    // Timer object
+	nsPlug          *PluginMDnsNs      // Back pointer to namespace plugin
+	ticks           uint32             // Number of ticks between two consecutive program entries
+	params          MDnsAutoPlayParams // AutoPlay params
+	currentHostname uint16             // The current hostname
+	minClient       uint64             // Minimal client MAC as an uint64
+	maxClient       uint64             // Maximal client MAC as an uint64
+	currentClient   uint64             // The current MAC as an uint64
+}
+
+// NewMDnsNsAutoPlay creates a new MDnsNsAutoPlay object.
+func NewMDnsNsAutoPlay(nsPlug *PluginMDnsNs, autoPlayParams *fastjson.RawMessage) *MDnsNsAutoPlay {
+	o := new(MDnsNsAutoPlay)
+	o.nsPlug = nsPlug
+	o.timerw = nsPlug.Tctx.GetTimerCtx()
+
+	err := o.processParams(autoPlayParams)
+	if err != nil {
+		o.nsPlug.stats.invalidInitJson++
+		return nil
+	}
+
+	duration := time.Duration(float32(time.Second) / o.params.Rate)
+	o.ticks = o.timerw.DurationToTicks(duration) // Calculate ticks
+	o.timer.SetCB(o, 0, 0)                       // Set callback for timer
+	o.timerw.StartTicks(&o.timer, o.ticks)       // Start timer
+	return o
+}
+
+// processParams processes the params that the user defines in Init Json.
+func (o *MDnsNsAutoPlay) processParams(autoPlayParams *fastjson.RawMessage) error {
+
+	if autoPlayParams == nil {
+		return fmt.Errorf("AutoPlayParams pointer is nil")
+	}
+
+	o.params.Rate = DefaultAutoPlayRate         // Set Default Auto Play Rate
+	o.params.ClientStep = DefaultClientStep     // Set Default Client Step
+	o.params.HostnameStep = DefaultHostnameStep // Set Default Hostname Step
+	err := o.nsPlug.Tctx.UnmarshalValidate(*autoPlayParams, &o.params)
+	if err != nil {
+		return fmt.Errorf("Couldn't parse Auto Play params successfully.")
+	}
+
+	extHwAddr := make([]byte, 8) // Prepend two zero bytes so we can hold the MAC address as an uint64.
+	hwAddr, err := net.ParseMAC(o.params.MinClient)
+	copy(extHwAddr[2:], hwAddr)
+	if err != nil {
+		return fmt.Errorf("Couldn't parse MinClient!")
+	}
+	o.minClient = binary.BigEndian.Uint64(extHwAddr)
+	hwAddr, err = net.ParseMAC(o.params.MaxClient)
+	if err != nil {
+		return fmt.Errorf("Couldn't parse MaxClient!")
+	}
+	copy(extHwAddr[2:], hwAddr)
+	o.maxClient = binary.BigEndian.Uint64(extHwAddr)
+	o.currentClient = o.minClient // Start from the minimal client
+
+	if o.params.MinHostname > o.params.MaxHostname {
+		// Validate that min <= max
+		return fmt.Errorf("MinHostname <= MaxHostname doesn't hold")
+	}
+	if o.params.InitHostname != 0 && (o.params.InitHostname < o.params.MinHostname || o.params.InitHostname > o.params.MaxHostname) {
+		// Validate that min <= init <= max
+		return fmt.Errorf("MinHostname <= InitHostname <= MaxHostname doesn't hold")
+	}
+	if o.params.InitHostname > o.params.MinHostname {
+		// Init hostname was defined
+		o.currentHostname = o.params.InitHostname
+	} else {
+		// Start from the minimal hostname
+		o.currentHostname = o.params.MinHostname
+	}
+
+	return nil
+}
+
+// OnRemove is called when we remove the AutoPlay
+func (o *MDnsNsAutoPlay) OnRemove() {
+	if o.timer.IsRunning() {
+		o.timerw.Stop(&o.timer)
+	}
+}
+
+// domainInc increments the current value according to step in the [min-max] domain
+func (o *MDnsNsAutoPlay) domainInc(min, max, step, current uint64) uint64 {
+	left := max - current // this will never overflow as currValue < maxValue
+	if step <= left {
+		// simple increment by step, not overflow of domain
+		// step is fixed module size of domain
+		current += step
+	} else {
+		// overflow of domain
+		// if here then (step > left) therefore step - left - 1 will not overflow
+		current = min + (step - left - 1) // restart also consumes 1
+	}
+	return current
+}
+
+// incClient increments the MAC address of the client based on defined step and returns the old address (prior to increment)
+func (o *MDnsNsAutoPlay) incClient() *core.MACKey {
+	b := make([]byte, 8)
+	var mac core.MACKey
+	binary.BigEndian.PutUint64(b, o.currentClient)
+	copy(mac[:], b[2:])
+	o.currentClient = o.domainInc(o.minClient, o.maxClient, uint64(o.params.ClientStep), o.currentClient)
+	return &mac
+}
+
+// incHostname increments the hostname based on the defined step and returns the complete hostname with the old value appended.
+func (o *MDnsNsAutoPlay) incHostname() (hostname string) {
+	hostname = o.params.HostnameBase + strconv.Itoa(int(o.currentHostname))
+	o.currentHostname = uint16(o.domainInc(uint64(o.params.MinHostname), uint64(o.params.MaxHostname), uint64(o.params.HostnameStep), uint64(o.currentHostname)))
+	return hostname
+}
+
+// buildQueries builds the query parameters based on the user specified program.
+func (o *MDnsNsAutoPlay) buildQueries(hostnames []string, dnsType string, dnsClass string, ipv6 bool) []DnsQueryParams {
+	var dnsQueryParams []DnsQueryParams
+	for _, hostname := range hostnames {
+		if dnsType == "" {
+			dnsType = DefaultMDnsQueryType
+		}
+		if dnsClass == "" {
+			dnsClass = DefaultMDnsQueryClass
+		}
+		dnsQueryParams = append(dnsQueryParams, DnsQueryParams{Name: hostname, Type: dnsType, Class: dnsClass, Ipv6: ipv6})
+	}
+	return dnsQueryParams
+}
+
+// getClientQueries returns the queries that this client will ask. It will look in the program to see if this client
+// has defined special queries or return the default query.
+func (o *MDnsNsAutoPlay) getClientQueries(mac *core.MACKey, hostname string) []DnsQueryParams {
+	var hwAddr net.HardwareAddr
+	hwAddr = mac[:]
+	macString := hwAddr.String()
+	program, ok := o.params.Program[macString]
+	if ok {
+		return o.buildQueries(program.Hostnames, program.DnsType, program.DnsClass, program.Ipv6)
+	} else {
+		hostnames := []string{hostname}
+		return o.buildQueries(hostnames, o.params.DnsType, o.params.DnsClass, o.params.Ipv6)
+	}
+}
+
+// OnEvent is called by the timer each time a new query needs to be send.
+func (o *MDnsNsAutoPlay) OnEvent(a, b interface{}) {
+
+	var client *core.CClient
+	var mac *core.MACKey
+	var hostname string
+
+	mac = o.incClient()
+	hostname = o.incHostname()
+	client = o.nsPlug.Ns.GetClient(mac)
+	if client == nil {
+		// No such client ...
+		o.nsPlug.stats.autoPlayClientNotFound++
+		o.timerw.StartTicks(&o.timer, o.ticks) // Restart timer
+		return
+	}
+
+	plug := client.PluginCtx.Get(MDNS_PLUG)
+	if plug == nil {
+		// given client doesn't have MDns
+		o.nsPlug.stats.clientNoMDns++
+		return
+	}
+
+	mdnsPlug := plug.Ext.(*PluginMDnsClient)
+
+	queries := o.getClientQueries(mac, hostname)
+
+	err := mdnsPlug.Query(queries)
+	if err != nil {
+		// Couldn't query properly
+		o.nsPlug.stats.autoPlayBadQuery++
+	}
+	o.nsPlug.stats.autoPlayQueries++ // one more query sent
+
+	o.timerw.StartTicks(&o.timer, o.ticks) // Restart timer
+}
+
+/*======================================================================================================
 										Ns mDNS plugin
 ======================================================================================================*/
+
+// MDnsNsParams defines the InitJson params for MDNs namespaces.
+type MDnsNsParams struct {
+	AutoPlay       bool                 `json:"auto_play"`        // Should autoplay the program
+	AutoPlayParams *fastjson.RawMessage `json:"auto_play_params"` // Params for autoplay
+}
 
 //PluginMDnsNs represents the mDNS plugin in namespace level.
 type PluginMDnsNs struct {
 	core.PluginBase                              // Embed plugin base
+	params          MDnsNsParams                 // Namespace Paramaters
 	cache           *MDnsCache                   // mDns cache
 	mapHostClient   map[string]*PluginMDnsClient // Map hosts to client database
 	stats           MDnsNsStats                  // mDns namespace statistics
 	cdb             *core.CCounterDb             // mDns counters
 	cdbv            *core.CCounterDbVec          // mDns counter vector
+	autoPlay        *MDnsNsAutoPlay              // mDNS program autoplay
 }
 
 // NewMDnsNs creates a new mDNS namespace plugin.
@@ -868,11 +1150,25 @@ func NewMDnsNs(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
 	o.cdb = NewMDnsNsStatsDb(&o.stats)                       // Create new stats database
 	o.cdbv = core.NewCCounterDbVec("mDns")
 	o.cdbv.Add(o.cdb)
+
+	err := o.Tctx.UnmarshalValidate(initJson, &o.params)
+	if err != nil {
+		o.stats.invalidInitJson++
+		return &o.PluginBase
+	}
+	if o.params.AutoPlay {
+		o.autoPlay = NewMDnsNsAutoPlay(o, o.params.AutoPlayParams)
+	}
+
 	return &o.PluginBase
 }
 
 // OnRemove when removing mDNS namespace plugin.
 func (o *PluginMDnsNs) OnRemove(ctx *core.PluginCtx) {
+	// Remove AutoPlay first
+	if o.autoPlay != nil {
+		o.autoPlay.OnRemove()
+	}
 	_ = NewMDnsCacheRemover(o.cache, ctx.Tctx.GetTimerCtx())
 	o.cache = nil // GC can now remove the namespace plugin.
 }
@@ -896,9 +1192,9 @@ func (o *PluginMDnsNs) HandleRxMDnsAnswers(answers []layers.DNSResourceRecord) {
 
 // HandleRxMDnsQuestions handles an incoming mDns packet's questions.
 func (o *PluginMDnsNs) HandleRxMDnsQuestions(transactionID uint16, questions []layers.DNSQuestion, ipv6 bool) {
-	// Collect clients that can answer at least one question by hostname.
+	// Collect clients that can answer at least one question by hostname in a set.
 	// Then let all these clients answer all the questions they can.
-	var relevantClients []*PluginMDnsClient
+	relevantClients := make(map[*PluginMDnsClient]bool, 0)
 	for i := range questions {
 		q := questions[i]
 		c, err := o.GetClientByHost(string(q.Name))
@@ -906,10 +1202,10 @@ func (o *PluginMDnsNs) HandleRxMDnsQuestions(transactionID uint16, questions []l
 			// client not found, we can safely proceed to next question
 			continue
 		}
-		relevantClients = append(relevantClients, c)
+		relevantClients[c] = true // Event it already exists
 	}
 	// all the clients in relevantClients can answer at least one question
-	for _, c := range relevantClients {
+	for c, _ := range relevantClients {
 		c.HandleRxMDnsQuestions(transactionID, questions, ipv6)
 	}
 }
@@ -1100,10 +1396,10 @@ func (o PluginMDnsNsReg) NewPlugin(ctx *core.PluginCtx, initJson []byte) *core.P
 
 // DnsQueryParams defines the fields in an DNS query as received in RPC.
 type DnsQueryParams struct {
-	Name  string `json:"name" validate=required` // Name of query
-	Type  string `json:"dns_type"`               // Type of the query
-	Class string `json:"dns_class"`              // Class of the query
-	Ipv6  bool   `json:"ipv6"`                   // Ipv6 query
+	Name  string `json:"name" validate:"required"` // Name of query
+	Type  string `json:"dns_type"`                 // Type of the query
+	Class string `json:"dns_class"`                // Class of the query
+	Ipv6  bool   `json:"ipv6"`                     // Ipv6 query
 }
 
 type (
@@ -1111,7 +1407,7 @@ type (
 	ApiMDnsNsCntHandler     struct{} // Counter RPC Handler per Ns
 	ApiMDnsQueryHandler     struct{} // Query RPC Handler
 	ApiMDnsQueryParams      struct {
-		Queries []DnsQueryParams `json:"queries" validate=required,dive`
+		Queries []DnsQueryParams `json:"queries" validate:"required,dive"`
 	}
 	ApiMDnsAddRemoveHostsHandler struct{} // Add/Remove hosts handler.
 	ApiMDnsAddRemoveHostsParams  struct {
