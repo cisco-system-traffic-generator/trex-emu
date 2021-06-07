@@ -2210,12 +2210,12 @@ Let us see the resolved entries in the DNS cache table like this:
 trex(service-filtered)>emu_mdns_show_cache -p 0
 Resolved Hostnames
 
-       Hostname        | IP/Domain Name | Type | Class | Time To Live
------------------------+----------------+------+-------+-------------
-         UCS           |    1.1.1.5     |  A   |  Any  |     179
-       trex-04         |    1.1.1.5     |  A   |  IN   |      61
-       trex-04         | 2001:db8:1::5  | AAAA |  IN   |      75
-10.56.1.1.cisco.il.lab |  cisco.il.lab  | PTR  |  IN   |     122
+       Hostname        |     Answer     | Type | Class | Time To Live | Time Left
+-----------------------+----------------+------+-------+--------------+----------
+         UCS           |    1.1.1.5     |  A   |  Any  |     180      |   179
+       trex-04         |    1.1.1.5     |  A   |  IN   |     180      |    61
+       trex-04         | 2001:db8:1::5  | AAAA |  IN   |     180      |    75
+10.56.1.1.cisco.il.lab |  cisco.il.lab  | PTR  |  IN   |     180      |   122
 ----
 
 [NOTE]

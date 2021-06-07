@@ -714,14 +714,16 @@ func (o *PluginMDnsClient) GetHosts() []string {
 type MDnsCacheEntry struct {
 	dlist core.DList `json:"-"` // Node in the double linked list.
 	// Note that the dlist must be kept first because of the unsafe conversion.
-	Name   string          `json:"name"`      // Name
-	Type   string          `json:"dns_type"`  // DNS Type
-	Class  string          `json:"dns_class"` // DNS Class
-	TTL    uint32          `json:"ttl"`       // Time to live in seconds
-	Answer string          `json:"answer"`    // IP address or Domain Name
-	epoch  uint64          `json:"-"`         // Epoch in which the entry was added to the table.
-	timer  core.CHTimerObj `json:"-"`         // Timer to decrement TTL
-
+	Name            string          `json:"name"`      // Name
+	Type            string          `json:"dns_type"`  // DNS Type
+	Class           string          `json:"dns_class"` // DNS Class
+	TTL             uint32          `json:"ttl"`       // Time to live in seconds
+	Answer          string          `json:"answer"`    // IP address or Domain Name
+	TimeLeft        uint32          `json:"time_left"` // Time Left for entry
+	ticksUponCreate float64         `json"-"`          // Ticks upon create
+	epoch           uint64          `json:"-"`         // Epoch in which the entry was added to the table.
+	timer           core.CHTimerObj `json:"-"`         // Timer to decrement TTL
+	sha256          string          `json:"-"`         // SHA256 of this entry used to keep in hash table.
 }
 
 // convertToMDnsCacheEntry dlist to the MDnsCacheEntry that contains the dlist.
@@ -730,14 +732,16 @@ func convertToMDnsCacheEntry(dlist *core.DList) *MDnsCacheEntry {
 	return (*MDnsCacheEntry)(unsafe.Pointer(dlist))
 }
 
-// ToSha256 makes an MDnsCacheEntry hashable. The only thing that changes in an MDnsCacheEntry is the TTL,
-// as such it is excluded from the hash.
-func (o *MDnsCacheEntry) ToSHA256() string {
-	h := sha256.New()
-	// TTL can change - The other values must be unique.
-	// Epoch is important, same entry in two different epochs is different.
-	h.Write([]byte(fmt.Sprintf("%v-%v-%v-%v-%v", o.Name, o.Type, o.Class, o.Answer, o.epoch)))
-	return fmt.Sprintf("%x", h.Sum(nil))
+// SHA256 makes an MDnsCacheEntry hashable. We need to put into the SHA only the things that make the
+// entry unique.
+func (o *MDnsCacheEntry) SHA256() string {
+	if o.sha256 == "" {
+		h := sha256.New()
+		// Epoch is important, same entry in two different epochs is different.
+		h.Write([]byte(fmt.Sprintf("%v-%v-%v-%v-%v", o.Name, o.Type, o.Class, o.Answer, o.epoch)))
+		o.sha256 = fmt.Sprintf("%x", h.Sum(nil))
+	}
+	return o.sha256
 }
 
 // MDnsCacheTbl is a DNS cache table. They key is the SHA256 hash of each entry without TTL.
@@ -745,13 +749,14 @@ type MDnsCacheTbl map[string]*MDnsCacheEntry
 
 // MDnsCache reprents the MDns cache which includes the cache table, and a mechanism to add/remove entries (timer-based).
 type MDnsCache struct {
-	timerw     *core.TimerCtx // Timer wheel
-	tbl        MDnsCacheTbl   // Cache Table.
-	head       core.DList     // Head pointer to double linked list.
-	activeIter *core.DList    // Double Linked list iterator
-	iterReady  bool           // Is iterator ready?
-	epoch      uint64         // Cache Epoch, incremented with each flush.
-	stats      *MDnsNsStats   // mDns namespace stats
+	timerw     *core.TimerCtx  // Timer wheel
+	flushTimer core.CHTimerObj // Timer to flush the cache
+	tbl        MDnsCacheTbl    // Cache Table.
+	head       core.DList      // Head pointer to double linked list.
+	activeIter *core.DList     // Double Linked list iterator
+	iterReady  bool            // Is iterator ready?
+	epoch      uint64          // Cache Epoch, incremented with each flush.
+	stats      *MDnsNsStats    // mDns namespace stats
 }
 
 // NewMDnsCache creates a new MDnsCache.
@@ -760,34 +765,46 @@ func NewMDnsCache(timerw *core.TimerCtx, stats *MDnsNsStats) *MDnsCache {
 	o.tbl = make(MDnsCacheTbl)
 	o.stats = stats
 	o.timerw = timerw
-	o.head.SetSelf() // Set pointer to itself.
+	o.flushTimer.SetCB(o, nil, true) // Second parameter is set to true, means flush timer.
+	o.head.SetSelf()                 // Set pointer to itself.
 	return o
 }
 
-// OnEvent is called each second and decreases the TTL by one. Each entry in the table calls *this* function.
-// The first paremeter, is the entry itself.
+// OnEvent is called in two cases. Cases can be distinguished by the second parameter.
+// Case 1: time to remove entries after a flush. Second parameter is True.
+// Case 2: Each entry in the table calls *this* function to remove the entry. The first paremeter, is the entry itself.
 func (o *MDnsCache) OnEvent(a, b interface{}) {
-	entry := a.(*MDnsCacheEntry)
-	entry.TTL--
-	if entry.TTL == 0 {
-		o.RemoveEntry(entry.ToSHA256())
+	flush := b.(bool)
+	if flush {
+		o.OnFlush()
 	} else {
-		o.timerw.StartTicks(&entry.timer, o.timerw.DurationToTicks(1*time.Second))
+		// remove entry from cache
+		entry := a.(*MDnsCacheEntry)
+		o.RemoveEntry(entry.SHA256())
 	}
+
 }
 
 // AddEntry adds a new entry to the cache table.
 func (o *MDnsCache) AddEntry(name string, dnsType layers.DNSType, class layers.DNSClass, ttl uint32, answer string) {
-	entry := MDnsCacheEntry{Name: name, Type: dnsType.String(), Class: class.String(), TTL: ttl, Answer: answer, epoch: o.epoch}
-	key := entry.ToSHA256()
+	entry := MDnsCacheEntry{
+		Name:            name,
+		Type:            dnsType.String(),
+		Class:           class.String(),
+		TTL:             ttl,
+		Answer:          answer,
+		epoch:           o.epoch,
+		ticksUponCreate: o.timerw.TicksInSec()}
+	key := entry.SHA256()
 	_, ok := o.tbl[key]
 	if ok {
 		// Entry already exists as old entry, same epoch. Remove the old one so the dlist remains chronologic.
 		o.RemoveEntry(key)
 	}
 	o.head.AddLast(&entry.dlist)
-	entry.timer.SetCB(o, &entry, 0)                                            // The OnEvent is in table, calls with entry.
-	o.timerw.StartTicks(&entry.timer, o.timerw.DurationToTicks(1*time.Second)) // Start timer
+	// The OnEvent is in table, calls with entry. Second parameter is false, means aging.
+	entry.timer.SetCB(o, &entry, false)
+	o.timerw.StartTicks(&entry.timer, o.timerw.DurationToTicks(time.Duration(ttl)*time.Second)) // Start timer
 	o.tbl[key] = &entry
 }
 
@@ -837,6 +854,7 @@ func (o *MDnsCache) GetNext(count int) ([]*MDnsCacheEntry, error) {
 		return r, fmt.Errorf("Iterator is not ready. Reset the iterator!")
 	}
 
+	ticksNow := o.timerw.TicksInSec()
 	for i := 0; i < count; i++ {
 		if o.activeIter == &o.head {
 			o.iterReady = false // require a new reset
@@ -845,6 +863,8 @@ func (o *MDnsCache) GetNext(count int) ([]*MDnsCacheEntry, error) {
 		entry := convertToMDnsCacheEntry(o.activeIter)
 		if entry.epoch == o.epoch {
 			// Values from older epochs are irrelevant
+			// Update how much time left the entry has
+			entry.TimeLeft = entry.TTL - uint32(ticksNow-entry.ticksUponCreate)
 			r = append(r, entry)
 		}
 		o.activeIter = o.activeIter.Next()
@@ -852,12 +872,39 @@ func (o *MDnsCache) GetNext(count int) ([]*MDnsCacheEntry, error) {
 	return r, nil
 }
 
+// OnFlush is called after a user calls flush in order to flush the table in chunks.
+// It is important to flush in chunks so we can scale.
+func (o *MDnsCache) OnFlush() {
+	THRESHOLD := 100
+	for i := 0; i < THRESHOLD; i++ {
+		if o.head.IsEmpty() {
+			// Table is empty
+			return
+		}
+		entry := convertToMDnsCacheEntry(o.head.Next())
+		if entry.epoch < o.epoch {
+			o.RemoveEntry(entry.SHA256())
+		} else {
+			// Cleaned everything, now we are in the current epoch.
+			return
+		}
+	}
+	// If you got here, you still have more to flush.
+	o.timerw.Start(&o.flushTimer, 1)
+}
+
 // Flush flushes the mDNS cache.
 func (o *MDnsCache) Flush() {
-	o.epoch++
 	/* We can't remove the whole table since it won't scale.
 	What we do instead is that we increment an epoch, and when iterating we return only entries
-	on the current epoch. The entries in old epochs will be removed upon timer expiration. */
+	on the current epoch. We remove entries from older epochs using a timer in order to scale.*/
+	o.epoch++
+	if o.timerw.IsRunning(&o.flushTimer) || o.head.IsEmpty() {
+		// Cache is empty or we already are flushing
+		return
+	} else {
+		o.timerw.StartTicks(&o.flushTimer, 1) // Start Timer
+	}
 }
 
 /*======================================================================================================
