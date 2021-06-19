@@ -304,6 +304,7 @@ func (o *VethIFSimulator) SimulatorCheckRxQueue() {
 
 func (o *VethIFSimulator) SimulatorCleanup() {
 
+	o.SimulatorCheckRxQueue()
 	for _, m := range o.vec {
 		m.FreeMbuf()
 	}

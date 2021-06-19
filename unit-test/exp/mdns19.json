@@ -216,14 +216,26 @@
 		"data": "01|00|5e|00|00|fb|00|00|01|00|00|00|08|00|45|00|00|40|00|cc|00|00|ff|11|c9|e5|10|00|00|00|e0|00|00|fb|14|e9|14|e9|00|2c|d5|68|00|00|80|00|00|00|00|01|00|00|00|00|08|63|6c|69|65|6e|74|2d|30|00|00|01|00|01|00|00|00|f0|00|04|10|00|00|00|"
 	},
 	{
+		"time": 10.1,
+		"meta": "tx",
+		"len": 78,
+		"data": "01|00|5e|00|00|fb|00|00|01|00|00|00|08|00|45|00|00|40|00|cc|00|00|ff|11|c9|e5|10|00|00|00|e0|00|00|fb|14|e9|14|e9|00|2c|04|43|00|00|00|00|00|01|00|00|00|00|00|00|02|31|36|01|30|01|30|01|31|05|63|69|73|63|6f|03|63|6f|6d|00|00|0c|00|ff|"
+	},
+	{
+		"time": 10.1,
+		"meta": "rx",
+		"len": 78,
+		"data": "01|00|5e|00|00|fb|00|00|01|00|00|00|08|00|45|00|00|40|00|cc|00|00|ff|11|c9|e5|10|00|00|00|e0|00|00|fb|14|e9|14|e9|00|2c|04|43|00|00|00|00|00|01|00|00|00|00|00|00|02|31|36|01|30|01|30|01|31|05|63|69|73|63|6f|03|63|6f|6d|00|00|0c|00|ff|"
+	},
+	{
 		"pktRxMDnsQuery": 3,
 		"pktTxMDnsQuery": 4,
 		"pktTxMDnsResponse": 3
 	},
 	{
-		"pktRxMDnsQuery": 3,
+		"pktRxMDnsQuery": 4,
 		"pktTxMDnsQuery": 3,
-		"pktTxMDnsResponse": 3
+		"pktTxMDnsResponse": 4
 	},
 	{
 		"pktRxMDnsQuery": 3,
@@ -233,18 +245,18 @@
 	{
 		"autoPlayQueries": 10,
 		"rxAnswers": 9,
-		"rxPkts": 18,
-		"rxQuestions": 9
+		"rxPkts": 19,
+		"rxQuestions": 10
 	},
 	{
 		"mbufAlloc": 2,
-		"mbufAllocCache": 17,
-		"mbufFreeCache": 19
+		"mbufAllocCache": 18,
+		"mbufFreeCache": 20
 	},
 	{
-		"RxBytes": 1392,
-		"RxPkts": 18,
-		"TxBytes": 1470,
-		"TxPkts": 19
+		"RxBytes": 1470,
+		"RxPkts": 19,
+		"TxBytes": 1564,
+		"TxPkts": 20
 	}
 ]
