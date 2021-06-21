@@ -97,7 +97,6 @@ class CTocNode:
         return d
 
 
-
 class TocHTMLParser(HTMLParser):
 
     def __init__ (self, link_fmt = None):
@@ -180,18 +179,14 @@ class TocHTMLParser(HTMLParser):
         return json.dumps(self.root.to_json_childs(), sort_keys=False, indent=4)
 
 
-
-
-def create_toc_json (input_file, output_file, link_fmt = None):
-    f = open (input_file)
-    l=f.readlines()
-    f.close();
+def create_toc_json(input_file, output_file, link_fmt=None):
+    with open(input_file, encoding="utf-8") as f:
+        l = f.readlines()
     html_input = ''.join(l)
     parser = TocHTMLParser(link_fmt)
     parser.feed(html_input);
-    f = open (output_file,'w')
-    f.write(parser.dump_as_json());
-    f.close();
+    with open(output_file, 'w') as f:
+        f.write(parser.dump_as_json())
 
 
 
@@ -225,8 +220,6 @@ def ascii_doc_scan(self):
                     depnodes.append(k)
                     node_lst.append(k)
     return [depnodes, ()]
-        
-        
 
 def scansize(self):
     name = 'image::%s\\{PIC\\}\\[.*,(width|height)=(\\d+)' % self.inputs[0].name[:-4]
@@ -266,8 +259,10 @@ def options(opt):
     opt.add_option('--performance-detailed',action='store_true',help='print detailed test results (date,time, build id and results) to csv file named _detailed_table.csv.')
     opt.add_option('--ndr', action = 'store_true', help = 'Include build of NDR report.')
 
+
 search_path_arr = ['~/.local/bin', '/usr/local/bin/', '/usr/bin', './extensions']
 os.environ['PATH'] = os.environ['PATH'] + ':' + ':'.join(search_path_arr)
+
 
 def configure(conf):
     search_path = ' '.join(search_path_arr)
@@ -280,14 +275,12 @@ def configure(conf):
     # asciidoctor
     conf.find_program('asciidoctor', path_list=search_path, var='ASCIIDOCTOR')
     #conf.find_file('multipage-html5-converter.rb', path_list=search_path)
-    
+
 
 def convert_to_pdf(task):
     input_file = task.outputs[0].abspath()
     out_dir = task.outputs[0].parent.get_bld().abspath()
     return  os.system('a2x --no-xmllint %s -f pdf  -d  article %s -D %s ' %('-v' if Log.verbose else '', task.inputs[0].abspath(),out_dir ) )
-
-
 
 
 def convert_to_html_toc_book (task, disqus=False, generator='asciidoc', docinfo = True):
@@ -331,9 +324,9 @@ def convert_to_html_toc_book (task, disqus=False, generator='asciidoc', docinfo 
 
     return os.system('rm {0}'.format(tmp));
 
+
 def convert_to_html_toc_book_no_docinfo(task):
     return convert_to_html_toc_book(task, docinfo = False)
-
 
 
 # strip hierarchy from a multipage doc
@@ -341,40 +334,39 @@ def convert_to_html_toc_book_no_docinfo(task):
 # the pages
 # also a 'main' hook will be added
 def multipage_strip_hierarchy (in_file, out_file):
-    
+
     with open(in_file) as f:
         lines = f.readlines()
-    
+
     for i, line in enumerate(lines):
         if re.match("==+ [^ ].*", line):
             prefix, name = line.split(' ', 1)
             lines[i] = '== {0}\n'.format(name)
-            
-                
-    # add a hook                
+
+
+    # add a hook
     lines.append('\n== main\n')
-    
+
     with open(out_file, "w") as f:
         f.write(''.join(lines))
-    
-    
-    
+
+
 # generate an asciidoctor chunk book for a target
 def convert_to_asciidoctor_chunk_book(task, title, css):
-    
+
     in_file          = task.inputs[0].abspath()
     src_dir          = os.path.dirname(in_file)
     out_dir          = os.path.splitext(task.outputs[0].abspath())[0]
     target_name      = os.path.basename(out_dir)
 
-    
+
     css = os.path.abspath(css)
 
     # build chunked with no hierarchy
     with tempfile.NamedTemporaryFile() as tmp_file:
         # strip the hierarchy to make sure all pages are generated
         multipage_strip_hierarchy(in_file, tmp_file.name)
-    
+
         multipage_backend = os.path.join('./extensions', 'multipage-html5-converter.rb')
         cmd = '{0} -a stylesheet={1} -r {2} -b multipage_html5 -D {3} {4} -o {5}.html -B {6}'.format(
                 task.env['ASCIIDOCTOR'][0],
@@ -388,8 +380,7 @@ def convert_to_asciidoctor_chunk_book(task, title, css):
         res = os.system(cmd)
         if res != 0:
             return (1)
-    
-    
+
     # build single only to get the TOC
     with tempfile.NamedTemporaryFile() as tmp_file:
         cmd = '{0} -a toc=left -b html5 -o {2} {3}'.format(
@@ -397,7 +388,7 @@ def convert_to_asciidoctor_chunk_book(task, title, css):
                 multipage_backend,
                 tmp_file.name,
                 in_file)
-    
+
         res = os.system( cmd )
         if res != 0:
             return (1)
@@ -425,7 +416,6 @@ def convert_to_asciidoctor_chunk_book(task, title, css):
     os.remove(os.path.join(out_dir, main))
 
     return 0
-        
 
 
 def convert_to_pdf_book(task):
@@ -437,19 +427,21 @@ def convert_to_pdf_book(task):
 def ensure_dir(f):
     if not os.path.exists(f):
         os.makedirs(f)
-    
+
+
 
 def my_copy(task):
-    input_file=task.outputs[0].abspath()
-    out_dir=task.outputs[0].parent.get_bld().abspath()
+    input_file = task.outputs[0].get_src()
+    out_dir = task.outputs[0].parent.get_bld().abspath()
     ensure_dir(out_dir)
-    shutil.copy2(input_file, out_dir+ os.sep+task.outputs[0].name)
+    shutil.copy2(str(input_file), str(task.outputs[0]))
     return (0)
 
 
 def do_visio(bld):
     for x in bld.path.ant_glob('visio\\*.vsd'):
         tg = bld(rule='${VIS} -i ${SRC} -o ${TGT} ', source=x, target=x.change_ext('.png'))
+
 
 def get_sphinx_version(sphinx_path):
     try:
@@ -466,11 +458,13 @@ def get_sphinx_version(sphinx_path):
     except Exception as e:
         print('Error getting Sphinx version: %s' % e)
 
+
 def get_trex_core_git():
     trex_core_git_path = os.path.abspath(os.path.join(os.getcwd(), os.pardir))
     if not os.path.isdir(trex_core_git_path):
         trex_core_git_path = os.getenv('TREX_CORE_GIT', None)
     return trex_core_git_path
+
 
 def parse_hlt_args(task):
     trex_core_git_path = get_trex_core_git()
@@ -515,127 +509,24 @@ def parse_hlt_args(task):
         f.write('\n'.join(hlt_asciidoc))
     return 0
 
-def build_cp_docs (task):
-    out_dir = task.outputs[0].abspath()
-    export_path = os.path.join(os.getcwd(), 'build', 'cp_docs')
-    trex_core_git_path = get_trex_core_git()
-    if not trex_core_git_path: # there exists a default directory or the desired ENV variable.
-        return 1
-    trex_core_docs_path = os.path.abspath(os.path.join(trex_core_git_path, 'scripts', 'automation', 'trex_control_plane', 'doc'))
-    sphinx_version = get_sphinx_version(task.env['SPHINX'][0])
-    if not sphinx_version:
-        return 1
-    if sphinx_version < 1.3:
-        additional_args = '-D html_theme=default'
-    else:
-        additional_args = ''
-    build_doc_cmd = "{pyt} {sph} {add} {ver} -W -b {bld} {src} {dst}".format(
-        pyt= sys.executable,
-        sph= task.env['SPHINX'][0],
-        add= additional_args,
-        ver= '' if Logs.verbose else '-q',
-        bld= "html", 
-        src= ".",
-        dst= out_dir)
-    if Logs.verbose:
-        print(build_doc_cmd)
-    try:
-        return subprocess.call(shlex.split(build_doc_cmd), cwd = trex_core_docs_path)
-    except OSError as e:
-        print('Failed command: %s\nError: %s' % (build_doc_cmd, e))
-        return 1
-
-def build_stl_cp_docs (task):
-    out_dir = task.outputs[0].abspath()
-    export_path = os.path.join(os.getcwd(), 'build', 'cp_stl_docs')
-    trex_core_git_path = get_trex_core_git()
-    if not trex_core_git_path: # there exists a default directory or the desired ENV variable.
-        return 1
-    trex_core_docs_path = os.path.abspath(os.path.join(trex_core_git_path, 'scripts', 'automation', 'trex_control_plane', 'doc_stl'))
-    sphinx_version = get_sphinx_version(task.env['SPHINX'][0])
-    if not sphinx_version:
-        return 1
-    if sphinx_version < 1.3:
-        additional_args = '-D html_theme=default'
-    else:
-        additional_args = ''
-    build_doc_cmd = "{pyt} {sph} {add} {ver} -W -b {bld} {src} {dst}".format(
-        pyt= sys.executable,
-        sph= task.env['SPHINX'][0],
-        add= additional_args,
-        ver= '' if Logs.verbose else '-q',
-        bld= "html", 
-        src= ".", 
-        dst= out_dir)
-    if Logs.verbose:
-        print(build_doc_cmd)
-    try:
-        return subprocess.call(shlex.split(build_doc_cmd), cwd = trex_core_docs_path)
-    except OSError as e:
-        print('Failed command: %s\nError: %s' % (build_doc_cmd, e))
-        return 1
-
-
-def build_astf_cp_docs (task):
-    out_dir = task.outputs[0].abspath()
-    export_path = os.path.join(os.getcwd(), 'build', 'cp_astf_docs')
-    trex_core_git_path = get_trex_core_git()
-    if not trex_core_git_path: # there exists a default directory or the desired ENV variable.
-        return 1
-    trex_core_docs_path = os.path.abspath(os.path.join(trex_core_git_path, 'scripts', 'automation', 'trex_control_plane', 'doc_astf'))
-    sphinx_version = get_sphinx_version(task.env['SPHINX'][0])
-    if not sphinx_version:
-        return 1
-    if sphinx_version < 1.3:
-        additional_args = '-D html_theme=default'
-    else:
-        additional_args = ''
-    build_doc_cmd = "{pyt} {sph} {add} {ver} -W -b {bld} {src} {dst}".format(
-        pyt= sys.executable,
-        sph= task.env['SPHINX'][0],
-        add= additional_args,
-        ver= '' if Logs.verbose else '-q',
-        bld= "html", 
-        src= ".", 
-        dst= out_dir)
-    if Logs.verbose:
-        print(build_doc_cmd)
-    try:
-        return subprocess.call(shlex.split(build_doc_cmd), cwd = trex_core_docs_path)
-    except OSError as e:
-        print('Failed command: %s\nError: %s' % (build_doc_cmd, e))
-        return 1
-
-
 
 def build(bld):
     bld(rule=my_copy, target='symbols.lang')
 
     for x in bld.path.ant_glob('images\\**\**.png'):
-            bld(rule=my_copy, target=x)
+            x1 = os.path.relpath(str(x), str(bld.path))
+            bld(rule=my_copy, target=x1)
             bld.add_group() 
 
-
-    #for x in bld.path.ant_glob('yaml\\**\**.yaml'):
-    #        bld(rule=my_copy, target=x)
-    #        bld.add_group() 
-
-
     for x in bld.path.ant_glob('images\\**\**.jpg'):
-        bld(rule=my_copy, target=x)
+        x1 = os.path.relpath(str(x), str(bld.path))
+        bld(rule=my_copy, target=x1)
         bld.add_group() 
-
-
-    #bld(rule=my_copy, target='my_chart.js')
-
-    #bld(rule=parse_hlt_args, target = 'hlt_args.asciidoc')
 
     bld.add_group() # separator, the documents may require any of the pictures from above
 
     bld(rule=convert_to_html_toc_book,
-        source='trex_emu.asciidoc waf.css', target='trex_emu.html',scan=ascii_doc_scan);
-
-    #bld(rule=convert_to_pdf_book,source='trex_emu.asciidoc waf.css', target='trex_emu.pdf', scan=ascii_doc_scan)
+        source='trex_emu.asciidoc waf.css', target='trex_emu.html', scan=ascii_doc_scan)
 
 
 class Env(object):
@@ -646,7 +537,7 @@ class Env(object):
             print("You should define $",name)
             raise Exception("Env error");
         return (s);
-    
+
     @staticmethod
     def get_release_path () :
         s= Env().get_env('TREX_LOCAL_PUBLISH_PATH');
@@ -690,7 +581,6 @@ class Env(object):
         return  s;
 
 
-
 def release(bld):
     # copy all the files to our web server 
     core_dir = Env().get_trex_core()
@@ -700,7 +590,7 @@ def release(bld):
 
 
 def rsync_int(bld, src, dst):
-    cmd = 'rsync -av  --rsh=ssh build/{src} {host}:{dir}/{dst}'.format(
+    cmd = 'rsync -av --del --rsh=ssh build/{src} {host}:{dir}/{dst}'.format(
            src = src,
            host = Env().get_local_web_server(),
            dir = Env().get_remote_release_path() + '../doc',
@@ -711,7 +601,7 @@ def rsync_int(bld, src, dst):
 
 
 def rsync_ext(bld, src, dst):
-    cmd = 'rsync -avz  -e "ssh -i {key}" --rsync-path=/usr/bin/rsync build/{src} {user}@{host}:{dir}/doc/{dst}'.format(
+    cmd = 'rsync -avz --del -e "ssh -i {key}" --rsync-path=/usr/bin/rsync build/{src} {user}@{host}:{dir}/doc/{dst}'.format(
            key  = Env().get_trex_ex_web_key(),
            src  = src,
            user = Env().get_trex_ex_web_user(),
@@ -743,20 +633,10 @@ def publish_test(bld):
     os.system('rsync -av --del --rsh=ssh build/ %s' % (remote_dir))
 
 
-
 def publish_both(bld):
     publish(bld)
     publish_ext(bld)
 
-         
-def test(bld):
-    # copy all the files to our web server 
-    #toc_fixup_file ('build/trex_stateless.tmp',
-    #                'build/trex_stateless.html',
-    #                'trex_stateless.json')
-
-    print build_disqus("my_html")
-  
 
 def run (bld):
     import BaseHTTPServer, SimpleHTTPServer
