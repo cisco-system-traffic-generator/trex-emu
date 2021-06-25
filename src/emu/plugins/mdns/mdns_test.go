@@ -1185,6 +1185,65 @@ func TestPluginMDns21(t *testing.T) {
 	a.Run(t, true)
 }
 
+func TestPluginMDns22(t *testing.T) {
+
+	// More clients, different steps, including query with no response for client 5.
+	// With query amount
+	initJson1 := [][]byte{[]byte(`{
+		"hosts": ["AppleTV", "Brother", "client-0"],
+	}`)}
+
+	initJson2 := [][]byte{[]byte(`{
+		"hosts": ["UCS", "16.0.0.1.cisco.com", "trex-04", "client-1"],
+		"domain_name": "cisco_il",
+		"ttl": 180
+	}`)}
+
+	initJson3 := [][]byte{[]byte(`{
+		"hosts": ["client-2"],
+	}`)}
+
+	initJson4 := [][]byte{[]byte(`{
+		"hosts": ["client-3"],
+	}`)}
+
+	initJson5 := [][]byte{[]byte(`{
+		"hosts": ["client-4"],
+	}`)}
+
+	var initJsonArray = [][][]byte{initJson1, initJson2, initJson3, initJson4, initJson5}
+
+	// Pay attention to this test, we are loopbacked
+	// query (TX) --(loopback)-> query(RX) --(logic) -> response (TX) --(loopback) -> response (RX)
+
+	nsInitJson := [][]byte{[]byte(`{
+		"auto_play": true,
+		"auto_play_params": {
+			"rate": 1.0,
+			"query_amount": 5,
+			"min_client": "00:00:01:00:00:00",
+			"max_client": "00:00:01:00:00:05",
+			"client_step": 2,
+			"hostname_template": "client-%v"
+			"min_hostname": 0,
+			"max_hostname": 5,
+			"hostname_step": 1
+		}
+	}`)}
+
+	a := &MDnsTestBase{
+		testname:     "mdns22",
+		dropAll:      false,
+		monitor:      true,
+		capture:      true,
+		initJSON:     initJsonArray,
+		nsInitJson:   nsInitJson,
+		duration:     10 * time.Second,
+		clientsToSim: 5,
+	}
+	a.Run(t, true)
+}
+
 func init() {
 	flag.IntVar(&monitor, "monitor", 0, "monitor")
 }

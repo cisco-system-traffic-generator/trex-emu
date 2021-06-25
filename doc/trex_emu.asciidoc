@@ -2619,17 +2619,18 @@ For all the details and default values, please check the link:https://trex-tgn.c
     "auto_play": True,                      <1>
     "auto_play_params": {                   <2>
         "rate": 2.0,                        <3>
-        "min_client": "00:00:00:70:00:02",  <4>
+        "query_amount": 100,                <4>
+        "min_client": "00:00:00:70:00:02",  <5>
         "max_client": "00:00:00:70:00:06",
         "client_step": 2,
-        "hostname_template": "trex-client-%v._tcp.local",    <5>
+        "hostname_template": "trex-client-%v._tcp.local",    <6>
         "min_hostname": 1,
         "max_hostname": 5,
         "hostname_step": 2,
-        "type": "A",                        <6>
-        "class": "IN",                      <7>
-        "ipv6": False,                      <8>
-        "program": {                        <9>
+        "type": "A",                        <7>
+        "class": "IN",                      <8>
+        "ipv6": False,                      <9>
+        "program": {                        <10>
             "00:00:00:70:00:02": {
                 "hostnames": ["emu-client-1._tcp.local", "trex-client-1._tcp.local"],
                 "type": "TXT",
@@ -2644,13 +2645,14 @@ For all the details and default values, please check the link:https://trex-tgn.c
 <2> Parameters that define how to play the traffic. The `auto_play_params` are parsed only if `auto_play` is True.
 <3> Rate in `pps` between two consecutive query **attempts**. Let's assume the rate is 2.0. The first client will send a query at 0.5 seconds. The second client will send a query at 1 second, and so on. By attempt, we mean the following:
 If the namespace doesn't find a client whose MAC address we generated, it will do nothing, and continue to the next client in another 0.5 seconds.
-<4> Min client and max client specify a range of MAC addresses. We generate MAC addresses in this range using the `client_step` to increment. Each generated MAC address represents a client. If the namespace has such client, it will send a query using it. If it doesn't, nothing happens. The reason we prefer MAC addresses to IP addresses is because we support both IPv4 and IPv6. The reason why we use MAC addresses as strings instead of byte arrays is because they can be keys as we will soon see.
+<4> The amount of queries to send. In this case, after 100 queries, the program will stop sending queries. Defaults to 0. In the case of 0, the program will send an infinite amount of queries.
+<5> Min client and max client specify a range of MAC addresses. We generate MAC addresses in this range using the `client_step` to increment. Each generated MAC address represents a client. If the namespace has such client, it will send a query using it. If it doesn't, nothing happens. The reason we prefer MAC addresses to IP addresses is because we support both IPv4 and IPv6. The reason why we use MAC addresses as strings instead of byte arrays is because they can be keys as we will soon see.
 The generation reminds xref:engines[engines]. For example, the MAC addresses that will be generated from the shown Json are [00:00:00:70:00:02, 00:00:00:70:00:04, 00:00:00:70:00:06, 00:00:00:70:00:03, 00:00:00:70:00:05, 00:00:00:70:00:02...]
-<5> A template string to which we apply numbers. The numbers are generated in the domain [`min_hostname`, `max_hostname`] using `hostname_step`. Note that you can also specify where in the domain to begin using `init_hostname`. For example, in the provided Json, we will generate the following hostnames [trex-client-1._tcp.local, trex-client-3._tcp.local, trex-client-5._tcp.local, trex-client-2._tcp.local, trex-client-4._tcp.local, trex-client-1._tcp.local...]. The first client will use the first hostname in list as query parameter, the second client the second hostname and so on. If we skip a client because the namespace doesn't find a client with such MAC address, we also skip the hostname.
-<6> Type of mDNS query. Default is *A*.
-<7> Class of mDNS query. Default is *IN*.
-<8> Should the queries be sent using IPv6. Will work only if client has an IPv6 address.
-<9> Program is a dictionary that allows you to specify special queries for clients. In the shown Json, the client with the MAC address 00:00:00:70:00:02 will send a *TXT* type query, of class *Any* using IPv6 to both hostnames ["emu-client-1", "trex-client-1"] overriding the default query pattern. This way we provide full control over queries. However note that if your simulating thousand of clients, you program will be massive and can't be passed as a Json to the Emu. Hence try to keep the program small.
+<6> A template string to which we apply numbers. The numbers are generated in the domain [`min_hostname`, `max_hostname`] using `hostname_step`. Note that you can also specify where in the domain to begin using `init_hostname`. For example, in the provided Json, we will generate the following hostnames [trex-client-1._tcp.local, trex-client-3._tcp.local, trex-client-5._tcp.local, trex-client-2._tcp.local, trex-client-4._tcp.local, trex-client-1._tcp.local...]. The first client will use the first hostname in list as query parameter, the second client the second hostname and so on. If we skip a client because the namespace doesn't find a client with such MAC address, we also skip the hostname.
+<7> Type of mDNS query. Default is *A*.
+<8> Class of mDNS query. Default is *IN*.
+<9> Should the queries be sent using IPv6. Will work only if client has an IPv6 address.
+<10> Program is a dictionary that allows you to specify special queries for clients. In the shown Json, the client with the MAC address 00:00:00:70:00:02 will send a *TXT* type query, of class *Any* using IPv6 to both hostnames ["emu-client-1", "trex-client-1"] overriding the default query pattern. This way we provide full control over queries. However note that if your simulating thousand of clients, you program will be massive and can't be passed as a Json to the Emu. Hence try to keep the program small.
 
 The following PCAP shows the generated a small portion of the generated traffic:
 

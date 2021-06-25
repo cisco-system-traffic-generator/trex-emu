@@ -628,6 +628,7 @@ type ProgramEntry struct {
 // MDnsNsParams represents the params provided to an mDNS namespace as init Json.
 type MDnsAutoPlayParams struct {
 	Rate             float32                 `json:"rate"`                                  // Rate in seconds between two consequent queries in the program
+	QueryAmount      uint64                  `json:"query_amount"`                          // Amount of queries to send. Defaults to 0, and 0 means infinite.
 	MinClient        string                  `json:"min_client" validate:"required"`        // MAC address representing the first client
 	MaxClient        string                  `json:"max_client" validate:"required"`        // MAC address representing the last client
 	ClientStep       uint16                  `json:"client_step"`                           // Client incremental step, Defaults to DefaultClientStep
@@ -815,7 +816,7 @@ func (o *MDnsNsAutoPlay) OnEvent(a, b interface{}) {
 	if plug == nil {
 		// given client doesn't have MDns
 		o.nsPlug.stats.clientNoMDns++
-		return
+		return // Don't restart timer, stop!
 	}
 
 	mdnsPlug := plug.Ext.(*PluginMDnsClient)
@@ -826,10 +827,14 @@ func (o *MDnsNsAutoPlay) OnEvent(a, b interface{}) {
 	if err != nil {
 		// Couldn't query properly
 		o.nsPlug.stats.autoPlayBadQuery++
+	} else {
+		o.nsPlug.stats.autoPlayQueries++ // one more auto play query sent
 	}
-	o.nsPlug.stats.autoPlayQueries++ // one more query sent
 
-	o.timerw.StartTicks(&o.timer, o.ticks) // Restart timer
+	if o.nsPlug.stats.autoPlayQueries != o.params.QueryAmount {
+		o.timerw.StartTicks(&o.timer, o.ticks) // If we haven't reached query amount we can restart timer.
+	}
+
 }
 
 /*======================================================================================================
