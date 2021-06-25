@@ -1,0 +1,53 @@
+[
+	{
+		"rpc-req": {
+			"id": 3,
+			"jsonrpc": "2.0",
+			"method": "dns_c_query",
+			"params": {
+				"mac": [
+					0,
+					0,
+					1,
+					0,
+					0,
+					0
+				],
+				"queries": [
+					{
+						"name": "google.com"
+					}
+				],
+				"tun": {
+					"vport": 1
+				}
+			}
+		}
+	},
+	{
+		"rpc-res": {
+			"id": 3,
+			"jsonrpc": "2.0",
+			"result": true
+		}
+	},
+	{
+		"time": 2.1,
+		"meta": "tx",
+		"len": 70,
+		"data": "00|00|02|00|00|00|00|00|01|00|00|00|08|00|45|00|00|38|00|cc|00|00|80|11|19|da|10|00|00|00|08|08|08|08|ff|00|00|35|00|24|cd|a7|00|00|00|00|00|01|00|00|00|00|00|00|06|67|6f|6f|67|6c|65|03|63|6f|6d|00|00|01|00|01|"
+	},
+	{
+		"pktRxDnsQuery": 0,
+		"pktTxDnsQuery": 1,
+		"pktTxDnsResponse": 0
+	},
+	{
+		"mbufAlloc": 1,
+		"mbufFreeCache": 1
+	},
+	{
+		"TxBytes": 70,
+		"TxPkts": 1
+	}
+]

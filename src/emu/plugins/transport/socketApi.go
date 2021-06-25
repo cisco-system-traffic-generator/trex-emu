@@ -138,7 +138,7 @@ type SocketApi interface {
 	GetIoctl(m IoctlMap) error // get the value for each key
 	/*
 		queued: true, the buffer was queued in the socket internal buffer, it is possible to queue more without a need to wait.
-		              In this case the buffer was copied to the internal buffer and can be touched
+				In this case the buffer was copied to the internal buffer and can be touched
 				false the buffer queued but there is a need to wait for SocketTxMore for writing more as the queue is full.
 				      the buffer can't be used until you get  SocketTxMore event
 				writing after this state will return an error SeWRITE_WHILE_DRAIN

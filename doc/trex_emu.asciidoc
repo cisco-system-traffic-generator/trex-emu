@@ -8,7 +8,7 @@ TRex EMU
 :web_server_url: https://trex-tgn.cisco.com/trex
 :local_web_server_url: csi-wiki-01:8181/trex
 :github_emu_path: https://github.com/cisco-system-traffic-generator/trex-core/tree/master/scripts/emu
-:github_stl_examples_path: https://github.com/cisco-system-traffic-generator/trex-core/tree/master/scripts/automation/trex_control_plane/interactive/trex/examples/emu
+:github_emu_examples_path: https://github.com/cisco-system-traffic-generator/trex-core/tree/master/scripts/automation/trex_control_plane/interactive/trex/examples/emu
 :github_emu_repo: https://github.com/cisco-system-traffic-generator/trex-emu/tree/master
 :toclevels: 6
 
@@ -70,6 +70,7 @@ The framework has an event driven architecture, this way it can scale. The frame
 | CDP     | Cisco Delivery Protocol
 | DHCPv4  | RFC 2131 client side
 | DHCPv6  | RFC 8415 client side
+| DNS     | Domain Name System, RFC 1034/1035
 | DOT1X   | EAP-MD5/EAP-MSCHAPv2  RFC 3748/2759, IEEE 802.1X-2001
 | ICMP    | RFC 777
 | IGMP    | IGMP v3/v2/v1 RFC3376
@@ -1994,6 +1995,336 @@ class Prof1():
         10        15  mab
 ----
 
+=== Tutorial: DNS
+
+The Domain Name System link:https://en.wikipedia.org/wiki/Domain_Name_System[DNS] is a hierarchical and decentralized naming system for computers, services, or other resources connected to the Internet or a private network. It associates various information with domain names assigned to each of the participating entities. Most prominently, it translates more readily memorized domain names to the numerical IP addresses needed for locating and identifying computer services and devices with the underlying network protocols. By providing a worldwide, distributed directory service, the Domain Name System has been an essential component of the functionality of the Internet since 1985.
+
+EMU implements a simple version of DNS based RFCs link:https://datatracker.ietf.org/doc/html/rfc1034[1034], link:https://datatracker.ietf.org/doc/html/rfc1035[1035]. EMU clients can emulate both `DNS Resolvers` and 
+`DNS Name Servers`, as such providing both Client and Server side.
+
+Dns Resolvers:
+
+* Query
+* Hold Response Cache
+* Hold Counters
+
+Dns Name Servers:
+
+* Own a domain database
+* Respond to queries
+* Can add/remove domains dynamically
+* Hold Counters
+
+Let's dive right into defining an EMU Client with DNS.
+
+==== Dns Init Json
+
+[NOTE]
+=====================================================================
+For an updated version of the fields refer to the link:https://trex-tgn.cisco.com/trex/doc/cp_emu_docs/api/plugins/dns.html[SDK].
+=====================================================================
+
+To define a `DNS Resolver`: 
+
+.DNS Init Json Resolver
+[source, python]
+----
+initJson = {
+    "name_server": False,       <1>
+    "dns_server_ip": dns_ip     <2>
+}
+----
+<1> In order to define a resolver, simple set `name_server` to False. This is the default choice.
+<2> Each resolver needs an Ip for the Dns Server. This Ip can be IPv4 or IPv6. Currently only one IP is supported. The field is mandatory for Dns resolvers.
+
+To define a `DNS Name Server`:
+
+.DNS Init Json Name Server
+[source, python]
+----
+initJson = {
+    "name_server": True,                                <1>
+    "database": {                                       <2>
+        "trex-tgn.cisco.com": [                         <3>
+            {
+                "type": "A",
+                "class": "IN",
+                "answer": "173.36.109.208"
+            }
+        ],
+        "cisco.com": [
+            {
+                "type": "A",
+                "class": "IN",
+                "answer": "72.163.4.185"
+            },
+            {
+                "type": "A",                            <4>
+                "class": "IN",
+                "answer": "72.163.4.161"
+            },
+            {
+                "type": "AAAA",                         <5>
+                "class": "IN",
+                "answer": "2001:420:1101:1::185"
+            },
+            {
+                "type": "TXT",                          <6>
+                "class": "IN",
+                "answer": "desc=Best place to work!, location=Israel"
+            }
+        ],
+        "8.8.8.8.in-addr.arpa": [
+            {
+                "type": "PTR",                          <7>
+                "class": "IN",
+                "answer": "google.com"
+            }
+        ]
+    }
+}
+----
+<1> In order to define a `DNS Name Server` we need to set this field to True.
+<2> For DNS Name Server we must provide a database. The database is a dictionary where each key represents a domain. This field is mandatory for Dns Name Servers and ignored for Dns Resolvers.
+<3> Each domain holds a list of DNS Entries, where each entry consists of a Dns Type, Dns Class and Answer.
+<4> Note that multiple entries of the same type/class can be held. The server will answer with all the relevant entries.
+<5> An example of an AAAA type answer.
+<6> An example of defining a TXT answer. Note the format, each two fields should be separated by a comma.
+<7> An example of a PTR type entry.
+
+[CAUTION]
+=================================================================
+Currently we support only the following DNS Types: A, AAAA, PTR, TXT.
+=================================================================
+
+==== Console Api
+
+Let's load the provided profile link:{github_emu_path}/simple_dns.py[simple_dns] and see what operations we can do from the Console.
+
+
+[source, bash]
+----
+trex(service-filtered)>emu_load_profile -f emu/simple_dns.py -t -h
+usage: trex_console.py [-h] [--ns NS] [--clients CLIENTS] [--ipv6]
+
+Argparser for simple Emu Dns profile.
+
+optional arguments:
+  -h, --help         show this help message and exit
+  --ns NS            Number of namespaces to create
+  --clients CLIENTS  Number of clients to create in each namespace      # <1>
+  --ipv6             Use Ipv6 instead of Ipv4                           # <2>
+----
+<1> In this profile, the first client is the Name Server, all the rest are resolvers.
+<2> You can decide to use Ipv6 instead of Ipv4 but make sure your topology supports it.
+
+For Name Server, we can see it's domains:
+
+[source, bash]
+----
+trex(service-filtered)>emu_dns_show_domains -p 0 --mac 00:00:00:70:00:03
+Domains
+
+Number |        Domain
+-------+---------------------
+  1    |  trex-tgn.cisco.com
+  2    |      cisco.com
+  3    | 8.8.8.8.in-addr.arpa
+
+----
+
+We can also see the domain entries:
+
+[source, bash]
+----
+trex(service-filtered)>emu_dns_show_domain_entries  -p 0 --mac 00:00:00:70:00:03 -d cisco.com
+Cisco.Com Entries
+
+       Answer        | Type | Class
+---------------------+------+------
+    72.163.4.185     |  A   |  IN
+    72.163.4.161     |  A   |  IN
+2001:420:1101:1::185 | AAAA |  IN
+----
+
+[NOTE]
+=====================================================================
+TXT entries are not displayed in the console since they are long.
+=====================================================================
+
+For Resolvers, we can query and explore the cache:
+
+[source, bash]
+----
+trex(service-filtered)>emu_dns_query -p 0 --mac 00:00:00:70:00:04 -n trex-tgn.cisco.com # <1>
+[SUCCESS]
+
+trex(service-filtered)>emu_dns_show_cache -p 0 --mac 00:00:00:70:00:04
+Dns Cache
+
+      Domain       |     Answer     | Type | Class | Time To Live | Time Left
+-------------------+----------------+------+-------+--------------+----------
+trex-tgn.cisco.com | 173.36.109.208 |  A   |  IN   |     240      |    215
+----
+<1> It will query the the Dns Name Server whose IP we defined in the Init Json for this Dns Resolver.
+
+We can see in the following two pictures the query and the response:
+
+image::images/dns_query.png[title="Dns Query",align="left",width={p_width}, link="images/dns_query.png"]
+
+image::images/dns_response.png[title="Dns Response",align="left",width={p_width}, link="images/dns_response.png"]
+
+If we query a domain which is not found in the Name Server Database, we will get an appropriate response:
+
+image::images/dns_no_such_name.png[title="Dns No Such Name Response",align="left",width={p_width}, link="images/dns_no_such_name.png"]
+
+[source, bash]
+----
+trex(service-filtered)>emu_dns_query -p 0 --mac 00:00:00:70:00:04 -n github.com # <1>
+[SUCCESS]
+----
+<1> Note that the domain is not found in the database.
+
+In queries we can specify the class and the type of Dns Query:
+
+[source, bash]
+----
+trex(service-filtered)>emu_dns_query -p 0 --mac 00:00:00:70:00:04 -n cisco.com -t AAAA
+[SUCCESS]
+
+trex(service-filtered)>emu_dns_show_cache -p 0 --mac 00:00:00:70:00:04
+Dns Cache
+
+      Domain       |        Answer        | Type | Class | Time To Live | Time Left
+-------------------+----------------------+------+-------+--------------+----------
+trex-tgn.cisco.com |    173.36.109.208    |  A   |  IN   |     240      |    160
+    cisco.com      | 2001:420:1101:1::185 | AAAA |  IN   |     240      |    239
+
+----
+
+We can flush the cache:
+
+
+[source, bash]
+----
+trex(service-filtered)>emu_dns_flush_cache -p 0 --mac 00:00:00:70:00:04
+[SUCCESS]
+
+trex(service-filtered)>emu_dns_show_cache -p 0 --mac 00:00:00:70:00:04
+No entries in Dns cache.
+----
+
+Finally we can see counters for both Dns Name Server and Dns Resolver.
+
+[source, bash]
+----
+trex(service-filtered)>emu_dns_show_counters -p 0 --mac 00:00:00:70:00:04 --verbose
+Dns Counters
+
+      name       | value | unit  | zero |              help
+-----------------+-------+-------+------+-------------------------------
+txBytes          |  63   | bytes | True | Number of bytes transmitted
+rxBytes          |  134  | bytes | True | Number of bytes received
+pktTxDnsQuery    |   2   | pkts  | True | Num of Dns queries transmitted
+pktRxDnsResponse |   2   | pkts  | True | Num of Dns responses received
+
+trex(service-filtered)>emu_dns_show_counters -p 0 --mac 00:00:00:70:00:03 --verbose
+Dns Counters
+
+      name       | value | unit  | zero |                           help
+-----------------+-------+-------+------+----------------------------------------------------------
+txBytes          |  134  | bytes | True | Number of bytes transmitted
+rxBytes          |  63   | bytes | True | Number of bytes received
+rxQuestions      |   2   |  ops  | True | Number of questions received
+dnsFlowAccept    |   2   |  ops  | True | Number of Dns flows accepted. Each request is a new flow.
+pktRxDnsQuery    |   2   | pkts  | True | Num of Dns queries received
+pktTxDnsResponse |   2   | pkts  | True | Num of Dns responses transmitted
+----
+
+==== Dns Plugin Api
+
+The Console Api is a bit more limited than the Plugin Api. Using the Plugin Api we can make changes in the Name Server dynamically by adding or removing domains and/or domain entries.
+One such example can be found in the following script: link:{github_emu_examples_path}/emu_dns.py[emu_dns.py].
+
+The first part includes setting up the EMU Client and loading the profile.
+
+.Setting up
+[source, python]
+----
+c = EMUClient(server='localhost',
+              sync_port=4510,
+              verbose_level= "error",
+              logger=None,
+              sync_timeout=None)
+
+ns_key = EMUNamespaceKey(vport = 0)
+c_key  = EMUClientKey(ns_key, Mac("00:00:00:70:00:03").V()) # Dns Server
+
+
+# connect and load profile
+c.connect()
+c.load_profile(profile = SIMPLE_DNS_PROFILE, tunables = ['--clients', '2'])
+----
+
+We can collect all the domains that a Name Server holds in its database:
+
+.Get Domains
+[source, python]
+----
+# Get domains
+print("Getting registered domains from Dns Name Server:\n")
+domains = c.dns.get_domains(c_key)
+----
+
+We can collect the entries for a specific domain:
+
+.Get Domain Entries
+[source, python]
+----
+# See Entries that the profile had defined for cisco.com
+print("Getting Domain Entries for domain cisco.com:\n")
+res = c.dns.get_domain_entries(c_key, "cisco.com")
+----
+
+We can remove entries from a domain:
+
+.Remove entries
+[source, python]
+----
+# Remove one entry that exists and attempt to remove one that doesn't exist!
+print("Will attempt removing the following entries: (only one exists)\n")
+entriesToRemove = [
+    {'answer': '72.163.4.161', 'class': 'IN', 'type': 'A'}, # existing
+    {'answer': '72.163.4.165', 'class': 'IN', 'type': 'A'}  # non existent
+]
+c.dns.remove_domain_entries(c_key, "cisco.com", entriesToRemove)
+----
+
+[NOTE]
+=====================================================================
+Only existing entries will be removed, non existing entries will be ignored.
+=====================================================================
+
+We can add entries (both to existing domains or non existing domains).
+
+.Add entries
+[source, python]
+----
+# Add one entry that exists and attempt adding twice a new entry.
+print("Will attempt adding the following entries to domain cisco.com:\n")
+entriesToAdd = [
+    {'answer': '72.163.4.185', 'class': 'IN', 'type': 'A'}, # existing
+    {'answer': 'desc=new, exp=add_twice', 'class': 'IN', 'type': 'TXT'}, # non existent
+    {'answer': 'desc=new, exp=add_twice', 'class': 'IN', 'type': 'TXT'}  # same as previous
+]
+c.dns.add_domain_entries(c_key, "cisco.com", entriesToAdd)
+----
+
+[NOTE]
+=====================================================================
+Existing entries are ignored. Adding the same entry twice will result only in the first entry being added.
+=====================================================================
+
 === Tutorial: mDNS
 
 Before proceeding, make sure you are familiar with the xref:l2_communication[network topology] required for mDNS.
@@ -2636,11 +2967,11 @@ image::images/ipfix3.png[title="IPFix Data-Template",align="left",width={p_width
 
 Finally, let us see how the data fields change thanks to the engine. Take a look at the `engines` definition in the init JSON. The first engine, named `clientIPv4Address` modifies the last byte of this IP address by incrementing it on each record. The first three bytes will remain unchanged from the data parameter provided in the init JSON, hence will remain [16, 0, 0] or [10, 0, 0] in hexadecimal representation. The second engine generates URLs.
 
-And indeed in the first packet which has two flows (specified in the init JSON with `data_records_num`) we see that the last byte of the client IPv4 address is incremented. We also note that the first URL generated was with a random query, and the second one from the TRexwebsite.
+And indeed in the first packet which has two flows (specified in the init JSON with `data_records_num`) we see that the last byte of the client IPv4 address is incremented. We also note that the first URL generated was with a random query, and the second one from the TRex website.
 
 image::images/ipfix4.png[title="IPFix Engine",align="left",width={p_width}, link="images/ipfix4.png"]
 
-Pay attention that the profile has many parameters (tunables) that can be tuned throught the `emu_load_profile` command. We can see these parameters in the Python cod, such as `ipv6`, `dst_4`, `dst_6`, `dst_port`.
+Pay attention that the profile has many parameters (tunables) that can be tuned through the `emu_load_profile` command. We can see these parameters in the Python cod, such as `ipv6`, `dst_4`, `dst_6`, `dst_port`.
 To see the complete parameters use:
 
 [source,bash]

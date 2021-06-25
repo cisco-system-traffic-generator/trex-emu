@@ -34,6 +34,7 @@ The framework has an **event driven architecture**, this way it can scale. The f
 | CDP                  | Cisco Delivery Protocol|
 | DHCPv4               | RFC 2131 client side   |
 | DHCPv6               | RFC 8415 client side   |
+| DNS                  | Domain Name System, RFC 1034/1035|
 | DOT1X                | EAP-MD5/EAP-MSCHAPv2  RFC 3748/2759, IEEE 802.1X-2001|
 | ICMP                 | RFC 777                |
 | IGMP                 | IGMP v3/v2/v1 RFC3376  |
@@ -105,10 +106,11 @@ In order to run tests:
 source ./b
 cd src/
 go test emu/core
-go test emu/plugins/arp 
+go test emu/plugins/arp
 go test emu/plugins/cdp
 go test emu/plugins/dhcpv4
 go test emu/plugins/dhcpv6
+go test emu/plugins/dns
 go test emu/plugins/dot1x
 go test emu/plugins/field_engine
 go test emu/plugins/icmp

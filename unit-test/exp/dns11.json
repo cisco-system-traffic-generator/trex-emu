@@ -1,0 +1,61 @@
+[
+	{
+		"rpc-req": {
+			"id": 3,
+			"jsonrpc": "2.0",
+			"method": "dns_c_query",
+			"params": {
+				"mac": [
+					0,
+					0,
+					1,
+					0,
+					0,
+					0
+				],
+				"queries": [
+					{
+						"name": "google.com"
+					}
+				],
+				"tun": {
+					"vport": 1
+				}
+			}
+		}
+	},
+	{
+		"rpc-res": {
+			"error": {
+				"code": -32602,
+				"message": "Querying is not permitted for Dns Name Servers!"
+			},
+			"id": 3,
+			"jsonrpc": "2.0"
+		}
+	},
+	{
+		"dnsFlowAccept": 0,
+		"pktRxDnsQuery": 0,
+		"pktRxDnsResponse": 0,
+		"pktTxDnsQuery": 0,
+		"pktTxDnsResponse": 0,
+		"rxBytes": 0,
+		"rxQuestions": 0,
+		"rxQuestionsNxDomain": 0,
+		"txBytes": 0
+	},
+	{
+		"dnsFlowAccept": 0,
+		"pktRxDnsQuery": 0,
+		"pktRxDnsResponse": 0,
+		"pktTxDnsQuery": 0,
+		"pktTxDnsResponse": 0,
+		"rxBytes": 0,
+		"rxQuestions": 0,
+		"rxQuestionsNxDomain": 0,
+		"txBytes": 0
+	},
+	{},
+	{}
+]

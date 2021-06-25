@@ -19,6 +19,7 @@ import (
 	"emu/plugins/cdp"
 	dhcp "emu/plugins/dhcpv4"
 	"emu/plugins/dhcpv6"
+	"emu/plugins/dns"
 	"emu/plugins/dot1x"
 	"emu/plugins/icmp"
 	"emu/plugins/igmp"
@@ -41,6 +42,7 @@ func RegisterPlugins(tctx *core.CThreadCtx) {
 	cdp.Register(tctx)
 	dhcp.Register(tctx)
 	dhcpv6.Register(tctx)
+	dns.Register(tctx)
 	dot1x.Register(tctx)
 	icmp.Register(tctx)
 	igmp.Register(tctx)

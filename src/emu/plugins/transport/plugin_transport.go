@@ -88,7 +88,7 @@ func (o *PluginTransNs) handleRxTransPacket(ps *core.ParserPacketState) int {
 	p := m.GetData()
 	/* the header is at least 8 bytes*/
 	/* UDP checksum was verified in the parser */
-	
+
 	// lookup by MAC
 	var mackey core.MACKey
 	copy(mackey[:], p[0:6])

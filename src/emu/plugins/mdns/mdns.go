@@ -14,8 +14,8 @@ Implementation based on RFC 6762 - https://tools.ietf.org/html/rfc6762
 */
 
 import (
-	"crypto/sha256"
 	"emu/core"
+	utils "emu/plugins/dns_utils"
 	"emu/plugins/transport"
 	"encoding/binary"
 	"external/google/gopacket/layers"
@@ -23,7 +23,6 @@ import (
 	"fmt"
 	"net"
 	"time"
-	"unsafe"
 
 	"github.com/intel-go/fastjson"
 )
@@ -32,8 +31,6 @@ const (
 	MDNS_PLUG              = "mdns"             // Plugin name
 	Ipv4HostPort           = "224.0.0.251:5353" // Host:Port in case of Ipv4
 	Ipv6HostPort           = "[ff02::fb]:5353"  // Host:Port in case of Ipv6
-	DefaultMDnsQueryType   = "A"                // A = host
-	DefaultMDnsQueryClass  = "IN"               // IN = Internet
 	DefaultMDnsResponseTTL = 240                // Default TTL value
 	DefaultAutoPlayRate    = 1                  // Default Rate in case of Namespace Auto Play
 	DefaultClientStep      = 1                  // Default step to increment clients in Auto Play
@@ -310,41 +307,38 @@ func NewMDnsNsStatsDb(o *MDnsNsStats) *core.CCounterDb {
 // mdnsEvents holds a list of events on which the mDNS plugin is interested.
 var mdnsEvents = []string{}
 
-// TxtEntries represents an entry in the TXT response.
-type TxtEntries struct {
-	Field string `json:"field" validate:"required"` // Field type
-	Value string `json:"value" validate:"required"` // Value of the field
-}
-
 // MDnsClientParams represents the entries of the Init Json passed to a new MDns client.
 type MDnsClientParams struct {
-	Hosts       []string     `json:"hosts"`               // Hosts owned by this client. Note that this can include IP addresses for PTR support.
-	DomainName  string       `json:"domain_name"`         // Domain name for the client in case of PTR query.
-	Txt         []TxtEntries `json:"txt" validate:"dive"` // Txt to answer in case the TXT query.
-	ResponseTTL uint32       `json:"ttl"`                 // TTL for response. Will override the default value if provided.
+	Hosts       []string           `json:"hosts"`               // Hosts owned by this client. Note that this can include IP addresses for PTR support.
+	DomainName  string             `json:"domain_name"`         // Domain name for the client in case of PTR query.
+	Txt         []utils.TxtEntries `json:"txt" validate:"dive"` // Txt to answer in case the TXT query.
+	ResponseTTL uint32             `json:"ttl"`                 // TTL for response. Will override the default value if provided.
 }
 
 // PluginMDNsClient represents a MDns client.
 type PluginMDnsClient struct {
-	core.PluginBase                     // Plugin Base embedded struct so we get all the base functionality
-	mDnsNsPlugin    *PluginMDnsNs       // Pointer to mDNS namespace plugin
-	params          MDnsClientParams    // Init Json params
-	socketIpv4      transport.SocketApi // Socket API for IPv4
-	socketIpv6      transport.SocketApi // Socket API for IPv6. Might be nil in case there is no IPv6.
-	stats           MDnsClientStats     // mDNS client statistics
-	cdb             *core.CCounterDb    // Counters database
-	cdbv            *core.CCounterDbVec // Counters database vector
-	hosts           map[string]bool     // Keep a set of hosts for fast lookup
-	dnsTemplate     layers.DNS          // L7 Payload Template for an mDNS query/response
-	domainName      []byte              // Domain Name as a byte slice if provided.
-	txts            [][]byte            // Txt byte array for TXT queries
+	core.PluginBase                      // Plugin Base embedded struct so we get all the base functionality
+	mDnsNsPlugin    *PluginMDnsNs        // Pointer to mDNS namespace plugin
+	params          MDnsClientParams     // Init Json params
+	socketIpv4      transport.SocketApi  // Socket API for IPv4
+	socketIpv6      transport.SocketApi  // Socket API for IPv6. Might be nil in case there is no IPv6.
+	stats           MDnsClientStats      // mDNS client statistics
+	cdb             *core.CCounterDb     // Counters database
+	cdbv            *core.CCounterDbVec  // Counters database vector
+	hosts           map[string]bool      // Keep a set of hosts for fast lookup
+	dnsPktBuilder   *utils.DnsPktBuilder // Dns Packet Builder.
+	domainName      []byte               // Domain Name as a byte slice if provided.
+	txts            [][]byte             // Txt byte array for TXT queries
 }
 
 // NewMDnsClient creates a new MDns client.
 func NewMDnsClient(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
 	o := new(PluginMDnsClient)
-	o.InitPluginBase(ctx, o)             // Init base object
-	o.RegisterEvents(ctx, mdnsEvents, o) // Register events
+	o.InitPluginBase(ctx, o)               // Init base object
+	o.RegisterEvents(ctx, mdnsEvents, o)   // Register events
+	o.cdb = NewMDnsClientStatsDb(&o.stats) // Register Stats immediately so we can fail safely.
+	o.cdbv = core.NewCCounterDbVec(MDNS_PLUG)
+	o.cdbv.Add(o.cdb)
 
 	o.params.ResponseTTL = DefaultMDnsResponseTTL // Set Default value prior to unmarshal.
 	err := o.Tctx.UnmarshalValidate(initJson, &o.params)
@@ -358,14 +352,6 @@ func NewMDnsClient(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
 	return &o.PluginBase
 }
 
-// buildTxt converts the Txt entries into a byte array
-func (o *PluginMDnsClient) buildTxts() {
-	for i := range o.params.Txt {
-		txtEntry := []byte(o.params.Txt[i].Field + "=" + o.params.Txt[i].Value)
-		o.txts = append(o.txts, txtEntry)
-	}
-}
-
 // OnCreate is called upon creating a new mDNS client.
 func (o *PluginMDnsClient) OnCreate() {
 
@@ -373,10 +359,8 @@ func (o *PluginMDnsClient) OnCreate() {
 	o.mDnsNsPlugin = o.Ns.PluginCtx.Get(MDNS_PLUG).Ext.(*PluginMDnsNs)
 	o.mDnsNsPlugin.RegisterClientHosts(o.params.Hosts, o)
 
-	// stats
-	o.cdb = NewMDnsClientStatsDb(&o.stats)
-	o.cdbv = core.NewCCounterDbVec(MDNS_PLUG)
-	o.cdbv.Add(o.cdb)
+	// pktBuilder
+	o.dnsPktBuilder = utils.NewDnsPktBuilder(true)
 
 	var ioctlMap transport.IoctlMap = make(map[string]interface{})
 	// According to RFC 3171 a packet sent to the Local Network Control Block (224.0.0.0/24)
@@ -409,28 +393,11 @@ func (o *PluginMDnsClient) OnCreate() {
 		o.hosts[host] = true
 	}
 
-	// create query template - maybe put this in a function
-	o.dnsTemplate = layers.DNS{
-		ID:           0,                           // Transaction ID is 0 in mDNS.
-		QR:           false,                       // False for Query, True for Response
-		OpCode:       layers.DNSOpCodeQuery,       // Standard DNS query, opcode = 0
-		AA:           false,                       // Authoritative answer, not relevant in query
-		TC:           false,                       // Truncated, not supported
-		RD:           false,                       // Recursion desired, not supported in mDNS
-		RA:           false,                       // Recursion available, not supported in mDNS
-		Z:            0,                           // Reserved for future use
-		ResponseCode: layers.DNSResponseCodeNoErr, // Response code is set to 0 in queries
-		QDCount:      0,                           // Number of queries, will be updated on query, 0 for response
-		ANCount:      0,                           // Number of answers, will be updated in respose, 0 for queries
-		NSCount:      0,                           // Number of authorities = 0
-		ARCount:      0,                           // Number of additional records = 0
-	}
-
 	// convert domain name to byte
 	if o.params.DomainName != "" {
 		o.domainName = []byte(o.params.DomainName)
 	}
-	o.buildTxts() // Convert Txt entries to []byte
+	o.txts = utils.BuildTxtsFromTxtEntries(o.params.Txt) // Convert Txt entries to []byte
 }
 
 // OnEvent callback of the mDNS client in case of events.
@@ -452,111 +419,64 @@ func (o *PluginMDnsClient) OnRxData(d []byte) { /* no Rx expected in mDNS */ }
 // OnTxEvent function to complete the ISocketCb interface.
 func (o *PluginMDnsClient) OnTxEvent(event transport.SocketEventType) { /* No Tx event expected */ }
 
-// buildQuestions converts the queries (RPC-received) to actual mDNS questions.
-func (o *PluginMDnsClient) buildQuestions(queries []DnsQueryParams) ([]layers.DNSQuestion, error) {
-	var questions []layers.DNSQuestion
-	for i, _ := range queries {
-		dnsQueryType := queries[i].Type
-		if dnsQueryType == "" {
-			dnsQueryType = DefaultMDnsQueryType
-		}
-		dnsType, err := layers.StringToDNSType(dnsQueryType)
-		if err != nil {
-			return nil, err
-		}
-		dnsQueryClass := queries[i].Class
-		if dnsQueryClass == "" {
-			dnsQueryClass = DefaultMDnsQueryClass
-		}
-		dnsClass, err := layers.StringToDNSClass(dnsQueryClass)
-		if err != nil {
-			return nil, err
-		}
-		question := layers.DNSQuestion{
-			Name:  []byte(queries[i].Name),
-			Type:  dnsType,
-			Class: dnsClass,
-		}
-		questions = append(questions, question)
-	}
-	return questions, nil
-}
-
-// Query sends an IPv4/IPv6 or both mDNS query.
-func (o *PluginMDnsClient) Query(queries []DnsQueryParams) error {
-
-	var ipv6Queries, ipv4Queries []DnsQueryParams
-	for i := range queries {
-		if queries[i].Ipv6 {
-			ipv6Queries = append(ipv6Queries, queries[i])
-		} else {
-			ipv4Queries = append(ipv4Queries, queries[i])
-		}
-	}
+// Query builds questions based on queries and writes them on the provided socket.
+func (o *PluginMDnsClient) Query(queries []utils.DnsQueryParams, socket transport.SocketApi) error {
 
 	// Convert user queries into DNS questions
-	ipv4Questions, err := o.buildQuestions(ipv4Queries)
+	questions, err := utils.BuildQuestions(queries)
 	if err != nil {
 		return err
 	}
 
-	if len(ipv4Questions) > 0 {
-		// complete the template for v4
-		o.dnsTemplate.QR = false                             // Query
-		o.dnsTemplate.AA = false                             // Set AA false for queries
-		o.dnsTemplate.QDCount = uint16(len(ipv4Questions))   // Number of questions
-		o.dnsTemplate.ANCount = 0                            // No answers, might be not 0 from previous response
-		o.dnsTemplate.Questions = ipv4Questions              // Questions
-		o.dnsTemplate.Answers = []layers.DNSResourceRecord{} // Answers
-
-		dnsQuery := core.PacketUtlBuild(
-			&o.dnsTemplate,
-		)
-
-		transportErr, _ := o.socketIpv4.Write(dnsQuery)
+	if len(questions) > 0 {
+		if socket == nil {
+			fmt.Errorf("Invalid Socket in Query!")
+		}
+		transportErr, _ := socket.Write(o.dnsPktBuilder.BuildQueryPkt(questions, o.Tctx.Simulation))
 		if transportErr != transport.SeOK {
 			o.stats.socketWriteError++
 			return transportErr.Error()
 		}
 		o.stats.pktTxMDnsQuery++ // successfully send query
 	}
-
-	ipv6Questions, err := o.buildQuestions(ipv6Queries)
-	if err != nil {
-		return err
-	}
-
-	if len(ipv6Questions) > 0 && o.socketIpv6 == nil {
-		o.stats.ipv6QueryNoPlugin++
-		return fmt.Errorf("Ipv6 query but no Ipv6 plugin enabled for client.")
-	}
-
-	if len(ipv6Questions) > 0 {
-		// complete the template for v6
-		o.dnsTemplate.QR = false                             // Query
-		o.dnsTemplate.AA = false                             // Set AA false for queries
-		o.dnsTemplate.QDCount = uint16(len(ipv6Questions))   // Number of questions
-		o.dnsTemplate.ANCount = 0                            // No answers, might be not 0 from previous response
-		o.dnsTemplate.Questions = ipv6Questions              // Questions
-		o.dnsTemplate.Answers = []layers.DNSResourceRecord{} // Answers
-
-		dnsQuery := core.PacketUtlBuild(
-			&o.dnsTemplate,
-		)
-
-		transportErr, _ := o.socketIpv6.Write(dnsQuery)
-		if transportErr != transport.SeOK {
-			o.stats.socketWriteError++
-			return transportErr.Error()
-		}
-		o.stats.pktTxMDnsQuery++ // successfully send query
-	}
-
 	return nil
 }
 
-// buildAnswers builds answers based on mDNS questions.
-func (o *PluginMDnsClient) buildAnswers(questions []layers.DNSQuestion) []layers.DNSResourceRecord {
+// QueryHandler sends an IPv4/IPv6 or both mDNS query.
+func (o *PluginMDnsClient) QueryHandler(queries []MDnsQueryParams) error {
+
+	var ipv6Queries, ipv4Queries []utils.DnsQueryParams
+	for i := range queries {
+		query := utils.DnsQueryParams{Name: queries[i].Name, Type: queries[i].Type, Class: queries[i].Class}
+		if queries[i].Ipv6 {
+			ipv6Queries = append(ipv6Queries, query)
+		} else {
+			ipv4Queries = append(ipv4Queries, query)
+		}
+	}
+
+	if len(ipv4Queries) > 0 {
+		err := o.Query(ipv4Queries, o.socketIpv4)
+		if err != nil {
+			return err
+		}
+	}
+
+	if len(ipv6Queries) > 0 {
+		if o.socketIpv6 == nil {
+			o.stats.ipv6QueryNoPlugin++
+			return fmt.Errorf("Ipv6 query but no Ipv6 plugin enabled for client.")
+		}
+		err := o.Query(ipv6Queries, o.socketIpv6)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// BuildAnswers builds answers based on mDNS questions.
+func (o *PluginMDnsClient) BuildAnswers(questions []layers.DNSQuestion) []layers.DNSResourceRecord {
 	var answers []layers.DNSResourceRecord
 	for _, q := range questions {
 		answer := layers.DNSResourceRecord{
@@ -598,41 +518,19 @@ func (o *PluginMDnsClient) buildAnswers(questions []layers.DNSQuestion) []layers
 }
 
 // Reply sends a mDNS response after a query was received.
-func (o *PluginMDnsClient) Reply(questions []layers.DNSQuestion, ipv6 bool) error {
+func (o *PluginMDnsClient) Reply(transactionId uint16, questions []layers.DNSQuestion, socket transport.SocketApi) error {
 
-	if ipv6 && o.socketIpv6 == nil {
-		// Ipv6 query was received however client doesn't have the IPv6 plugin.
-		o.stats.ipv6ResponseNoPlugin++
-		return fmt.Errorf("Ipv6 query was received but no Ipv6 plugin enabled for client.")
-	}
-
-	answers := o.buildAnswers(questions)
+	answers := o.BuildAnswers(questions)
 	if answers == nil {
-		// Nothing we can answer, respective error counters are set in buildAnswers.
+		// Nothing we can answer, respective error counters are set in BuildAnswers.
 		return fmt.Errorf("Couldn't answer any query.")
 	}
 
-	// complete the template
-	o.dnsTemplate.QR = true                          // Response
-	o.dnsTemplate.AA = true                          // Set AA to true for replies
-	o.dnsTemplate.QDCount = 0                        // Number of questions, might be not 0 from previous response
-	o.dnsTemplate.ANCount = uint16(len(answers))     // No answers,
-	o.dnsTemplate.Questions = []layers.DNSQuestion{} // Questions
-	o.dnsTemplate.Answers = answers                  // Answers
-
-	dnsResponse := core.PacketUtlBuild(
-		&o.dnsTemplate,
-	)
-
-	var socket transport.SocketApi
-	if ipv6 {
-		// if you are here there is Ipv6 enabled.
-		socket = o.socketIpv6
-	} else {
-		socket = o.socketIpv4
+	if socket == nil {
+		return fmt.Errorf("Invalid Socket in Reply!")
 	}
 
-	transportErr, _ := socket.Write(dnsResponse)
+	transportErr, _ := socket.Write(o.dnsPktBuilder.BuildResponsePkt(0, answers, []layers.DNSQuestion{}, layers.DNSResponseCodeNoErr))
 	if transportErr != transport.SeOK {
 		o.stats.socketWriteError++
 		return transportErr.Error()
@@ -652,8 +550,22 @@ func (o *PluginMDnsClient) HandleRxMDnsQuestions(questions []layers.DNSQuestion,
 		}
 	}
 	if len(cQuestions) > 0 {
-		o.stats.pktRxMDnsQuery++  // At least one question was for this client
-		o.Reply(cQuestions, ipv6) // Reply to the ones we can
+		o.stats.pktRxMDnsQuery++ // At least one question was for this client
+		/*
+			In multicast responses, including unsolicited multicast responses,
+			the Query Identifier MUST be set to zero on transmission, and MUST be
+			ignored on reception.
+		*/
+		if ipv6 {
+			if o.socketIpv6 == nil {
+				// Ipv6 query was received however client doesn't have the IPv6 plugin.
+				o.stats.ipv6ResponseNoPlugin++
+				return
+			}
+			o.Reply(0, cQuestions, o.socketIpv6)
+		} else {
+			o.Reply(0, cQuestions, o.socketIpv4)
+		}
 	}
 }
 
@@ -699,246 +611,6 @@ func (o *PluginMDnsClient) GetHosts() []string {
 		i++
 	}
 	return hosts
-}
-
-/*======================================================================================================
-												Ns Cache
-======================================================================================================*/
-
-// MDnsCacheEntry represents an entry in the MDns Cache Table.
-type MDnsCacheEntry struct {
-	dlist core.DList `json:"-"` // Node in the double linked list.
-	// Note that the dlist must be kept first because of the unsafe conversion.
-	Name            string          `json:"name"`      // Name
-	Type            string          `json:"dns_type"`  // DNS Type
-	Class           string          `json:"dns_class"` // DNS Class
-	TTL             uint32          `json:"ttl"`       // Time to live in seconds
-	Answer          string          `json:"answer"`    // IP address or Domain Name
-	TimeLeft        uint32          `json:"time_left"` // Time Left for entry
-	ticksUponCreate float64         `json"-"`          // Ticks upon create
-	epoch           uint64          `json:"-"`         // Epoch in which the entry was added to the table.
-	timer           core.CHTimerObj `json:"-"`         // Timer to decrement TTL
-	sha256          string          `json:"-"`         // SHA256 of this entry used to keep in hash table.
-}
-
-// convertToMDnsCacheEntry dlist to the MDnsCacheEntry that contains the dlist.
-// Note: For the conversion to work, the dlist must be kept first in the MDnsCacheEntry.
-func convertToMDnsCacheEntry(dlist *core.DList) *MDnsCacheEntry {
-	return (*MDnsCacheEntry)(unsafe.Pointer(dlist))
-}
-
-// SHA256 makes an MDnsCacheEntry hashable. We need to put into the SHA only the things that make the
-// entry unique.
-func (o *MDnsCacheEntry) SHA256() string {
-	if o.sha256 == "" {
-		h := sha256.New()
-		// Epoch is important, same entry in two different epochs is different.
-		h.Write([]byte(fmt.Sprintf("%v-%v-%v-%v-%v", o.Name, o.Type, o.Class, o.Answer, o.epoch)))
-		o.sha256 = fmt.Sprintf("%x", h.Sum(nil))
-	}
-	return o.sha256
-}
-
-// MDnsCacheTbl is a DNS cache table. They key is the SHA256 hash of each entry without TTL.
-type MDnsCacheTbl map[string]*MDnsCacheEntry
-
-// MDnsCache reprents the MDns cache which includes the cache table, and a mechanism to add/remove entries (timer-based).
-type MDnsCache struct {
-	timerw     *core.TimerCtx  // Timer wheel
-	flushTimer core.CHTimerObj // Timer to flush the cache
-	tbl        MDnsCacheTbl    // Cache Table.
-	head       core.DList      // Head pointer to double linked list.
-	activeIter *core.DList     // Double Linked list iterator
-	iterReady  bool            // Is iterator ready?
-	epoch      uint64          // Cache Epoch, incremented with each flush.
-	stats      *MDnsNsStats    // mDns namespace stats
-}
-
-// NewMDnsCache creates a new MDnsCache.
-func NewMDnsCache(timerw *core.TimerCtx, stats *MDnsNsStats) *MDnsCache {
-	o := new(MDnsCache)
-	o.tbl = make(MDnsCacheTbl)
-	o.stats = stats
-	o.timerw = timerw
-	o.flushTimer.SetCB(o, nil, true) // Second parameter is set to true, means flush timer.
-	o.head.SetSelf()                 // Set pointer to itself.
-	return o
-}
-
-// OnEvent is called in two cases. Cases can be distinguished by the second parameter.
-// Case 1: time to remove entries after a flush. Second parameter is True.
-// Case 2: Each entry in the table calls *this* function to remove the entry. The first paremeter, is the entry itself.
-func (o *MDnsCache) OnEvent(a, b interface{}) {
-	flush := b.(bool)
-	if flush {
-		o.OnFlush()
-	} else {
-		// remove entry from cache
-		entry := a.(*MDnsCacheEntry)
-		o.RemoveEntry(entry.SHA256())
-	}
-
-}
-
-// AddEntry adds a new entry to the cache table.
-func (o *MDnsCache) AddEntry(name string, dnsType layers.DNSType, class layers.DNSClass, ttl uint32, answer string) {
-	entry := MDnsCacheEntry{
-		Name:            name,
-		Type:            dnsType.String(),
-		Class:           class.String(),
-		TTL:             ttl,
-		Answer:          answer,
-		epoch:           o.epoch,
-		ticksUponCreate: o.timerw.TicksInSec()}
-	key := entry.SHA256()
-	_, ok := o.tbl[key]
-	if ok {
-		// Entry already exists as old entry, same epoch. Remove the old one so the dlist remains chronologic.
-		o.RemoveEntry(key)
-	}
-	o.head.AddLast(&entry.dlist)
-	// The OnEvent is in table, calls with entry. Second parameter is false, means aging.
-	entry.timer.SetCB(o, &entry, false)
-	o.timerw.StartTicks(&entry.timer, o.timerw.DurationToTicks(time.Duration(ttl)*time.Second)) // Start timer
-	o.tbl[key] = &entry
-}
-
-// RemoveEntry removes an entry from the cache table. If the entry is not in the table, nothing to do.
-func (o *MDnsCache) RemoveEntry(key string) {
-	entry, ok := o.tbl[key]
-	if !ok {
-		// nothing to remove
-		return
-	}
-
-	// Stop timer
-	if entry.timer.IsRunning() {
-		o.timerw.Stop(&entry.timer)
-	}
-
-	// Remove from Linked List
-	if o.activeIter == &entry.dlist {
-		// it is going to be removed
-		o.activeIter = entry.dlist.Next()
-	}
-	o.head.RemoveNode(&entry.dlist)
-
-	delete(o.tbl, key)
-}
-
-// IterReset resets the iterator. Returns if the iterator is resetted or not.
-func (o *MDnsCache) IterReset() bool {
-	o.activeIter = o.head.Next()
-	if o.head.IsEmpty() {
-		o.iterReady = false
-		return true
-	}
-	o.iterReady = true
-	return false
-}
-
-// IterIsStopped indicates if the iterator is not ready.
-func (o *MDnsCache) IterIsStopped() bool {
-	return !o.iterReady
-}
-
-// GetNext gets the next @param: count entries in the cache.
-func (o *MDnsCache) GetNext(count int) ([]*MDnsCacheEntry, error) {
-	r := make([]*MDnsCacheEntry, 0)
-	if !o.iterReady {
-		return r, fmt.Errorf("Iterator is not ready. Reset the iterator!")
-	}
-
-	ticksNow := o.timerw.TicksInSec()
-	for i := 0; i < count; i++ {
-		if o.activeIter == &o.head {
-			o.iterReady = false // require a new reset
-			break
-		}
-		entry := convertToMDnsCacheEntry(o.activeIter)
-		if entry.epoch == o.epoch {
-			// Values from older epochs are irrelevant
-			// Update how much time left the entry has
-			entry.TimeLeft = entry.TTL - uint32(ticksNow-entry.ticksUponCreate)
-			r = append(r, entry)
-		}
-		o.activeIter = o.activeIter.Next()
-	}
-	return r, nil
-}
-
-// OnFlush is called after a user calls flush in order to flush the table in chunks.
-// It is important to flush in chunks so we can scale.
-func (o *MDnsCache) OnFlush() {
-	THRESHOLD := 100
-	for i := 0; i < THRESHOLD; i++ {
-		if o.head.IsEmpty() {
-			// Table is empty
-			return
-		}
-		entry := convertToMDnsCacheEntry(o.head.Next())
-		if entry.epoch < o.epoch {
-			o.RemoveEntry(entry.SHA256())
-		} else {
-			// Cleaned everything, now we are in the current epoch.
-			return
-		}
-	}
-	// If you got here, you still have more to flush.
-	o.timerw.Start(&o.flushTimer, 1)
-}
-
-// Flush flushes the mDNS cache.
-func (o *MDnsCache) Flush() {
-	/* We can't remove the whole table since it won't scale.
-	What we do instead is that we increment an epoch, and when iterating we return only entries
-	on the current epoch. We remove entries from older epochs using a timer in order to scale.*/
-	o.epoch++
-	if o.timerw.IsRunning(&o.flushTimer) || o.head.IsEmpty() {
-		// Cache is empty or we already are flushing
-		return
-	} else {
-		o.timerw.StartTicks(&o.flushTimer, 1) // Start Timer
-	}
-}
-
-/*======================================================================================================
-										Ns Cache Remover
-======================================================================================================*/
-
-// MDNsCacheRemover is a special struct which is used by MDns Namespace plugins to remove the mDNS cache.
-// Since the cache table can be enormous, we can't iterate it. Hence it requires a special solution.
-type MDnsCacheRemover struct {
-	cache  *MDnsCache      // Pointer to cache to remove
-	timerw *core.TimerCtx  // Timer wheel
-	timer  core.CHTimerObj // Timer
-}
-
-// NewMDnsCacheRemover creates a new MDnsCacheRemover.
-func NewMDnsCacheRemover(cache *MDnsCache, timerw *core.TimerCtx) *MDnsCacheRemover {
-	o := new(MDnsCacheRemover)
-	o.cache = cache
-	o.timerw = timerw
-	o.timer.SetCB(o, 0, 0)
-	o.OnEvent(0, 0)
-	return o
-}
-
-// OnEvent is called each tick and removes a THRESHOLD entries from the table.
-func (o *MDnsCacheRemover) OnEvent(a, b interface{}) {
-	THRESHOLD := 1000
-	i := 0
-	for k := range o.cache.tbl {
-		if i >= THRESHOLD {
-			break
-		}
-		o.cache.RemoveEntry(k)
-		i++
-	}
-	if len(o.cache.tbl) > 0 {
-		// Table is not empty.
-		o.timerw.StartTicks(&o.timer, 1)
-	}
 }
 
 /*======================================================================================================
@@ -1093,23 +765,23 @@ func (o *MDnsNsAutoPlay) incHostname() (hostname string) {
 }
 
 // buildQueries builds the query parameters based on the user specified program.
-func (o *MDnsNsAutoPlay) buildQueries(hostnames []string, dnsType string, dnsClass string, ipv6 bool) []DnsQueryParams {
-	var dnsQueryParams []DnsQueryParams
+func (o *MDnsNsAutoPlay) buildQueries(hostnames []string, dnsType string, dnsClass string, ipv6 bool) []MDnsQueryParams {
+	var dnsQueryParams []MDnsQueryParams
 	for _, hostname := range hostnames {
 		if dnsType == "" {
-			dnsType = DefaultMDnsQueryType
+			dnsType = utils.DefaultDnsQueryType
 		}
 		if dnsClass == "" {
-			dnsClass = DefaultMDnsQueryClass
+			dnsClass = utils.DefaultDnsQueryClass
 		}
-		dnsQueryParams = append(dnsQueryParams, DnsQueryParams{Name: hostname, Type: dnsType, Class: dnsClass, Ipv6: ipv6})
+		dnsQueryParams = append(dnsQueryParams, MDnsQueryParams{DnsQueryParams: utils.DnsQueryParams{Name: hostname, Type: dnsType, Class: dnsClass}, Ipv6: ipv6})
 	}
 	return dnsQueryParams
 }
 
 // getClientQueries returns the queries that this client will ask. It will look in the program to see if this client
 // has defined special queries or return the default query.
-func (o *MDnsNsAutoPlay) getClientQueries(mac *core.MACKey, hostname string) []DnsQueryParams {
+func (o *MDnsNsAutoPlay) getClientQueries(mac *core.MACKey, hostname string) []MDnsQueryParams {
 	var hwAddr net.HardwareAddr
 	hwAddr = mac[:]
 	macString := hwAddr.String()
@@ -1150,7 +822,7 @@ func (o *MDnsNsAutoPlay) OnEvent(a, b interface{}) {
 
 	queries := o.getClientQueries(mac, hostname)
 
-	err := mdnsPlug.Query(queries)
+	err := mdnsPlug.QueryHandler(queries)
 	if err != nil {
 		// Couldn't query properly
 		o.nsPlug.stats.autoPlayBadQuery++
@@ -1174,7 +846,7 @@ type MDnsNsParams struct {
 type PluginMDnsNs struct {
 	core.PluginBase                              // Embed plugin base
 	params          MDnsNsParams                 // Namespace Paramaters
-	cache           *MDnsCache                   // mDns cache
+	cache           *utils.DnsCache              // mDns cache
 	mapHostClient   map[string]*PluginMDnsClient // Map hosts to client database
 	stats           MDnsNsStats                  // mDns namespace statistics
 	cdb             *core.CCounterDb             // mDns counters
@@ -1185,11 +857,11 @@ type PluginMDnsNs struct {
 // NewMDnsNs creates a new mDNS namespace plugin.
 func NewMDnsNs(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
 	o := new(PluginMDnsNs)
-	o.InitPluginBase(ctx, o)                                 // Init the base plugin
-	o.RegisterEvents(ctx, []string{}, o)                     // No events to register in namespace level.
-	o.cache = NewMDnsCache(ctx.Tctx.GetTimerCtx(), &o.stats) // Create cache
-	o.mapHostClient = make(map[string]*PluginMDnsClient)     // Create hosts -> client database
-	o.cdb = NewMDnsNsStatsDb(&o.stats)                       // Create new stats database
+	o.InitPluginBase(ctx, o)                             // Init the base plugin
+	o.RegisterEvents(ctx, []string{}, o)                 // No events to register in namespace level.
+	o.cache = utils.NewDnsCache(ctx.Tctx.GetTimerCtx())  // Create cache
+	o.mapHostClient = make(map[string]*PluginMDnsClient) // Create hosts -> client database
+	o.cdb = NewMDnsNsStatsDb(&o.stats)                   // Create new stats database
 	o.cdbv = core.NewCCounterDbVec("mDns")
 	o.cdbv.Add(o.cdb)
 
@@ -1211,26 +883,12 @@ func (o *PluginMDnsNs) OnRemove(ctx *core.PluginCtx) {
 	if o.autoPlay != nil {
 		o.autoPlay.OnRemove()
 	}
-	_ = NewMDnsCacheRemover(o.cache, ctx.Tctx.GetTimerCtx())
+	_ = utils.NewDnsCacheRemover(o.cache, ctx.Tctx.GetTimerCtx())
 	o.cache = nil // GC can now remove the namespace plugin.
 }
 
 // OnEvent for events the namespace plugin is registered.
 func (o *PluginMDnsNs) OnEvent(msg string, a, b interface{}) {}
-
-// HandleRxMDnsAnswers handles an incoming mDns packet's answers by adding them into the namespace cache.
-// The only types added to cache are A, AAAA, PTR. Others are ignored.
-func (o *PluginMDnsNs) HandleRxMDnsAnswers(answers []layers.DNSResourceRecord) {
-	for i := range answers {
-		ans := answers[i]
-		if ans.Type == layers.DNSTypeA || ans.Type == layers.DNSTypeAAAA {
-			// The only types in which we have an IP in response are A, AAAA
-			o.cache.AddEntry(string(ans.Name), ans.Type, ans.Class, ans.TTL, ans.IP.String())
-		} else if ans.Type == layers.DNSTypePTR {
-			o.cache.AddEntry(string(ans.Name), ans.Type, ans.Class, ans.TTL, string(ans.PTR))
-		}
-	}
-}
 
 // HandleRxMDnsQuestions handles an incoming mDns packet's questions.
 func (o *PluginMDnsNs) HandleRxMDnsQuestions(questions []layers.DNSQuestion, ipv6 bool) {
@@ -1354,7 +1012,7 @@ func (o *PluginMDnsNs) HandleRxMDnsPacket(ps *core.ParserPacketState) int {
 	}
 	if dns.ANCount > 0 {
 		o.stats.rxAnswers += uint64(dns.ANCount)
-		o.HandleRxMDnsAnswers(dns.Answers)
+		utils.AddAnswersToCache(o.cache, dns.Answers)
 	}
 	if dns.NSCount > 0 {
 		o.stats.rxAuthoritiesUnhandled += uint64(dns.NSCount)
@@ -1436,12 +1094,10 @@ func (o PluginMDnsNsReg) NewPlugin(ctx *core.PluginCtx, initJson []byte) *core.P
 											RPC Methods
 ======================================================================================================*/
 
-// DnsQueryParams defines the fields in an DNS query as received in RPC.
-type DnsQueryParams struct {
-	Name  string `json:"name" validate:"required"` // Name of query
-	Type  string `json:"dns_type"`                 // Type of the query
-	Class string `json:"dns_class"`                // Class of the query
-	Ipv6  bool   `json:"ipv6"`                     // Ipv6 query
+// MDnsQueryParams defines the fields in an MDns query as received in RPC.
+type MDnsQueryParams struct {
+	utils.DnsQueryParams      // Embed the classic Dns Query Params
+	Ipv6                 bool `json:"ipv6"` // Ipv6 query
 }
 
 type (
@@ -1449,7 +1105,7 @@ type (
 	ApiMDnsNsCntHandler     struct{} // Counter RPC Handler per Ns
 	ApiMDnsQueryHandler     struct{} // Query RPC Handler
 	ApiMDnsQueryParams      struct {
-		Queries []DnsQueryParams `json:"queries" validate:"required,dive"`
+		Queries []MDnsQueryParams `json:"queries" validate:"required,dive"`
 	}
 	ApiMDnsAddRemoveHostsHandler struct{} // Add/Remove hosts handler.
 	ApiMDnsAddRemoveHostsParams  struct {
@@ -1463,9 +1119,9 @@ type (
 	} // Params for a namespace cache iteration
 	ApiMDnsCacheIterHandler struct{} // Iterate namespace cache
 	ApiMDnsCacheIterResults struct {
-		Empty   bool              `json:"empty"`
-		Stopped bool              `json:"stopped"`
-		Vec     []*MDnsCacheEntry `json:"data"`
+		Empty   bool                   `json:"empty"`
+		Stopped bool                   `json:"stopped"`
+		Vec     []*utils.DnsCacheEntry `json:"data"`
 	} // Results for a namespace cache iteration
 	ApiMDnsCacheFlushHandler struct{} // Flush the mDNS cache
 )
@@ -1550,7 +1206,7 @@ func (h ApiMDnsQueryHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawM
 		}
 	}
 
-	err = c.Query(p.Queries)
+	err = c.QueryHandler(p.Queries)
 	if err != nil {
 		return nil, &jsonrpc.Error{
 			Code:    jsonrpc.ErrorCodeInvalidParams,
