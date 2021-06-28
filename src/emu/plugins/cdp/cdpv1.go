@@ -27,7 +27,7 @@ const (
 	/* state of each client */
 )
 
-var cdpDefaultDestMAC = []byte{0x01, 0x80, 0x0c, 0xcc, 0xcc, 0xcc}
+var cdpDefaultDestMAC core.MACKey = core.MACKey{0x01, 0x00, 0x0c, 0xcc, 0xcc, 0xcc} // L2 multicast MAC for CDP
 
 type CdpOptionsT struct {
 	Raw *[]byte `json:"raw"` // raw options to add
