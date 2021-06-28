@@ -24,6 +24,7 @@ import (
 	"external/osamingo/jsonrpc"
 	"math/rand"
 	"net"
+	"sort"
 	"time"
 
 	"github.com/intel-go/fastjson"
@@ -65,7 +66,7 @@ type DhcpStats struct {
 	pktRxWrongXid    uint64
 	pktRxWrongHwType uint64
 	pktRxWrongIP     uint64
-	pktRxUnhandle    uint64
+	pktRxUnhandled   uint64
 	pktRxNotify      uint64
 	pktRxRenew       uint64
 	pktRxNack        uint64
@@ -130,9 +131,9 @@ func NewDhcpStatsDb(o *DhcpStats) *core.CCounterDb {
 		Info:     core.ScERROR})
 
 	db.Add(&core.CCounterRec{
-		Counter:  &o.pktRxUnhandle,
-		Name:     "pktRxUnhandle",
-		Help:     "unhandle dhcp packet",
+		Counter:  &o.pktRxUnhandled,
+		Name:     "pktRxUnhandled",
+		Help:     "unhandled dhcp packet",
 		Unit:     "pkts",
 		DumpZero: false,
 		Info:     core.ScERROR})
@@ -230,6 +231,11 @@ type PluginDhcpClient struct {
 	requestRenewPktTemplate    []byte
 	l3Offset                   uint16
 	xid                        uint32
+	dhcpReqLength              uint16 // Length of template DHCP Request packet including options
+	requestedIpOptOffset       uint16 // Offset of Requested IP address Option in DHCP Request
+	serverIdOptOffset          uint16 // Offset of DHCP Server Identifier Option in DHCP Request
+	dhcpReqRenewLength         uint16 // Length of template DHCP Request Renew packet including options
+	renewMsgTypeOptOffset      uint16 // Offset of Message Type Option in DHCP Request Renew
 }
 
 var dhcpEvents = []string{}
@@ -296,17 +302,18 @@ func (o *PluginDhcpClient) preparePacketTemplate() {
 		RelayAgentIP: net.IP{0, 0, 0, 0},
 		ClientHWAddr: net.HardwareAddr(o.Client.Mac[:]),
 		ServerName:   make([]byte, 64), File: make([]byte, 128)}
-	dhcp.Options = append(dhcp.Options, layers.NewDHCPOption(layers.DHCPOptMessageType, []byte{byte(layers.DHCPMsgTypeDiscover)}))
-	dhcp.Options = append(dhcp.Options, layers.NewDHCPOption(layers.DHCPOptClientID, options))
-	dhcp.Options = append(dhcp.Options, layers.NewDHCPOption(layers.DHCPOptRequestIP, []byte{0, 0, 0, 0}))
-	dhcp.Options = append(dhcp.Options, layers.NewDHCPOption(layers.DHCPOptHostname, []byte{'h', 'o', 's', 't', '-', 't', 'r', 'e', 'x', 's'}))
-	dhcp.Options = append(dhcp.Options, layers.NewDHCPOption(layers.DHCPOptParamsRequest,
-		[]byte{byte(layers.DHCPOptSubnetMask),
-			byte(layers.DHCPOptRouter),
-			byte(layers.DHCPOptDomainName),
-			byte(layers.DHCPOptDNS),
-			byte(layers.DHCPOptInterfaceMTU),
-			byte(layers.DHCPOptNTPServers)}))
+
+	discoveryOptions := make(map[layers.DHCPOpt][]byte)
+	discoveryOptions[layers.DHCPOptMessageType] = []byte{byte(layers.DHCPMsgTypeDiscover)}
+	discoveryOptions[layers.DHCPOptClientID] = options
+	discoveryOptions[layers.DHCPOptRequestIP] = []byte{0, 0, 0, 0}
+	discoveryOptions[layers.DHCPOptHostname] = []byte{'h', 'o', 's', 't', '-', 't', 'r', 'e', 'x', 's'}
+	discoveryOptions[layers.DHCPOptParamsRequest] = []byte{byte(layers.DHCPOptSubnetMask),
+		byte(layers.DHCPOptRouter),
+		byte(layers.DHCPOptDomainName),
+		byte(layers.DHCPOptDNS),
+		byte(layers.DHCPOptInterfaceMTU),
+		byte(layers.DHCPOptNTPServers)}
 
 	if (o.init.Options != nil) && (o.init.Options.DiscoverDhcpClassIdOption != nil) {
 		dhcp.Options = append(dhcp.Options, layers.NewDHCPOption(layers.DHCPOptClassID, []byte(*o.init.Options.DiscoverDhcpClassIdOption)))
@@ -314,10 +321,17 @@ func (o *PluginDhcpClient) preparePacketTemplate() {
 
 	if (o.init.Options != nil) && (o.init.Options.Discover != nil) {
 		for _, op := range *o.init.Options.Discover {
-			dhcp.Options = append(dhcp.Options,
-				layers.NewDHCPOption(layers.DHCPOpt(op[0]), op[1:]))
+			discoveryOptions[layers.DHCPOpt(op[0])] = op[1:]
 		}
 	}
+
+	for k, v := range discoveryOptions {
+		dhcp.Options = append(dhcp.Options, layers.NewDHCPOption(k, v))
+	}
+
+	sort.Slice(dhcp.Options[:], func(i, j int) bool {
+		return dhcp.Options[i].Type < dhcp.Options[j].Type
+	})
 
 	d := core.PacketUtlBuild(
 		&layers.IPv4{Version: 4, IHL: 5, TTL: 128, Id: 0xcc,
@@ -350,17 +364,20 @@ func (o *PluginDhcpClient) preparePacketTemplate() {
 		RelayAgentIP: net.IP{0, 0, 0, 0},
 		ClientHWAddr: net.HardwareAddr(o.Client.Mac[:]),
 		ServerName:   make([]byte, 64), File: make([]byte, 128)}
-	dhcpReq.Options = append(dhcpReq.Options, layers.NewDHCPOption(layers.DHCPOptMessageType, []byte{byte(layers.DHCPMsgTypeRequest)}))
-	dhcpReq.Options = append(dhcpReq.Options, layers.NewDHCPOption(layers.DHCPOptClientID, options))
-	dhcpReq.Options = append(dhcpReq.Options, layers.NewDHCPOption(layers.DHCPOptRequestIP, []byte{0, 0, 0, 0}))
-	dhcpReq.Options = append(dhcpReq.Options, layers.NewDHCPOption(layers.DHCPOptServerID, []byte{0, 0, 0, 0}))
-	dhcpReq.Options = append(dhcpReq.Options, layers.NewDHCPOption(layers.DHCPOptParamsRequest,
-		[]byte{byte(layers.DHCPOptSubnetMask),
-			byte(layers.DHCPOptRouter),
-			byte(layers.DHCPOptDomainName),
-			byte(layers.DHCPOptDNS),
-			byte(layers.DHCPOptInterfaceMTU),
-			byte(layers.DHCPOptNTPServers)}))
+
+	o.dhcpReqLength = 240 // Fixed Length without option
+
+	requestOptions := make(map[layers.DHCPOpt][]byte)
+	requestOptions[layers.DHCPOptMessageType] = []byte{byte(layers.DHCPMsgTypeRequest)}
+	requestOptions[layers.DHCPOptClientID] = options
+	requestOptions[layers.DHCPOptRequestIP] = []byte{0, 0, 0, 0}
+	requestOptions[layers.DHCPOptServerID] = []byte{0, 0, 0, 0}
+	requestOptions[layers.DHCPOptParamsRequest] = []byte{byte(layers.DHCPOptSubnetMask),
+		byte(layers.DHCPOptRouter),
+		byte(layers.DHCPOptDomainName),
+		byte(layers.DHCPOptDNS),
+		byte(layers.DHCPOptInterfaceMTU),
+		byte(layers.DHCPOptNTPServers)}
 
 	if (o.init.Options != nil) && (o.init.Options.RequestDhcpClassIdOption != nil) {
 		dhcpReq.Options = append(dhcpReq.Options, layers.NewDHCPOption(layers.DHCPOptClassID, []byte(*o.init.Options.RequestDhcpClassIdOption)))
@@ -368,8 +385,30 @@ func (o *PluginDhcpClient) preparePacketTemplate() {
 
 	if (o.init.Options != nil) && (o.init.Options.Request != nil) {
 		for _, op := range *o.init.Options.Request {
-			dhcpReq.Options = append(dhcpReq.Options,
-				layers.NewDHCPOption(layers.DHCPOpt(op[0]), op[1:]))
+			requestOptions[layers.DHCPOpt(op[0])] = op[1:]
+		}
+	}
+
+	for k, v := range requestOptions {
+		dhcpReq.Options = append(dhcpReq.Options, layers.NewDHCPOption(k, v))
+	}
+
+	sort.Slice(dhcpReq.Options[:], func(i, j int) bool {
+		return dhcpReq.Options[i].Type < dhcpReq.Options[j].Type
+	})
+
+	for _, option := range dhcpReq.Options {
+		if option.Type == layers.DHCPOptRequestIP {
+			o.requestedIpOptOffset = o.dhcpReqLength + 2 // 2 for type + length
+		}
+		if option.Type == layers.DHCPOptServerID {
+			o.serverIdOptOffset = o.dhcpReqLength + 2 // 2 for type + length
+		}
+
+		if option.Type == layers.DHCPOptPad {
+			o.dhcpReqLength++
+		} else {
+			o.dhcpReqLength += uint16(option.Length) + 2 // 2 for type + length
 		}
 	}
 
@@ -404,13 +443,36 @@ func (o *PluginDhcpClient) preparePacketTemplate() {
 		RelayAgentIP: net.IP{0, 0, 0, 0},
 		ClientHWAddr: net.HardwareAddr(o.Client.Mac[:]),
 		ServerName:   make([]byte, 64), File: make([]byte, 128)}
-	dhcpReqRenew.Options = append(dhcpReqRenew.Options, layers.NewDHCPOption(layers.DHCPOptMessageType, []byte{byte(layers.DHCPMsgTypeRequest)}))
-	dhcpReqRenew.Options = append(dhcpReqRenew.Options, layers.NewDHCPOption(layers.DHCPOptClientID, options))
+
+	o.dhcpReqRenewLength = 240
+
+	renewOptions := make(map[layers.DHCPOpt][]byte)
+	renewOptions[layers.DHCPOptMessageType] = []byte{byte(layers.DHCPMsgTypeRequest)}
+	renewOptions[layers.DHCPOptClientID] = options
 
 	if (o.init.Options != nil) && (o.init.Options.Renew != nil) {
 		for _, op := range *o.init.Options.Renew {
-			dhcpReqRenew.Options = append(dhcpReqRenew.Options,
-				layers.NewDHCPOption(layers.DHCPOpt(op[0]), op[1:]))
+			renewOptions[layers.DHCPOpt(op[0])] = op[1:]
+		}
+	}
+
+	for k, v := range renewOptions {
+		dhcpReqRenew.Options = append(dhcpReqRenew.Options, layers.NewDHCPOption(k, v))
+	}
+
+	sort.Slice(dhcpReqRenew.Options[:], func(i, j int) bool {
+		return dhcpReqRenew.Options[i].Type < dhcpReqRenew.Options[j].Type
+	})
+
+	for _, option := range dhcpReqRenew.Options {
+		if option.Type == layers.DHCPOptMessageType {
+			o.renewMsgTypeOptOffset = o.dhcpReqRenewLength + 2 // 2 for type + length
+		}
+
+		if option.Type == layers.DHCPOptPad {
+			o.dhcpReqRenewLength++
+		} else {
+			o.dhcpReqRenewLength += uint16(option.Length) + 2 // 2 for type + length
 		}
 	}
 
@@ -464,24 +526,26 @@ func (o *PluginDhcpClient) SendRenewRebind(rebind bool, release bool, timerSec u
 
 	pkt := o.requestRenewPktTemplate
 
-	unitcast := true
+	unicast := true
 
 	if rebind {
-		unitcast = false
+		unicast = false
 	}
-	//
-	off := o.l3Offset + 20 + 8 + 12
-	copy(pkt[off:off+4], o.ipv4[:])
+	dhcpOffset := o.l3Offset + 20 + 8 // 20 for IPv4, 8 for UDP
+	clientIpOffset := dhcpOffset + 12
+	renewMsgTypeOffset := dhcpOffset + o.renewMsgTypeOptOffset
+
+	copy(pkt[clientIpOffset:clientIpOffset+4], o.ipv4[:])
 	if release {
-		pkt[off+230] = 7
+		pkt[renewMsgTypeOffset] = byte(layers.DHCPMsgTypeRelease)
 	} else {
-		pkt[off+230] = 3
+		pkt[renewMsgTypeOffset] = byte(layers.DHCPMsgTypeRequest)
 	}
 
 	ipo := o.l3Offset
 	ipv4 := layers.IPv4Header(pkt[ipo : ipo+20])
 
-	if unitcast {
+	if unicast {
 		copy(pkt[0:6], o.serverMac[:])
 		srcIPv4 := o.ipv4
 		serverIPv4 := o.server
@@ -507,10 +571,14 @@ func (o *PluginDhcpClient) SendRenewRebind(rebind bool, release bool, timerSec u
 func (o *PluginDhcpClient) SendReq() {
 	pkt := o.requestPktTemplate
 
-	// offset for the option
-	off := o.l3Offset + 20 + 8 + 254
-	copy(pkt[off:off+4], o.ipv4[:])
-	copy(pkt[off+6:off+10], o.server[:])
+	// Update Options
+	dhcpOffset := o.l3Offset + 20 + 8 // 20 for IPv4, 8 for UDP
+	requestIpOffset := dhcpOffset + o.requestedIpOptOffset
+	serverIdOffset := dhcpOffset + o.serverIdOptOffset
+	copy(pkt[requestIpOffset:requestIpOffset+4], o.ipv4[:])
+	copy(pkt[serverIdOffset:serverIdOffset+4], o.server[:])
+
+	// Update UDP checksum
 	ipo := o.l3Offset
 	ipv4 := layers.IPv4Header(pkt[ipo : ipo+20])
 
@@ -753,7 +821,7 @@ func (o *PluginDhcpClient) HandleRxDhcpPacket(ps *core.ParserPacketState) int {
 	case DHCP_STATE_REQUESTING:
 		return o.HandleAckNak(dhcpmt, &dhcph, ipv4, t1, t2, true, server)
 	case DHCP_STATE_BOUND:
-		o.stats.pktRxUnhandle++
+		o.stats.pktRxUnhandled++
 	case DHCP_STATE_RENEWING:
 		return o.HandleAckNak(dhcpmt, &dhcph, ipv4, t1, t2, true, server)
 
@@ -761,7 +829,7 @@ func (o *PluginDhcpClient) HandleRxDhcpPacket(ps *core.ParserPacketState) int {
 		return o.HandleAckNak(dhcpmt, &dhcph, ipv4, t1, t2, true, server)
 
 	default:
-		o.stats.pktRxUnhandle++
+		o.stats.pktRxUnhandled++
 
 	}
 	return (0)
