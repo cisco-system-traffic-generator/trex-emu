@@ -758,7 +758,7 @@ func TestPluginMDns14(t *testing.T) {
 			"min_client": "00:00:01:00:00:00",
 			"max_client": "00:00:01:00:00:01",
 			"client_step": 1,
-			"hostname_base": "client-"
+			"hostname_template": "client-%v"
 			"min_hostname": 0,
 			"max_hostname": 1,
 			"hostname_step": 1
@@ -803,7 +803,7 @@ func TestPluginMDns15(t *testing.T) {
 			"min_client": "00:00:01:00:00:00",
 			"max_client": "00:00:01:00:00:01",
 			"client_step": 1,
-			"hostname_base": "client-"
+			"hostname_template": "client-%v"
 			"min_hostname": 0,
 			"max_hostname": 1,
 			"hostname_step": 1,
@@ -861,7 +861,7 @@ func TestPluginMDns16(t *testing.T) {
 			"min_client": "00:00:01:00:00:00",
 			"max_client": "00:00:01:00:00:05",
 			"client_step": 2,
-			"hostname_base": "client-"
+			"hostname_template": "client-%v"
 			"min_hostname": 0,
 			"max_hostname": 5,
 			"hostname_step": 1
@@ -909,7 +909,7 @@ func TestPluginMDns17(t *testing.T) {
 			"rate": 1.0,
 			"min_client": "00:00:01:00:00:00",
 			"max_client": "00:00:01:00:00:05",
-			"hostname_base": "client-"
+			"hostname_template": "client-%v"
 			"min_hostname": 0,
 			"max_hostname": 2,
 			"init_hostname": 2,
@@ -958,7 +958,7 @@ func TestPluginMDns18(t *testing.T) {
 			"rate": 1.0,
 			"min_client": "00:00:01:00:00:00",
 			"max_client": "00:00:01:00:00:02",
-			"hostname_base": "client-"
+			"hostname_template": "client-%v"
 			"min_hostname": 0,
 			"max_hostname": 2,
 			"init_hostname": 1,
@@ -1008,7 +1008,7 @@ func TestPluginMDns19(t *testing.T) {
 			"rate": 1.0,
 			"min_client": "00:00:01:00:00:00",
 			"max_client": "00:00:01:00:00:02",
-			"hostname_base": "client-"
+			"hostname_template": "client-%v"
 			"min_hostname": 0,
 			"max_hostname": 2,
 			"init_hostname": 1,
@@ -1040,7 +1040,7 @@ func TestPluginMDns20(t *testing.T) {
 
 	// TXT Ipv6 vs normal IPv4
 	initJson1 := [][]byte{[]byte(`{
-		"hosts": ["AppleTV", "Brother", "client-0"],
+		"hosts": ["AppleTV", "Brother", "client-0.local"],
 		"txt": [
 			{
 				"field": "am",
@@ -1058,13 +1058,13 @@ func TestPluginMDns20(t *testing.T) {
 	}`)}
 
 	initJson2 := [][]byte{[]byte(`{
-		"hosts": ["UCS", "16.0.0.1.cisco.com", "trex-04", "client-1"],
+		"hosts": ["UCS", "16.0.0.1.cisco.com", "trex-04", "client-1.local"],
 		"domain_name": "cisco_il",
 		"ttl": 180
 	}`)}
 
 	initJson3 := [][]byte{[]byte(`{
-		"hosts": ["client-2"],
+		"hosts": ["client-2.local"],
 	}`)}
 
 	var initJsonArray = [][][]byte{initJson1, initJson2, initJson3}
@@ -1078,7 +1078,7 @@ func TestPluginMDns20(t *testing.T) {
 			"rate": 1.0,
 			"min_client": "00:00:01:00:00:00",
 			"max_client": "00:00:01:00:00:02",
-			"hostname_base": "client-"
+			"hostname_template": "client-%v.local"
 			"min_hostname": 0,
 			"max_hostname": 2,
 			"init_hostname": 1,
@@ -1113,7 +1113,7 @@ func TestPluginMDns21(t *testing.T) {
 
 	// multiple hostnames in program
 	initJson1 := [][]byte{[]byte(`{
-		"hosts": ["AppleTV", "Brother", "client-0"],
+		"hosts": ["AppleTV", "Brother", "client-0._tcp.local"],
 		"txt": [
 			{
 				"field": "am",
@@ -1131,7 +1131,7 @@ func TestPluginMDns21(t *testing.T) {
 	}`)}
 
 	initJson2 := [][]byte{[]byte(`{
-		"hosts": ["UCS", "16.0.0.1.cisco.com", "trex-04", "client-1"],
+		"hosts": ["UCS", "16.0.0.1.cisco.com", "trex-04", "client-1._tcp.local"],
 		"domain_name": "cisco_il",
 		"ttl": 180
 		"txt": [
@@ -1143,7 +1143,7 @@ func TestPluginMDns21(t *testing.T) {
 	}`)}
 
 	initJson3 := [][]byte{[]byte(`{
-		"hosts": ["client-2"],
+		"hosts": ["client-2._tcp.local"],
 	}`)}
 
 	var initJsonArray = [][][]byte{initJson1, initJson2, initJson3}
@@ -1157,7 +1157,7 @@ func TestPluginMDns21(t *testing.T) {
 			"rate": 1.0,
 			"min_client": "00:00:01:00:00:00",
 			"max_client": "00:00:01:00:00:02",
-			"hostname_base": "client-"
+			"hostname_template": "client-%v._tcp.local"
 			"min_hostname": 0,
 			"max_hostname": 2,
 			"init_hostname": 1,

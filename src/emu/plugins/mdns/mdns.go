@@ -21,9 +21,7 @@ import (
 	"external/google/gopacket/layers"
 	"external/osamingo/jsonrpc"
 	"fmt"
-	"math/rand"
 	"net"
-	"strconv"
 	"time"
 	"unsafe"
 
@@ -413,7 +411,7 @@ func (o *PluginMDnsClient) OnCreate() {
 
 	// create query template - maybe put this in a function
 	o.dnsTemplate = layers.DNS{
-		ID:           0,                           // Maybe randomly generate this
+		ID:           0,                           // Transaction ID is 0 in mDNS.
 		QR:           false,                       // False for Query, True for Response
 		OpCode:       layers.DNSOpCodeQuery,       // Standard DNS query, opcode = 0
 		AA:           false,                       // Authoritative answer, not relevant in query
@@ -496,11 +494,6 @@ func (o *PluginMDnsClient) Query(queries []DnsQueryParams) error {
 		}
 	}
 
-	if !o.Tctx.Simulation {
-		// Generate the transaction ID randomly.
-		o.dnsTemplate.ID = uint16(rand.Uint32())
-	}
-
 	// Convert user queries into DNS questions
 	ipv4Questions, err := o.buildQuestions(ipv4Queries)
 	if err != nil {
@@ -510,6 +503,7 @@ func (o *PluginMDnsClient) Query(queries []DnsQueryParams) error {
 	if len(ipv4Questions) > 0 {
 		// complete the template for v4
 		o.dnsTemplate.QR = false                             // Query
+		o.dnsTemplate.AA = false                             // Set AA false for queries
 		o.dnsTemplate.QDCount = uint16(len(ipv4Questions))   // Number of questions
 		o.dnsTemplate.ANCount = 0                            // No answers, might be not 0 from previous response
 		o.dnsTemplate.Questions = ipv4Questions              // Questions
@@ -540,6 +534,7 @@ func (o *PluginMDnsClient) Query(queries []DnsQueryParams) error {
 	if len(ipv6Questions) > 0 {
 		// complete the template for v6
 		o.dnsTemplate.QR = false                             // Query
+		o.dnsTemplate.AA = false                             // Set AA false for queries
 		o.dnsTemplate.QDCount = uint16(len(ipv6Questions))   // Number of questions
 		o.dnsTemplate.ANCount = 0                            // No answers, might be not 0 from previous response
 		o.dnsTemplate.Questions = ipv6Questions              // Questions
@@ -603,7 +598,7 @@ func (o *PluginMDnsClient) buildAnswers(questions []layers.DNSQuestion) []layers
 }
 
 // Reply sends a mDNS response after a query was received.
-func (o *PluginMDnsClient) Reply(transactionID uint16, questions []layers.DNSQuestion, ipv6 bool) error {
+func (o *PluginMDnsClient) Reply(questions []layers.DNSQuestion, ipv6 bool) error {
 
 	if ipv6 && o.socketIpv6 == nil {
 		// Ipv6 query was received however client doesn't have the IPv6 plugin.
@@ -618,8 +613,8 @@ func (o *PluginMDnsClient) Reply(transactionID uint16, questions []layers.DNSQue
 	}
 
 	// complete the template
-	o.dnsTemplate.ID = transactionID                 // Transaction ID
-	o.dnsTemplate.QR = true                          // Query
+	o.dnsTemplate.QR = true                          // Response
+	o.dnsTemplate.AA = true                          // Set AA to true for replies
 	o.dnsTemplate.QDCount = 0                        // Number of questions, might be not 0 from previous response
 	o.dnsTemplate.ANCount = uint16(len(answers))     // No answers,
 	o.dnsTemplate.Questions = []layers.DNSQuestion{} // Questions
@@ -647,7 +642,7 @@ func (o *PluginMDnsClient) Reply(transactionID uint16, questions []layers.DNSQue
 }
 
 // HandleRxMDnsQuestions filters the questions and replies to the ones the client can.
-func (o *PluginMDnsClient) HandleRxMDnsQuestions(transactionID uint16, questions []layers.DNSQuestion, ipv6 bool) {
+func (o *PluginMDnsClient) HandleRxMDnsQuestions(questions []layers.DNSQuestion, ipv6 bool) {
 	// filter the questions so we get only this client's questions (cQuestions)
 	var cQuestions []layers.DNSQuestion
 	for i := range questions {
@@ -657,8 +652,8 @@ func (o *PluginMDnsClient) HandleRxMDnsQuestions(transactionID uint16, questions
 		}
 	}
 	if len(cQuestions) > 0 {
-		o.stats.pktRxMDnsQuery++                 // At least one question was for this client
-		o.Reply(transactionID, cQuestions, ipv6) // Reply to the ones we can
+		o.stats.pktRxMDnsQuery++  // At least one question was for this client
+		o.Reply(cQuestions, ipv6) // Reply to the ones we can
 	}
 }
 
@@ -960,19 +955,19 @@ type ProgramEntry struct {
 
 // MDnsNsParams represents the params provided to an mDNS namespace as init Json.
 type MDnsAutoPlayParams struct {
-	Rate         float32                 `json:"rate"`                                  // Rate in seconds between two consequent queries in the program
-	MinClient    string                  `json:"min_client" validate:"required"`        // MAC address representing the first client
-	MaxClient    string                  `json:"max_client" validate:"required"`        // MAC address representing the last client
-	ClientStep   uint16                  `json:"client_step"`                           // Client incremental step, Defaults to DefaultClientStep
-	HostnameBase string                  `json:"hostname_base" validate:"required"`     // Base hostname, will append number
-	MinHostname  uint16                  `json:"min_hostname" validate:"eq=0|required"` // The first number to append to `hostname_base`
-	MaxHostname  uint16                  `json:"max_hostname" validate:"eq=0|required"` // The last number to append to `hostname_base`
-	InitHostname uint16                  `json:"init_hostname"`                         // The number we start to append from
-	HostnameStep uint16                  `json:"hostname_step"`                         // Hostname incremental step, defaults to DefaultHostnameStep
-	DnsType      string                  `json:"type"`                                  // Query Type, Defaults to DefaultDnsQueryType
-	DnsClass     string                  `json:"class"`                                 // Query class, Defaults to DefaultDnsQueryClass
-	Ipv6         bool                    `json:"ipv6"`                                  // Send IPv6 query, Defaults to False
-	Program      map[string]ProgramEntry `json:"program" validate:"dive"`               // Program for specific clients with specific queries
+	Rate             float32                 `json:"rate"`                                  // Rate in seconds between two consequent queries in the program
+	MinClient        string                  `json:"min_client" validate:"required"`        // MAC address representing the first client
+	MaxClient        string                  `json:"max_client" validate:"required"`        // MAC address representing the last client
+	ClientStep       uint16                  `json:"client_step"`                           // Client incremental step, Defaults to DefaultClientStep
+	HostnameTemplate string                  `json:"hostname_template" validate:"required"` // Template hostname, will apply number.
+	MinHostname      uint16                  `json:"min_hostname" validate:"eq=0|required"` // The first number to apply to `hostname_template`
+	MaxHostname      uint16                  `json:"max_hostname" validate:"eq=0|required"` // The last number to apply to `hostname_template`
+	InitHostname     uint16                  `json:"init_hostname"`                         // The number we start to append from
+	HostnameStep     uint16                  `json:"hostname_step"`                         // Hostname incremental step, defaults to DefaultHostnameStep
+	DnsType          string                  `json:"type"`                                  // Query Type, Defaults to DefaultDnsQueryType
+	DnsClass         string                  `json:"class"`                                 // Query class, Defaults to DefaultDnsQueryClass
+	Ipv6             bool                    `json:"ipv6"`                                  // Send IPv6 query, Defaults to False
+	Program          map[string]ProgramEntry `json:"program" validate:"dive"`               // Program for specific clients with specific queries
 }
 
 // MDnsNsAutoPlay defines a struct that is responsible for automatic queries based on the program defined
@@ -1092,7 +1087,7 @@ func (o *MDnsNsAutoPlay) incClient() *core.MACKey {
 
 // incHostname increments the hostname based on the defined step and returns the complete hostname with the old value appended.
 func (o *MDnsNsAutoPlay) incHostname() (hostname string) {
-	hostname = o.params.HostnameBase + strconv.Itoa(int(o.currentHostname))
+	hostname = fmt.Sprintf(o.params.HostnameTemplate, o.currentHostname)
 	o.currentHostname = uint16(o.domainInc(uint64(o.params.MinHostname), uint64(o.params.MaxHostname), uint64(o.params.HostnameStep), uint64(o.currentHostname)))
 	return hostname
 }
@@ -1238,7 +1233,7 @@ func (o *PluginMDnsNs) HandleRxMDnsAnswers(answers []layers.DNSResourceRecord) {
 }
 
 // HandleRxMDnsQuestions handles an incoming mDns packet's questions.
-func (o *PluginMDnsNs) HandleRxMDnsQuestions(transactionID uint16, questions []layers.DNSQuestion, ipv6 bool) {
+func (o *PluginMDnsNs) HandleRxMDnsQuestions(questions []layers.DNSQuestion, ipv6 bool) {
 	// Collect clients that can answer at least one question by hostname in a set.
 	// Then let all these clients answer all the questions they can.
 	relevantClients := make(map[*PluginMDnsClient]bool, 0)
@@ -1253,7 +1248,7 @@ func (o *PluginMDnsNs) HandleRxMDnsQuestions(transactionID uint16, questions []l
 	}
 	// all the clients in relevantClients can answer at least one question
 	for c, _ := range relevantClients {
-		c.HandleRxMDnsQuestions(transactionID, questions, ipv6)
+		c.HandleRxMDnsQuestions(questions, ipv6)
 	}
 }
 
@@ -1355,7 +1350,7 @@ func (o *PluginMDnsNs) HandleRxMDnsPacket(ps *core.ParserPacketState) int {
 
 	if dns.QDCount > 0 {
 		o.stats.rxQuestions += uint64(dns.QDCount)
-		o.HandleRxMDnsQuestions(dns.ID, dns.Questions, ipv6)
+		o.HandleRxMDnsQuestions(dns.Questions, ipv6)
 	}
 	if dns.ANCount > 0 {
 		o.stats.rxAnswers += uint64(dns.ANCount)

@@ -2291,7 +2291,7 @@ For all the details and default values, please check the link:https://trex-tgn.c
         "min_client": "00:00:00:70:00:02",  <4>
         "max_client": "00:00:00:70:00:06",
         "client_step": 2,
-        "hostname_base": "trex-client-",    <5>
+        "hostname_template": "trex-client-%v._tcp.local",    <5>
         "min_hostname": 1,
         "max_hostname": 5,
         "hostname_step": 2,
@@ -2300,7 +2300,7 @@ For all the details and default values, please check the link:https://trex-tgn.c
         "ipv6": False,                      <8>
         "program": {                        <9>
             "00:00:00:70:00:02": {
-                "hostnames": ["emu-client-1", "trex-client-1"],
+                "hostnames": ["emu-client-1._tcp.local", "trex-client-1._tcp.local"],
                 "type": "TXT",
                 "class": "Any",
                 "ipv6": True
@@ -2315,7 +2315,7 @@ For all the details and default values, please check the link:https://trex-tgn.c
 If the namespace doesn't find a client whose MAC address we generated, it will do nothing, and continue to the next client in another 0.5 seconds.
 <4> Min client and max client specify a range of MAC addresses. We generate MAC addresses in this range using the `client_step` to increment. Each generated MAC address represents a client. If the namespace has such client, it will send a query using it. If it doesn't, nothing happens. The reason we prefer MAC addresses to IP addresses is because we support both IPv4 and IPv6. The reason why we use MAC addresses as strings instead of byte arrays is because they can be keys as we will soon see.
 The generation reminds xref:engines[engines]. For example, the MAC addresses that will be generated from the shown Json are [00:00:00:70:00:02, 00:00:00:70:00:04, 00:00:00:70:00:06, 00:00:00:70:00:03, 00:00:00:70:00:05, 00:00:00:70:00:02...]
-<5> A base string to which we append numbers. The numbers are generated in the domain [`min_hostname`, `max_hostname`] using `hostname_step`. Note that you can also specify where in the domain to begin using `init_hostname`. For example, in the provided Json, we will generate the following hostnames [trex-client-1, trex-client-3, trex-client-5, trex-client-2, trex-client-4, trex-client-1...]. The first client will use the first hostname in list as query parameter, the second client the second hostname and so on. If we skip a client because the namespace doesn't find a client with such MAC address, we also skip the hostname.
+<5> A template string to which we apply numbers. The numbers are generated in the domain [`min_hostname`, `max_hostname`] using `hostname_step`. Note that you can also specify where in the domain to begin using `init_hostname`. For example, in the provided Json, we will generate the following hostnames [trex-client-1._tcp.local, trex-client-3._tcp.local, trex-client-5._tcp.local, trex-client-2._tcp.local, trex-client-4._tcp.local, trex-client-1._tcp.local...]. The first client will use the first hostname in list as query parameter, the second client the second hostname and so on. If we skip a client because the namespace doesn't find a client with such MAC address, we also skip the hostname.
 <6> Type of mDNS query. Default is *A*.
 <7> Class of mDNS query. Default is *IN*.
 <8> Should the queries be sent using IPv6. Will work only if client has an IPv6 address.
