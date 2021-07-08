@@ -242,7 +242,36 @@ func TestPluginDhcpv6_4(t *testing.T) {
 		duration:     120 * time.Second,
 		clientsToSim: 1,
 		// remove default class and remove or
-		options: []byte(`{"options": {"rm_or":true, "rm_vc":true, "sol": [0,6, 0,8,0, 17, 0, 23, 0, 24, 0,39,0,6, 0,8,0, 17, 0, 23, 0, 24, 0,39],"req": [0,6, 0,8,0, 17, 0, 23, 0, 24, 0,39]} } `),
+		options: []byte(`{"options": {"rm_or":true, "rm_vc":true, "sol": [[0, 6, 0, 17, 0, 23, 0, 24, 0, 39]], "req": [[0, 6, 0, 17, 0, 23, 0, 24, 0, 39]]} } `),
+	}
+	a.Run(t)
+}
+
+func TestPluginDhcpv6_5(t *testing.T) {
+	a := &DhcpTestBase{
+		testname:     "dhcpv6_5",
+		dropAll:      false,
+		monitor:      false,
+		match:        0,
+		capture:      true,
+		duration:     120 * time.Second,
+		clientsToSim: 1,
+		// remove default class and remove or
+		options: []byte(`{"options": {
+			"rm_or": true,
+			"rm_vc":true,
+			"sol": [
+				[0, 6, 0, 23, 0, 24, 0, 243, 0, 242, 0, 59, 0, 242, 0, 39],
+				[0, 15, 98, 101, 115]
+			],
+			"req": [
+				[0, 6, 0, 17, 0, 23, 0, 24, 0, 39],
+				[0, 15, 99, 105, 115, 99, 111]
+			],
+			"ren": [[0, 15, 116, 114, 101, 120]],
+			"reb": [[0, 15, 101, 109, 117]]
+			} 
+		}`),
 	}
 	a.Run(t)
 }

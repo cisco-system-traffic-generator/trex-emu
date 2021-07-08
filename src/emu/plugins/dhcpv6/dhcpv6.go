@@ -8,11 +8,6 @@ package dhcpv6
 /*
 RFC 8415  DHCPv6 client
 
-client inijson {
-	TimerDiscoverSec uint32 `json:"timerd"`
-	TimerOfferSec    uint32 `json:"timero"`
-}:
-
 */
 
 import (
@@ -24,6 +19,7 @@ import (
 	"external/osamingo/jsonrpc"
 	"math/rand"
 	"net"
+	"sort"
 	"time"
 
 	"github.com/intel-go/fastjson"
@@ -52,22 +48,26 @@ const (
 	DEFAULT_TIMEOUT_T2_SEC = 3600
 )
 
+// DhcpOptionsT represents a struct that can be provided in the Init Json in order to add/change the default options
+// for different type of Dhcpv6 packets.
 type DhcpOptionsT struct {
-	Solicit  *[]byte `json:"sol"` // a few options in binary format [option][len][len][data..] ..[option][len][len][data]
-	Request  *[]byte `json:"req"`
-	Release  *[]byte `json:"rel"`
-	Rebind   *[]byte `json:"reb"`
-	Renew    *[]byte `json:"ren"`
-	RemoveOR bool    `json:"rm_or"` // remove default option request
-	RemoveVC bool    `json:"rm_vc"` // remove default vendor class
+	Solicit  *[][]byte `json:"sol"`   // A slice of options for Solicit Packets, where each option is a binary slice [Code][Data].
+	Request  *[][]byte `json:"req"`   // A slice of options for Request Packets, where each option is a binary slice [Code][Data]
+	Release  *[][]byte `json:"rel"`   // A slice of options for Release Packets, where each option is a binary slice [Code][Data]
+	Rebind   *[][]byte `json:"reb"`   // A slice of options for Rebind Packets, where each option is a binary slice [Code][Data]
+	Renew    *[][]byte `json:"ren"`   // A slice of options for Renew Packets, where each option is a binary slice [Code][Data]
+	RemoveOR bool      `json:"rm_or"` // Remove Default Option Request
+	RemoveVC bool      `json:"rm_vc"` // Remove Default Vendor Class
 }
 
+// DhcpInit represents the Init Json for Dhcpv6 plugin
 type DhcpInit struct {
 	TimerDiscoverSec uint32        `json:"timerd"`
 	TimerOfferSec    uint32        `json:"timero"`
 	Options          *DhcpOptionsT `json:"options"`
 }
 
+// DhcpStats is a struct that aggregates Dhcpv6 statistics.
 type DhcpStats struct {
 	pktTxDiscover              uint64
 	pktRxOffer                 uint64
@@ -92,10 +92,10 @@ type DhcpStats struct {
 	pktRxSTATUS_UseMulticast  uint64
 	pktRxSTATUS_NoPrefixAvail uint64
 
-	pktRxUnhandle uint64
-	pktRxNotify   uint64
-	pktRxRenew    uint64
-	pktRxRebind   uint64
+	pktRxUnhandled uint64
+	pktRxNotify    uint64
+	pktRxRenew     uint64
+	pktRxRebind    uint64
 }
 
 func NewDhcpStatsDb(o *DhcpStats) *core.CCounterDb {
@@ -104,14 +104,14 @@ func NewDhcpStatsDb(o *DhcpStats) *core.CCounterDb {
 	db.Add(&core.CCounterRec{
 		Counter:  &o.pktTxDiscover,
 		Name:     "pktTxDiscover",
-		Help:     "Tx discover ",
+		Help:     "Tx discover",
 		Unit:     "pkts",
 		DumpZero: false,
 		Info:     core.ScINFO})
 	db.Add(&core.CCounterRec{
 		Counter:  &o.pktRxOffer,
 		Name:     "pktRxOffer",
-		Help:     "received offer ",
+		Help:     "received offer",
 		Unit:     "pkts",
 		DumpZero: false,
 		Info:     core.ScINFO})
@@ -146,9 +146,9 @@ func NewDhcpStatsDb(o *DhcpStats) *core.CCounterDb {
 		Info:     core.ScERROR})
 
 	db.Add(&core.CCounterRec{
-		Counter:  &o.pktRxUnhandle,
-		Name:     "pktRxUnhandle",
-		Help:     "rx unhandle dhcp packet",
+		Counter:  &o.pktRxUnhandled,
+		Name:     "pktRxUnhandled",
+		Help:     "rx unhandled dhcp packet",
 		Unit:     "pkts",
 		DumpZero: false,
 		Info:     core.ScERROR})
@@ -326,12 +326,21 @@ type PluginDhcpClient struct {
 	t2                         uint32
 	timerDiscoverRetransmitSec uint32
 	timerOfferRetransmitSec    uint32
-	discoverPktTemplate        []byte
+	solicitPktTemplate         []byte // Solicit Packet Template
+	requestPktTemplate         []byte // Request Packet Template
+	releasePktTemplate         []byte // Request Packet Template
+	rebindPktTemplate          []byte // Rebind Packet Template
+	renewPktTemplate           []byte // Renew Packet Template
+	solicitTimeOffset          uint16 // Time Elapsed Option Offset in Solicit Packet
+	requestTimeOffset          uint16 // Time Elapsed Option Offset in Request Packet
+	releaseTimeOffset          uint16 // Time Elapsed Option Offset in Release Packet
+	rebindTimeOffset           uint16 // Time Elapsed Option Offset in Rebind Packet
+	renewTimeOffset            uint16 // Time Elapsed Option Offset in Renew Packet
 	cid                        []byte
-	sid                        []byte // server id learned
+	sid                        []byte // Server Id Learned
 	sidOption                  []byte
-	sipv6                      net.IP // server ip
-	srcIpv6                    net.IP // local source ipv6
+	sipv6                      net.IP // Server Ip
+	srcIpv6                    net.IP // Local Source Ipv6
 	l3Offset                   uint16
 	l4Offset                   uint16
 	l7Offset                   uint16
@@ -344,7 +353,7 @@ type PluginDhcpClient struct {
 
 var dhcpEvents = []string{}
 
-/*NewDhcpClient create plugin */
+// NewDhcpClient creates a new Dhcpv6 plugin
 func NewDhcpClient(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
 
 	o := new(PluginDhcpClient)
@@ -369,6 +378,7 @@ func NewDhcpClient(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
 	return &o.PluginBase
 }
 
+// OnCreate is called when a new Dhcpv6 plugin is created.
 func (o *PluginDhcpClient) OnCreate() {
 	o.timerw = o.Tctx.GetTimerCtx()
 
@@ -397,6 +407,7 @@ func (o *PluginDhcpClient) resetTransactionTimer() {
 	o.ticksStart = o.timerw.Ticks
 }
 
+// buildPacket builds a packet by adding the IPv6 and UDP to the L2 bytes and DHCPv6 bytes.
 func (o *PluginDhcpClient) buildPacket(l2 []byte, dhcp *layers.DHCPv6) []byte {
 
 	ipv6pkt := core.PacketUtlBuild(
@@ -437,6 +448,7 @@ func (o *PluginDhcpClient) buildPacket(l2 []byte, dhcp *layers.DHCPv6) []byte {
 	return p
 }
 
+// preparePacketTemplate prepares packet templates for different types of DHCPv6 messages.
 func (o *PluginDhcpClient) preparePacketTemplate() {
 	l2 := o.Client.GetL2Header(true, uint16(layers.EthernetTypeIPv6))
 	o.l3Offset = uint16(len(l2))
@@ -453,123 +465,180 @@ func (o *PluginDhcpClient) preparePacketTemplate() {
 	o.xid = xid
 	o.iaid = iaid
 
-	dhcp := &layers.DHCPv6{MsgType: layers.DHCPv6MsgTypeSolicit,
-		TransactionID: []byte{(byte((xid >> 16) & 0xff)), byte(((xid & 0xff00) >> 8)), byte(xid & 0xff)}}
-
-	clientid := &layers.DHCPv6DUID{Type: layers.DHCPv6DUIDTypeLL, HardwareType: []byte{0, 1}, LinkLayerAddress: o.Client.Mac[:]}
-	o.cid = append(o.cid, clientid.Encode()[:]...)
-	pad := 0
-
-	dhcp.Options = append(dhcp.Options, layers.NewDHCPv6Option(layers.DHCPv6OptClientID, clientid.Encode()))
-	if o.init.Options != nil && o.init.Options.RemoveOR == true {
-		pad += 12
-	} else {
-		dhcp.Options = append(dhcp.Options, layers.NewDHCPv6Option(layers.DHCPv6OptOro, []byte{0, 0x11, 0, 0x17, 0, 0x18, 0x00, 0x27}))
-	}
-	if o.init.Options != nil && o.init.Options.RemoveVC == true {
-		pad += 18
-	} else {
-		dhcp.Options = append(dhcp.Options, layers.NewDHCPv6Option(layers.DHCPv6OptVendorClass, []byte{0x00, 0x00, 0x01, 0x37, 0x00, 0x08, 0x4d, 0x53, 0x46, 0x54, 0x20, 0x35, 0x2e, 0x30}))
-	}
-
-	ianao := []byte{0x00, 0x00, 0x00, 0x00,
-		0x00, 0x00, 0x00, 0x00,
-		0x00, 0x00, 0x00, 0x00}
-
-	binary.BigEndian.PutUint32(ianao[0:4], iaid)
-
-	dhcp.Options = append(dhcp.Options, layers.NewDHCPv6Option(layers.DHCPv6OptIANA, ianao))
-	dhcp.Options = append(dhcp.Options, layers.NewDHCPv6Option(layers.DHCPv6OptElapsedTime, []byte{0x00, 0x00}))
-
-	o.l7TimeOffset = 68 - uint16(pad)
 	o.l4Offset = o.l3Offset + IPV6_HEADER_SIZE
 	o.l7Offset = o.l4Offset + 8
 
-	o.discoverPktTemplate = o.buildPacket(l2, dhcp)
+	transactionId := []byte{(byte((xid >> 16) & 0xff)), byte(((xid & 0xff00) >> 8)), byte(xid & 0xff)}
+
+	solicit := &layers.DHCPv6{MsgType: layers.DHCPv6MsgTypeSolicit, TransactionID: transactionId}
+	o.createOptions(solicit, layers.DHCPv6MsgTypeSolicit)
+	o.solicitPktTemplate = o.buildPacket(l2, solicit)
+
+	request := &layers.DHCPv6{MsgType: layers.DHCPv6MsgTypeRequest, TransactionID: transactionId}
+	o.createOptions(request, layers.DHCPv6MsgTypeRequest)
+	o.requestPktTemplate = o.buildPacket(l2, request)
+
+	renew := &layers.DHCPv6{MsgType: layers.DHCPv6MsgTypeRenew, TransactionID: transactionId}
+	o.createOptions(renew, layers.DHCPv6MsgTypeRenew)
+	o.renewPktTemplate = o.buildPacket(l2, renew)
+
+	rebind := &layers.DHCPv6{MsgType: layers.DHCPv6MsgTypeRebind, TransactionID: transactionId}
+	o.createOptions(rebind, layers.DHCPv6MsgTypeRebind)
+	o.rebindPktTemplate = o.buildPacket(l2, rebind)
+
+	release := &layers.DHCPv6{MsgType: layers.DHCPv6MsgTypeRelease, TransactionID: transactionId}
+	o.createOptions(release, layers.DHCPv6MsgTypeRelease)
+	o.releasePktTemplate = o.buildPacket(l2, release)
+
 }
 
-func (o *PluginDhcpClient) SendDhcpPacket(
-	msgType byte,
-	serverOption bool) {
+// createOptions creates the DHCP options for each type of message.
+func (o *PluginDhcpClient) createOptions(dhcpv6 *layers.DHCPv6, msgType layers.DHCPv6MsgType) {
 
-	var msec uint32
-	msec = uint32(o.timerw.Ticks-o.ticksStart) * o.timerw.MinTickMsec()
-	pad := 0
-	if serverOption {
-		pad = len(o.sidOption)
-	}
-	if o.init.Options != nil {
-		// add option
-		switch msgType {
-		case byte(layers.DHCPv6MsgTypeSolicit):
-			if o.init.Options.Solicit != nil {
-				pad += len(*o.init.Options.Solicit)
-			}
-		case byte(layers.DHCPv6MsgTypeRequest):
-			if o.init.Options.Request != nil {
-				pad += len(*o.init.Options.Request)
-			}
-		case byte(layers.DHCPv6MsgTypeRenew):
-			if o.init.Options.Renew != nil {
-				pad += len(*o.init.Options.Renew)
-			}
+	var timeOffset *uint16
+	var optionsBinary *[][]byte
 
-		case byte(layers.DHCPv6MsgTypeRebind):
-			if o.init.Options.Rebind != nil {
-				pad += len(*o.init.Options.Rebind)
-			}
-
-		case byte(layers.DHCPv6MsgTypeRelease):
-			if o.init.Options.Release != nil {
-				pad += len(*o.init.Options.Release)
-			}
+	switch msgType {
+	case layers.DHCPv6MsgTypeSolicit:
+		timeOffset = &o.solicitTimeOffset
+		if o.init.Options != nil {
+			optionsBinary = o.init.Options.Solicit
+		}
+	case layers.DHCPv6MsgTypeRequest:
+		timeOffset = &o.requestTimeOffset
+		if o.init.Options != nil {
+			optionsBinary = o.init.Options.Request
+		}
+	case layers.DHCPv6MsgTypeRenew:
+		timeOffset = &o.renewTimeOffset
+		if o.init.Options != nil {
+			optionsBinary = o.init.Options.Renew
+		}
+	case layers.DHCPv6MsgTypeRebind:
+		timeOffset = &o.rebindTimeOffset
+		if o.init.Options != nil {
+			optionsBinary = o.init.Options.Rebind
+		}
+	case layers.DHCPv6MsgTypeRelease:
+		timeOffset = &o.releaseTimeOffset
+		if o.init.Options != nil {
+			optionsBinary = o.init.Options.Release
 		}
 	}
 
-	m := o.Ns.AllocMbuf(uint16(len(o.discoverPktTemplate) + pad))
-	m.Append(o.discoverPktTemplate)
+	clientId := &layers.DHCPv6DUID{Type: layers.DHCPv6DUIDTypeLL, HardwareType: []byte{0, 1}, LinkLayerAddress: o.Client.Mac[:]}
+	if len(o.cid) == 0 {
+		// Set Client Id so we can compare it, only in case it doesn't exist.
+		o.cid = append(o.cid, clientId.Encode()[:]...)
+	}
+
+	ianaOpt := []byte{0x00, 0x00, 0x00, 0x00,
+		0x00, 0x00, 0x00, 0x00,
+		0x00, 0x00, 0x00, 0x00}
+
+	binary.BigEndian.PutUint32(ianaOpt[0:4], o.iaid)
+
+	removeOro := o.init.Options != nil && o.init.Options.RemoveOR == true
+	removeVendorClass := o.init.Options != nil && o.init.Options.RemoveVC == true
+
+	optionsMap := make(map[layers.DHCPv6Opt][]byte)
+	optionsMap[layers.DHCPv6OptClientID] = clientId.Encode()
+	if !removeOro {
+		optionsMap[layers.DHCPv6OptOro] = []byte{0, 0x11, 0, 0x17, 0, 0x18, 0x00, 0x27}
+	}
+	if !removeVendorClass {
+		optionsMap[layers.DHCPv6OptVendorClass] = []byte{0x00, 0x00, 0x01, 0x37, 0x00, 0x08, 0x4d, 0x53, 0x46, 0x54, 0x20, 0x35, 0x2e, 0x30}
+	}
+	optionsMap[layers.DHCPv6OptIANA] = ianaOpt
+	optionsMap[layers.DHCPv6OptElapsedTime] = []byte{0x00, 0x00}
+
+	if optionsBinary != nil {
+		for _, op := range *optionsBinary {
+			optionsMap[layers.DHCPv6Opt(binary.BigEndian.Uint16(op[0:2]))] = op[2:]
+		}
+	}
+
+	for k, v := range optionsMap {
+		dhcpv6.Options = append(dhcpv6.Options, layers.NewDHCPv6Option(k, v))
+	}
+
+	// Sort the options so we will have deterministic results. Otherwise tests will fail since the order
+	// is not defined in the previous map.
+	sort.Slice(dhcpv6.Options, func(i, j int) bool {
+		return dhcpv6.Options[i].Code < dhcpv6.Options[j].Code
+	})
+
+	var optionsOffset uint16 = 4 // Represents the Options Starting Offset in Terms of L7.
+	for i := range dhcpv6.Options {
+		if dhcpv6.Options[i].Code == layers.DHCPv6OptElapsedTime {
+			*timeOffset = optionsOffset + 4 // 2 for Code + 2 for Length
+		} else {
+			optionsOffset += dhcpv6.Options[i].Length + 4 // 2 for Code + 2 for Length
+		}
+	}
+}
+
+// SendDhcpPacket sends the correct DhcpPacket based on the message type. It updates the elapsed time and
+// might append the server option.
+func (o *PluginDhcpClient) SendDhcpPacket(msgType layers.DHCPv6MsgType, serverOption bool) {
+
+	var msec uint32
+	msec = uint32(o.timerw.Ticks-o.ticksStart) * o.timerw.MinTickMsec()
+	length := 0
+	timeOffset := o.l7Offset
+
+	switch msgType {
+	case layers.DHCPv6MsgTypeSolicit:
+		length = len(o.solicitPktTemplate)
+		timeOffset += o.solicitTimeOffset
+	case layers.DHCPv6MsgTypeRequest:
+		length = len(o.requestPktTemplate)
+		timeOffset += o.requestTimeOffset
+	case layers.DHCPv6MsgTypeRenew:
+		length = len(o.renewPktTemplate)
+		timeOffset += o.renewTimeOffset
+	case layers.DHCPv6MsgTypeRebind:
+		length = len(o.rebindPktTemplate)
+		timeOffset += o.rebindTimeOffset
+	case layers.DHCPv6MsgTypeRelease:
+		length = len(o.releasePktTemplate)
+		timeOffset += o.releaseTimeOffset
+	}
+
+	if serverOption {
+		length += len(o.sidOption)
+	}
+
+	m := o.Ns.AllocMbuf(uint16(length))
+
+	switch msgType {
+	case layers.DHCPv6MsgTypeSolicit:
+		m.Append(o.solicitPktTemplate)
+	case layers.DHCPv6MsgTypeRequest:
+		m.Append(o.requestPktTemplate)
+	case layers.DHCPv6MsgTypeRenew:
+		m.Append(o.renewPktTemplate)
+	case layers.DHCPv6MsgTypeRebind:
+		m.Append(o.rebindPktTemplate)
+	case layers.DHCPv6MsgTypeRelease:
+		m.Append(o.releasePktTemplate)
+	}
 
 	if serverOption {
 		m.Append(o.sidOption)
 	}
 
-	if o.init.Options != nil {
-		switch msgType {
-		case byte(layers.DHCPv6MsgTypeSolicit):
-			if o.init.Options.Solicit != nil {
-				m.Append(*o.init.Options.Solicit)
-			}
-		case byte(layers.DHCPv6MsgTypeRequest):
-			if o.init.Options.Request != nil {
-				m.Append(*o.init.Options.Request)
-			}
-		case byte(layers.DHCPv6MsgTypeRenew):
-			if o.init.Options.Renew != nil {
-				m.Append(*o.init.Options.Renew)
-			}
-		case byte(layers.DHCPv6MsgTypeRebind):
-			if o.init.Options.Rebind != nil {
-				m.Append(*o.init.Options.Rebind)
-			}
-		case byte(layers.DHCPv6MsgTypeRelease):
-			if o.init.Options.Release != nil {
-				m.Append(*o.init.Options.Release)
-			}
-		}
-	}
-
 	p := m.GetData()
 
-	of := o.l7Offset + o.l7TimeOffset
-	binary.BigEndian.PutUint16(p[of:of+2], uint16(msec/10))
-	of = o.l7Offset
-	p[of] = byte(msgType)
+	// Update Time Offset
+	binary.BigEndian.PutUint16(p[timeOffset:timeOffset+2], uint16(msec/10))
 
+	// Update IPv6 and UDP length in case we appended the SID option.
 	ipv6o := o.l3Offset
 	ipv6 := layers.IPv6Header(p[ipv6o : ipv6o+IPV6_HEADER_SIZE])
 
-	if pad > 0 {
-		newlen := ipv6.PayloadLength() + uint16(pad)
+	if serverOption {
+		newlen := ipv6.PayloadLength() + uint16(len(o.sidOption))
 		ipv6.SetPyloadLength(newlen)
 		binary.BigEndian.PutUint16(p[o.l4Offset+4:o.l4Offset+6], newlen)
 	}
@@ -584,13 +653,11 @@ func (o *PluginDhcpClient) SendDiscover() {
 	o.cnt = 0
 	o.restartTimer(o.timerDiscoverRetransmitSec)
 	o.stats.pktTxDiscover++
-	o.SendDhcpPacket(byte(layers.DHCPv6MsgTypeSolicit), false)
+	o.SendDhcpPacket(layers.DHCPv6MsgTypeSolicit, false)
 }
 
 /*OnEvent support event change of IP  */
-func (o *PluginDhcpClient) OnEvent(msg string, a, b interface{}) {
-
-}
+func (o *PluginDhcpClient) OnEvent(msg string, a, b interface{}) {}
 
 func (o *PluginDhcpClient) OnRemove(ctx *core.PluginCtx) {
 	/* force removing the link to the client */
@@ -607,21 +674,21 @@ func (o *PluginDhcpClient) SendRenewRebind(rebind bool, release bool, timerSec u
 	o.restartTimer(timerSec)
 
 	if release {
-		o.SendDhcpPacket(byte(layers.DHCPv6MsgTypeRelease), true)
+		o.SendDhcpPacket(layers.DHCPv6MsgTypeRelease, true)
 		return
 	}
 
 	if rebind {
-		o.SendDhcpPacket(byte(layers.DHCPv6MsgTypeRebind), true)
+		o.SendDhcpPacket(layers.DHCPv6MsgTypeRebind, true)
 	} else {
-		o.SendDhcpPacket(byte(layers.DHCPv6MsgTypeRenew), true)
+		o.SendDhcpPacket(layers.DHCPv6MsgTypeRenew, true)
 	}
 }
 
 func (o *PluginDhcpClient) SendReq() {
 
 	o.restartTimer(o.timerOfferRetransmitSec)
-	o.SendDhcpPacket(byte(layers.DHCPv6MsgTypeRequest), true)
+	o.SendDhcpPacket(layers.DHCPv6MsgTypeRequest, true)
 	o.stats.pktTxRequest++
 }
 
@@ -638,7 +705,7 @@ func (o *PluginDhcpClient) verifyPkt(dhcph *layers.DHCPv6,
 	ipv6 layers.IPv6Header,
 	cid []byte,
 	sid []byte,
-	validiana bool,
+	validIana bool,
 ) int {
 
 	var verifysid bool
@@ -658,7 +725,7 @@ func (o *PluginDhcpClient) verifyPkt(dhcph *layers.DHCPv6,
 		return -1
 	}
 
-	if !validiana {
+	if !validIana {
 		o.stats.pktRxNoIANA++
 		return -1
 		if o.pktIana.IAID != o.iaid {
@@ -735,7 +802,6 @@ func (o *PluginDhcpClient) onTimerEvent() {
 		o.stats.pktRxRebind++
 		o.SendRenewRebind(true, false, o.timerOfferRetransmitSec)
 	}
-
 }
 
 func normTime(t uint32, t2 bool) uint32 {
@@ -753,6 +819,7 @@ func (o *PluginDhcpClient) HandleAckNak(dhcpmt layers.DHCPv6MsgType,
 	ipv6 layers.IPv6Header,
 	notify bool,
 	status uint16) int {
+
 	if status != STATUS_Success {
 		o.SendDiscover()
 		return -1
@@ -780,6 +847,7 @@ func (o *PluginDhcpClient) HandleAckNak(dhcpmt layers.DHCPv6MsgType,
 	return 0
 }
 
+// EncodeOption remakes the encode() function of layers.DHCPv6Option.
 func EncodeOption(o layers.DHCPv6Option) []byte {
 	b := make([]byte, 4)
 	binary.BigEndian.PutUint16(b[0:2], uint16(o.Code))
@@ -814,7 +882,7 @@ func (o *PluginDhcpClient) HandleRxDhcpPacket(ps *core.ParserPacketState) int {
 	dhcpmt = dhcph.MsgType
 	var cid []byte
 	var sid []byte
-	var validiana bool
+	var validIana bool
 	var status uint16
 
 	for _, op := range dhcph.Options {
@@ -826,7 +894,7 @@ func (o *PluginDhcpClient) HandleRxDhcpPacket(ps *core.ParserPacketState) int {
 		case layers.DHCPv6OptIANA:
 			o.pktIana.OptionValid = false // invalidate
 			if o.pktIana.Decode(op.Data) == nil {
-				validiana = true
+				validIana = true
 			}
 		case layers.DHCPv6OptStatusCode:
 			if len(op.Data) == 2 {
@@ -859,7 +927,7 @@ func (o *PluginDhcpClient) HandleRxDhcpPacket(ps *core.ParserPacketState) int {
 		}
 	}
 
-	if o.verifyPkt(&dhcph, ipv6, cid, sid, validiana) != 0 {
+	if o.verifyPkt(&dhcph, ipv6, cid, sid, validIana) != 0 {
 		return -1
 	}
 
@@ -889,7 +957,7 @@ func (o *PluginDhcpClient) HandleRxDhcpPacket(ps *core.ParserPacketState) int {
 		return o.HandleAckNak(dhcpmt, &dhcph, ipv6, true, status)
 
 	case DHCP_STATE_BOUND:
-		o.stats.pktRxUnhandle++
+		o.stats.pktRxUnhandled++
 
 	case DHCP_STATE_RENEWING:
 		return o.HandleAckNak(dhcpmt, &dhcph, ipv6, true, status)
@@ -898,9 +966,9 @@ func (o *PluginDhcpClient) HandleRxDhcpPacket(ps *core.ParserPacketState) int {
 		return o.HandleAckNak(dhcpmt, &dhcph, ipv6, true, status)
 
 	default:
-		o.stats.pktRxUnhandle++
+		o.stats.pktRxUnhandled++
 	}
-	return (0)
+	return 0
 }
 
 // PluginDhcpNs icmp information per namespace
@@ -918,16 +986,11 @@ func NewDhcpNs(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
 	return &o.PluginBase
 }
 
-func (o *PluginDhcpNs) OnRemove(ctx *core.PluginCtx) {
-}
+func (o *PluginDhcpNs) OnRemove(ctx *core.PluginCtx) {}
 
-func (o *PluginDhcpNs) OnEvent(msg string, a, b interface{}) {
+func (o *PluginDhcpNs) OnEvent(msg string, a, b interface{}) {}
 
-}
-
-func (o *PluginDhcpNs) SetTruncated() {
-
-}
+func (o *PluginDhcpNs) SetTruncated() {}
 
 func (o *PluginDhcpNs) HandleRxDhcpPacket(ps *core.ParserPacketState) int {
 
@@ -965,11 +1028,7 @@ func HandleRxDhcpv6Packet(ps *core.ParserPacketState) int {
 	}
 	dhcpPlug := nsplg.Ext.(*PluginDhcpNs)
 	return dhcpPlug.HandleRxDhcpPacket(ps)
-
 }
-
-// Tx side client get an event and decide to act !
-// let's see how it works and add some tests
 
 type PluginDhcpCReg struct{}
 type PluginDhcpNsReg struct{}
