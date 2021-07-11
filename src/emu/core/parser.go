@@ -614,11 +614,11 @@ func (o *Parser) parsePacketL4(ps *ParserPacketState,
 		}
 		o.stats.udpPkts++
 		o.stats.udpBytes += uint64(packetSize)
+		ps.L7 = ps.L4 + 8
 
 		if udp.DstPort() == 5353 {
 			o.stats.mDnsPkts++
 			o.stats.mDnsBytes += uint64(packetSize)
-			ps.L7 = ps.L4 + 8
 			return o.mdns(ps)
 		}
 
@@ -626,22 +626,18 @@ func (o *Parser) parsePacketL4(ps *ParserPacketState,
 			if (udp.SrcPort() == 547) && (udp.DstPort() == 546) {
 				o.stats.dhcpPkts++
 				o.stats.dhcpBytes += uint64(packetSize)
-				ps.L7 = ps.L4 + 8
 				return o.dhcpv6(ps)
 			}
 		} else {
 			if (udp.SrcPort() == 67) && (udp.DstPort() == 68) {
 				o.stats.dhcpPkts++
 				o.stats.dhcpBytes += uint64(packetSize)
-				ps.L7 = ps.L4 + 8
 				return o.dhcp(ps)
-			} else {
-				return o.udp(ps)
 			}
 		}
 
-		o.stats.errUDP++
-		return PARSER_ERR
+		return o.udp(ps)
+
 	case layers.IPProtocolICMPv6:
 		if packetSize < uint32(ps.L4+4) {
 			o.stats.errIcmpv6TooShort++

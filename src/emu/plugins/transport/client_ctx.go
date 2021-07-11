@@ -201,8 +201,8 @@ func newftStatsDb(o *ftStats) *core.CCounterDb {
 
 	db.Add(&core.CCounterRec{
 		Counter:  &o.ft_new_udp,
-		Name:     "ft_new_tcp",
-		Help:     "tcp server, new flow",
+		Name:     "ft_new_udp",
+		Help:     "udp server, new flow",
 		Unit:     "event",
 		DumpZero: false,
 		Info:     core.ScINFO})
