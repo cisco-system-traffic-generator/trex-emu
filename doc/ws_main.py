@@ -590,7 +590,7 @@ def release(bld):
 
 
 def rsync_int(bld, src, dst):
-    cmd = 'rsync -av --del --rsh=ssh build/{src} {host}:{dir}/{dst}'.format(
+    cmd = 'rsync -av  --rsh=ssh build/{src} {host}:{dir}/{dst}'.format(
            src = src,
            host = Env().get_local_web_server(),
            dir = Env().get_remote_release_path() + '../doc',
@@ -601,7 +601,7 @@ def rsync_int(bld, src, dst):
 
 
 def rsync_ext(bld, src, dst):
-    cmd = 'rsync -avz --del -e "ssh -i {key}" --rsync-path=/usr/bin/rsync build/{src} {user}@{host}:{dir}/doc/{dst}'.format(
+    cmd = 'rsync -avz  -e "ssh -i {key}" --rsync-path=/usr/bin/rsync build/{src} {user}@{host}:{dir}/doc/{dst}'.format(
            key  = Env().get_trex_ex_web_key(),
            src  = src,
            user = Env().get_trex_ex_web_user(),
@@ -630,7 +630,7 @@ def publish_perf(bld):
 def publish_test(bld):
     # copy all the files to our web server 
     remote_dir = "%s:%s" % ( Env().get_local_web_server(), Env().get_remote_release_path ()+'../test/')
-    os.system('rsync -av --del --rsh=ssh build/ %s' % (remote_dir))
+    os.system('rsync -av  --rsh=ssh build/ %s' % (remote_dir))
 
 
 def publish_both(bld):
