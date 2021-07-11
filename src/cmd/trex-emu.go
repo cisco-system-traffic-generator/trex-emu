@@ -32,7 +32,7 @@ import (
 )
 
 const (
-	VERSION = "2.84"
+	VERSION = "2.90"
 )
 
 func RegisterPlugins(tctx *core.CThreadCtx) {
