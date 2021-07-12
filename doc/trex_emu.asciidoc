@@ -2889,6 +2889,86 @@ Note that when using TCP in debug mode we don't need these permissions and we si
  scripts/trex_emu$ trex-emu --emu-zmq-tcp
 ----
 
+=== Tutorial: Profiles with tunables
+
+As you have seen already, most our profiles can be fined tuned with small parameters such as the number of clients or namespaces. This is great and mostly used from the console, however for automated testing it isn't enough. Automated testing required a finer granularity and the ability to change even the smallest parameters. The Python Api solves this problem, however the purpose of this section is to demonstrate how we can pass some non trivial parameters to the Emu profiles.
+
+*Goal*::
+
+Pass non trivial parameters to Emu profiles.
+
+Let's look at an DHCP client. In its Init JSON, we can add a dictionary of `DHCP Options` if we want to override the default options. One such Json can be:
+
+[source, python]
+----
+HOSTNAME_DHCP_OPTION = 12
+
+options = {
+    "discoverDhcpClassIdOption": "MSFT 5.0",
+    "requestDhcpClassIdOption": "MSFT 6.0",
+    "dis": [
+        [HOSTNAME_DHCP_OPTION, ord('j'), ord('s'), ord('o'), ord('n')]
+    ],
+    "req":[
+        [HOSTNAME_DHCP_OPTION, ord('e'), ord('n'), ord('c'), ord('o'), ord('d'), ord('e')]
+    ],
+}
+----
+
+[NOTE]
+=====================================================================
+Almost all the parameters we want to tune are part of the Init Json 
+of some plugin, hence being able to pass JSON parameters to profiles
+solves most of the cases.
+=====================================================================
+
+Fortunately for us, Json can be encoded to a string and then decoded back. As such, we can write the following DHCP profile:
+
+link:{github_emu_path}/dhcp_json_options.py[emu/dhcp_json_options.py]
+
+[source, python]
+----
+    def get_profile(self, tuneables):
+      # Argparse for tunables
+        parser = argparse.ArgumentParser(description='Argparser for Dhcp Json Option', formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+        parser.add_argument('--ns', type = int, default = 1,
+                    help='Number of namespaces to create')
+        parser.add_argument('--clients', type = int, default = 1,
+                    help='Number of clients to create in each namespace')
+        parser.add_argument('--mac', type = str, default = '00:00:00:70:00:01',
+                    help='Mac address of the first client')
+        parser.add_argument('--options', type=str, help="A JSON encoded options dictionary.")   <1>
+
+        args = parser.parse_args(tuneables)
+        return self.create_profile(args.ns, args.clients,args.mac, json.loads(args.options))    <2>
+----
+<1> Add a `string` parameter for DHCP options.
+<2> Decode the string back to Json using `json.loads`
+
+Then we can simply pass the decoded Json to the EmuClient we are creating like this:
+
+[source, python]
+----
+client = EMUClientObj(mac     = mac[i].V(),
+                      ipv4    = ipv4.V(),
+                      ipv4_dg = dg.V(),
+                      plugs   = {'arp': {},
+                                 'icmp': {},
+                                 'igmp': {}, 
+                                 'dhcp': {'options': options},  <1>
+                              },
+                      )
+----
+<1> `options` is the decoded Json from the previous snippet.
+
+The profile can be loaded very simply using the Native Python Api (also supported in the RPC Proxy) like this:
+
+[source, python]
+----
+c.load_profile(profile = PROFILE_PATH, tunables=['--options', json.dumps(options)])
+----
+
+
 == Engines
 
 anchor:engines[]
