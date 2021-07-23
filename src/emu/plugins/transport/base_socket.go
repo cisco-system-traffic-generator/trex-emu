@@ -141,7 +141,7 @@ func (o *baseSocket) buildIpv6Template(udp bool) {
 		FlowLabel:    0,
 		Length:       8,
 		NextHeader:   o.getNextHeader(udp),
-		HopLimit:     1,
+		HopLimit:     255,
 		SrcIP:        o.srcIPv6[:],
 		DstIP:        o.dstIPv6[:]}
 
