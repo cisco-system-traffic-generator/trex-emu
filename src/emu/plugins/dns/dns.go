@@ -215,6 +215,61 @@ func NewDnsClientStatsDb(o *DnsClientStats) *core.CCounterDb {
 	return db
 }
 
+// DnsNsStats defines a number of stats for an Dns namespace.
+type DnsNsStats struct {
+	invalidInitJson        uint64 // Error while decoding namespace init Json
+	autoPlayClientNotFound uint64 // Auto Play client was not found
+	clientNoDns            uint64 // Auto Play client doesn't have Dns plugin
+	autoPlayQueries        uint64 // Number of queries sent by Auto Play
+	autoPlayBadQuery       uint64 // Number of bad queries created by Auto Play
+}
+
+// NewDnsNsStatsDb creates a new counter database for DnsNsStats.
+func NewDnsNsStatsDb(o *DnsNsStats) *core.CCounterDb {
+	db := core.NewCCounterDb(DNS_PLUG)
+
+	db.Add(&core.CCounterRec{
+		Counter:  &o.invalidInitJson,
+		Name:     "invalidInitJson",
+		Help:     "Error while decoding init Json",
+		Unit:     "ops",
+		DumpZero: false,
+		Info:     core.ScERROR})
+
+	db.Add(&core.CCounterRec{
+		Counter:  &o.autoPlayClientNotFound,
+		Name:     "autoPlayClientNotFound",
+		Help:     "AutoPlay client was not found",
+		Unit:     "ops",
+		DumpZero: false,
+		Info:     core.ScINFO})
+
+	db.Add(&core.CCounterRec{
+		Counter:  &o.clientNoDns,
+		Name:     "clientNoDns",
+		Help:     "AutoPlay client doesn't have Dns plugin",
+		Unit:     "ops",
+		DumpZero: false,
+		Info:     core.ScERROR})
+
+	db.Add(&core.CCounterRec{
+		Counter:  &o.autoPlayQueries,
+		Name:     "autoPlayQueries",
+		Help:     "Number of queries sent by Auto Play",
+		Unit:     "query",
+		DumpZero: false,
+		Info:     core.ScINFO})
+
+	db.Add(&core.CCounterRec{
+		Counter:  &o.autoPlayBadQuery,
+		Name:     "autoPlayBadQuery",
+		Help:     "Number of bad queries created by Auto Play",
+		Unit:     "ops",
+		DumpZero: false,
+		Info:     core.ScERROR})
+	return db
+}
+
 // dnsEvents holds a list of events on which the Dns plugin is interested.
 var dnsEvents = []string{}
 
@@ -345,8 +400,10 @@ func (o *PluginDnsClient) OnRemove(ctx *core.PluginCtx) {
 			transportCtx.UnListen("udp", ":53", o)
 		}
 	} else {
-		_ = utils.NewDnsCacheRemover(o.cache, ctx.Tctx.GetTimerCtx())
-		o.cache = nil // GC can remove the client while the cache is removed.
+		if o.cache != nil {
+			_ = utils.NewDnsCacheRemover(o.cache, ctx.Tctx.GetTimerCtx())
+			o.cache = nil // GC can remove the client while the cache is removed.
+		}
 	}
 }
 
@@ -456,12 +513,12 @@ func (o *PluginDnsClient) BuildAnswers(questions []layers.DNSQuestion) (answers 
 
 		for i := range domainEntries {
 			if o.isValidAnswer(domainEntries[i], q.Type, q.Class) {
-
 				foundAnswer = true
+				class, _ := layers.StringToDNSClass(domainEntries[i].DnsClass)
 				answer := layers.DNSResourceRecord{
 					Name:  []byte(q.Name),
 					Type:  q.Type,
-					Class: q.Class,
+					Class: class,
 					TTL:   DefaultDnsResponseTTL,
 				}
 
@@ -620,6 +677,144 @@ func (o *PluginDnsClient) GetDomains() ([]string, error) {
 }
 
 /*======================================================================================================
+										Ns Dns plugin
+======================================================================================================*/
+
+// DnsAutoPlayParams represents the auto play params for DNS namespace.
+type DnsAutoPlayParams struct {
+	utils.CommonDnsAutoPlayParams                               // Embed the base parameters
+	Program                       map[string]utils.ProgramEntry `json:"program" validate:"dive"` // Program for specific clients with specific queries
+}
+
+// DnsNsParams defines the InitJson params for Dns namespaces.
+type DnsNsParams struct {
+	AutoPlay       bool                 `json:"auto_play"`        // Should autoplay the program
+	AutoPlayParams *fastjson.RawMessage `json:"auto_play_params"` // Params for autoplay
+}
+
+type PluginDnsNs struct {
+	core.PluginBase                      // Embed plugin base
+	params          DnsNsParams          // Namespace Paramaters
+	autoPlayParams  DnsAutoPlayParams    // Dns Auto Play Params in case they are provided
+	stats           DnsNsStats           // Dns namespace statistics
+	cdb             *core.CCounterDb     // Dns counters
+	cdbv            *core.CCounterDbVec  // Dns counter vector
+	autoPlay        *utils.DnsNsAutoPlay // DNS program autoplay
+}
+
+// NewDnsNs creates a new DNS namespace plugin.
+func NewDnsNs(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
+	o := new(PluginDnsNs)
+	o.InitPluginBase(ctx, o)             // Init the base plugin
+	o.RegisterEvents(ctx, []string{}, o) // No events to register in namespace level.
+	o.cdb = NewDnsNsStatsDb(&o.stats)    // Create new stats database
+	o.cdbv = core.NewCCounterDbVec(DNS_PLUG)
+	o.cdbv.Add(o.cdb)
+
+	err := o.Tctx.UnmarshalValidate(initJson, &o.params)
+	if err != nil {
+		o.stats.invalidInitJson++
+		return &o.PluginBase
+	}
+	if o.params.AutoPlay {
+		// Set default values prior to unmarshal.
+		o.autoPlayParams.Rate = utils.DefaultAutoPlayRate
+		o.autoPlayParams.ClientStep = utils.DefaultClientStep
+		o.autoPlayParams.HostnameStep = utils.DefaultHostnameStep
+		err = o.Tctx.UnmarshalValidate(*o.params.AutoPlayParams, &o.autoPlayParams)
+		if err != nil {
+			o.stats.invalidInitJson++
+			return &o.PluginBase
+		}
+		// Create a new DnsNsAutoPlay which will call SendQuery each time we need to send a query.
+		o.autoPlay = utils.NewDnsNsAutoPlay(o, o.Tctx.GetTimerCtx(), o.autoPlayParams.CommonDnsAutoPlayParams)
+		if o.autoPlay == nil {
+			o.stats.invalidInitJson++
+			return &o.PluginBase
+		}
+	}
+
+	return &o.PluginBase
+}
+
+// buildQueries builds the query parameters based on the user specified program.
+func (o *PluginDnsNs) buildQueries(hostnames []string, dnsType string, dnsClass string) []utils.DnsQueryParams {
+	var dnsQueryParams []utils.DnsQueryParams
+	for _, hostname := range hostnames {
+		if dnsType == "" {
+			dnsType = utils.DefaultDnsQueryType
+		}
+		if dnsClass == "" {
+			dnsClass = utils.DefaultDnsQueryClass
+		}
+		dnsQueryParams = append(dnsQueryParams, utils.DnsQueryParams{Name: hostname, Type: dnsType, Class: dnsClass})
+	}
+	return dnsQueryParams
+}
+
+// getClientQueries returns the queries that this client will ask. It will look in the program to see if this client
+// has defined special queries or return the default query.
+func (o *PluginDnsNs) getClientQueries(mac *core.MACKey, hostname string) []utils.DnsQueryParams {
+	var hwAddr net.HardwareAddr
+	hwAddr = mac[:]
+	macString := hwAddr.String()
+	program, ok := o.autoPlayParams.Program[macString]
+	if ok {
+		return o.buildQueries(program.Hostnames, program.DnsType, program.DnsClass)
+	} else {
+		hostnames := []string{hostname}
+		return o.buildQueries(hostnames, o.autoPlayParams.DnsType, o.autoPlayParams.DnsClass)
+	}
+}
+
+// SendQuery sends an DNS query to domain with the client whose mac is provided.
+// Returns if we should continue sending queries.
+// In case the client is not found, it will not send a query but indicate that we should continue.
+// In case the client is found but has no DNS plugin, it will stop the auto play.
+func (o *PluginDnsNs) SendQuery(mac *core.MACKey, domain string) bool {
+
+	client := o.Ns.GetClient(mac)
+
+	if client == nil {
+		// No such client ...
+		o.stats.autoPlayClientNotFound++
+		return true // Restart, next one can be ok
+	}
+
+	plug := client.PluginCtx.Get(DNS_PLUG)
+	if plug == nil {
+		// given client doesn't have Dns
+		o.stats.clientNoDns++
+		return false // Don't restart timer, stop!
+	}
+
+	dnsPlug := plug.Ext.(*PluginDnsClient)
+
+	queries := o.getClientQueries(mac, domain)
+
+	err := dnsPlug.Query(queries, dnsPlug.socket)
+	if err != nil {
+		// Couldn't query properly
+		o.stats.autoPlayBadQuery++
+	} else {
+		o.stats.autoPlayQueries++ // one more auto play query sent
+	}
+	// If the query amount is not reached, we can restart the timer.
+	return o.stats.autoPlayQueries != o.autoPlayParams.QueryAmount
+}
+
+// OnRemove when removing Dns namespace plugin.
+func (o *PluginDnsNs) OnRemove(ctx *core.PluginCtx) {
+	// Remove AutoPlay first
+	if o.autoPlay != nil {
+		o.autoPlay.OnRemove()
+	}
+}
+
+// OnEvent for events the namespace plugin is registered.
+func (o *PluginDnsNs) OnEvent(msg string, a, b interface{}) {}
+
+/*======================================================================================================
 											Generate Plugin
 ======================================================================================================*/
 type PluginDnsCReg struct{}
@@ -632,7 +827,7 @@ func (o PluginDnsCReg) NewPlugin(ctx *core.PluginCtx, initJson []byte) *core.Plu
 
 // NewPlugin creates a new DnsNs plugin.
 func (o PluginDnsNsReg) NewPlugin(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
-	return nil
+	return NewDnsNs(ctx, initJson)
 }
 
 /*======================================================================================================
@@ -667,6 +862,7 @@ type (
 		Vec     []*utils.DnsCacheEntry `json:"data"`
 	} // Results for a client cache iteration
 	ApiDnsCacheFlushHandler struct{} // Flush the Dns cache
+	ApiDnsNsCntHandler      struct{} // Counter RPC Handler for Namespace
 )
 
 // getClientPlugin gets the client plugin given the client parameters (Mac & Tunnel Key)
@@ -682,6 +878,20 @@ func getClientPlugin(ctx interface{}, params *fastjson.RawMessage) (*PluginDnsCl
 	pClient := plug.Ext.(*PluginDnsClient)
 
 	return pClient, nil
+}
+
+// getNsPlugin gets the namespace plugin given the namespace parameters (Tunnel Key)
+func getNsPlugin(ctx interface{}, params *fastjson.RawMessage) (*PluginDnsNs, error) {
+	tctx := ctx.(*core.CThreadCtx)
+
+	plug, err := tctx.GetNsPlugin(params, DNS_PLUG)
+
+	if err != nil {
+		return nil, err
+	}
+
+	dnsNs := plug.Ext.(*PluginDnsNs)
+	return dnsNs, nil
 }
 
 // ApiDnsClientCntHandler gets the counters of the Dns Client.
@@ -892,6 +1102,21 @@ func (h ApiDnsCacheFlushHandler) ServeJSONRPC(ctx interface{}, params *fastjson.
 	return nil, nil
 }
 
+// ApiDnsNsCntHandler gets the counters of the DNS namespace.
+func (h ApiDnsNsCntHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
+
+	var p core.ApiCntParams
+	tctx := ctx.(*core.CThreadCtx)
+	nsPlug, err := getNsPlugin(ctx, params)
+	if err != nil {
+		return nil, &jsonrpc.Error{
+			Code:    jsonrpc.ErrorCodeInvalidRequest,
+			Message: err.Error(),
+		}
+	}
+	return nsPlug.cdbv.GeneralCounters(err, tctx, params, &p)
+}
+
 func init() {
 
 	/* register of plugins callbacks for ns,c level  */
@@ -922,6 +1147,7 @@ func init() {
 	core.RegisterCB("dns_c_query", ApiDnsQueryHandler{}, false)                                      // query
 	core.RegisterCB("dns_c_cache_iter", ApiDnsCacheIterHandler{}, false)                             // iterate client cache
 	core.RegisterCB("dns_c_cache_flush", ApiDnsCacheFlushHandler{}, false)                           // flush the cache
+	core.RegisterCB("dns_ns_cnt", ApiDnsNsCntHandler{}, true)                                        // get counters / meta per namespace
 }
 
 func Register(ctx *core.CThreadCtx) {

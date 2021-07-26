@@ -11,9 +11,11 @@ import (
 	"crypto/sha256"
 	"emu/core"
 	"emu/plugins/transport"
+	"encoding/binary"
 	"external/google/gopacket/layers"
 	"fmt"
 	"math/rand"
+	"net"
 	"strings"
 	"time"
 	"unsafe"
@@ -24,6 +26,9 @@ import (
 const (
 	DefaultDnsQueryType  = "A"  // A = host
 	DefaultDnsQueryClass = "IN" // IN = Internet
+	DefaultAutoPlayRate  = 1    // Default Rate in case of Namespace Auto Play
+	DefaultClientStep    = 1    // Default step to increment clients in Auto Play
+	DefaultHostnameStep  = 1    // Default step to increment hostname in Auto Play
 )
 
 /*======================================================================================================
@@ -46,6 +51,13 @@ type DnsQuerierIF interface {
 	// Query builds questions based using the BuildQuestions function provided in here
 	// and writes the packet on the provided socket.
 	Query(queries []DnsQueryParams, socket transport.SocketApi) error
+}
+
+// DnsAutoPlayPluginIF should be implemented by whoever is interested in an auto play functionality for Dns Clients.
+type DnsAutoPlayPluginIF interface {
+	// SendQuery receives a MAC address a name and should send a query (Dns/mDns) from the client with the MAC address to the name.
+	// It returns true if we should continue sending queries, or false if we need to stop.
+	SendQuery(mac *core.MACKey, name string) bool
 }
 
 /*======================================================================================================
@@ -429,4 +441,153 @@ func (o *DnsPktBuilder) BuildResponsePkt(transactionId uint16,
 	o.dnsTemplate.Answers = answers                // Answers
 
 	return core.PacketUtlBuild(&o.dnsTemplate)
+}
+
+/*======================================================================================================
+										AutoPlay
+======================================================================================================*/
+
+// ProgramEntry represents a single entry in the program which will override the default query.
+type ProgramEntry struct {
+	Hostnames []string `json:"hostnames" validate:"required"` // Hostnames to query
+	DnsType   string   `json:"type"`                          // Query Type
+	DnsClass  string   `json:"class"`                         // Query class
+}
+
+// CommonDnsAutoPlayParams represents the params provided to an DNS/mDNS namespace as init Json.
+type CommonDnsAutoPlayParams struct {
+	Rate             float32 `json:"rate"`                                  // Rate in seconds between two consequent queries in the program
+	QueryAmount      uint64  `json:"query_amount"`                          // Amount of queries to send. Defaults to 0, and 0 means infinite
+	MinClient        string  `json:"min_client" validate:"required"`        // MAC address representing the first client
+	MaxClient        string  `json:"max_client" validate:"required"`        // MAC address representing the last client
+	ClientStep       uint16  `json:"client_step"`                           // Client incremental step, Defaults to DefaultClientStep
+	HostnameTemplate string  `json:"hostname_template" validate:"required"` // Template hostname, will apply number
+	MinHostname      uint16  `json:"min_hostname" validate:"eq=0|required"` // The first number to apply to `hostname_template`
+	MaxHostname      uint16  `json:"max_hostname" validate:"eq=0|required"` // The last number to apply to `hostname_template`
+	InitHostname     uint16  `json:"init_hostname"`                         // The number we start to apply from
+	HostnameStep     uint16  `json:"hostname_step"`                         // Hostname incremental step, defaults to DefaultHostnameStep
+	DnsType          string  `json:"type"`                                  // Query Type, Defaults to DefaultDnsQueryType
+	DnsClass         string  `json:"class"`                                 // Query class, Defaults to DefaultDnsQueryClass
+}
+
+// DnsNsAutoPlay defines a struct that is responsible for automatic queries based on the program defined
+// in the namespace's init Json. These queries are sent on a rate that can also be specified in said
+// init Json.
+type DnsNsAutoPlay struct {
+	timerw          *core.TimerCtx          // Timer wheel
+	timer           core.CHTimerObj         // Timer object
+	plugin          DnsAutoPlayPluginIF     // Plugin Interface that supports SendQuery (Dns or mDns)
+	params          CommonDnsAutoPlayParams // Common AutoPlay params
+	minClient       uint64                  // Minimal client MAC as an uint64
+	maxClient       uint64                  // Maximal client MAC as an uint64
+	currentClient   uint64                  // The current MAC as an uint64
+	ticks           uint32                  // Number of ticks between two consecutive program entries
+	currentHostname uint16                  // The current hostname
+}
+
+// NewMDnsNsAutoPlay creates a new MDnsNsAutoPlay object.
+func NewDnsNsAutoPlay(plugin DnsAutoPlayPluginIF, timerw *core.TimerCtx, autoPlayParams CommonDnsAutoPlayParams) *DnsNsAutoPlay {
+	o := new(DnsNsAutoPlay)
+	o.plugin = plugin
+	o.timerw = timerw
+
+	o.params = autoPlayParams
+	err := o.processCommonParams()
+	if err != nil {
+		return nil
+	}
+
+	duration := time.Duration(float32(time.Second) / o.params.Rate)
+	o.ticks = o.timerw.DurationToTicks(duration) // Calculate ticks
+	o.timer.SetCB(o, 0, 0)                       // Set callback for timer
+	o.timerw.StartTicks(&o.timer, o.ticks)       // Start timer
+	return o
+}
+
+// processCommonParams processes the params that the user defines in Init Json.
+func (o *DnsNsAutoPlay) processCommonParams() error {
+
+	extHwAddr := make([]byte, 8) // Prepend two zero bytes so we can hold the MAC address as an uint64.
+	hwAddr, err := net.ParseMAC(o.params.MinClient)
+	copy(extHwAddr[2:], hwAddr)
+	if err != nil {
+		return fmt.Errorf("Couldn't parse MinClient!")
+	}
+	o.minClient = binary.BigEndian.Uint64(extHwAddr)
+	hwAddr, err = net.ParseMAC(o.params.MaxClient)
+	if err != nil {
+		return fmt.Errorf("Couldn't parse MaxClient!")
+	}
+	copy(extHwAddr[2:], hwAddr)
+	o.maxClient = binary.BigEndian.Uint64(extHwAddr)
+	o.currentClient = o.minClient // Start from the minimal client
+
+	if o.params.MinHostname > o.params.MaxHostname {
+		// Validate that min <= max
+		return fmt.Errorf("MinHostname <= MaxHostname doesn't hold")
+	}
+	if o.params.InitHostname != 0 && (o.params.InitHostname < o.params.MinHostname || o.params.InitHostname > o.params.MaxHostname) {
+		// Validate that min <= init <= max
+		return fmt.Errorf("MinHostname <= InitHostname <= MaxHostname doesn't hold")
+	}
+	if o.params.InitHostname > o.params.MinHostname {
+		// Init hostname was defined
+		o.currentHostname = o.params.InitHostname
+	} else {
+		// Start from the minimal hostname
+		o.currentHostname = o.params.MinHostname
+	}
+
+	return nil
+}
+
+// OnRemove is called when we remove the AutoPlay
+func (o *DnsNsAutoPlay) OnRemove() {
+	if o.timer.IsRunning() {
+		o.timerw.Stop(&o.timer)
+	}
+}
+
+// domainInc increments the current value according to step in the [min-max] domain
+func (o *DnsNsAutoPlay) domainInc(min, max, step, current uint64) uint64 {
+	left := max - current // this will never overflow as currValue < maxValue
+	if step <= left {
+		// simple increment by step, not overflow of domain
+		// step is fixed module size of domain
+		current += step
+	} else {
+		// overflow of domain
+		// if here then (step > left) therefore step - left - 1 will not overflow
+		current = min + (step - left - 1) // restart also consumes 1
+	}
+	return current
+}
+
+// incClient increments the MAC address of the client based on defined step and returns the old address (prior to increment)
+func (o *DnsNsAutoPlay) incClient() *core.MACKey {
+	b := make([]byte, 8)
+	var mac core.MACKey
+	binary.BigEndian.PutUint64(b, o.currentClient)
+	copy(mac[:], b[2:])
+	o.currentClient = o.domainInc(o.minClient, o.maxClient, uint64(o.params.ClientStep), o.currentClient)
+	return &mac
+}
+
+// incHostname increments the hostname based on the defined step and returns the complete hostname with the old value applied.
+func (o *DnsNsAutoPlay) incHostname() (hostname string) {
+	hostname = fmt.Sprintf(o.params.HostnameTemplate, o.currentHostname)
+	o.currentHostname = uint16(o.domainInc(uint64(o.params.MinHostname), uint64(o.params.MaxHostname), uint64(o.params.HostnameStep), uint64(o.currentHostname)))
+	return hostname
+}
+
+// OnEvent is called by the timer each time a new query needs to be send.
+func (o *DnsNsAutoPlay) OnEvent(a, b interface{}) {
+
+	mac := o.incClient()        // Get the next client
+	hostname := o.incHostname() // Get the next hostname
+
+	restart := o.plugin.SendQuery(mac, hostname) // Send Query and see if we need to restart timer.
+	if restart {
+		o.timerw.StartTicks(&o.timer, o.ticks) // Restart timer
+	}
 }

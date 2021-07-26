@@ -38,9 +38,15 @@
 		"data": "00|00|02|00|00|00|00|00|01|00|00|00|08|00|45|00|00|38|00|cc|00|00|80|11|19|da|10|00|00|00|08|08|08|08|ff|00|00|35|00|24|cd|a7|00|00|00|00|00|01|00|00|00|00|00|00|06|67|6f|6f|67|6c|65|03|63|6f|6d|00|00|01|00|01|"
 	},
 	{
+		"dnsFlowAccept": 0,
 		"pktRxDnsQuery": 0,
+		"pktRxDnsResponse": 0,
 		"pktTxDnsQuery": 1,
-		"pktTxDnsResponse": 0
+		"pktTxDnsResponse": 0,
+		"rxBytes": 0,
+		"rxQuestions": 0,
+		"rxQuestionsNxDomain": 0,
+		"txBytes": 28
 	},
 	{
 		"mbufAlloc": 1,

@@ -2017,7 +2017,7 @@ Dns Name Servers:
 
 Let's dive right into defining an EMU Client with DNS.
 
-==== Dns Init Json
+==== Dns Client Init Json
 
 [NOTE]
 =====================================================================
@@ -2240,6 +2240,154 @@ dnsFlowAccept    |   2   |  ops  | True | Number of Dns flows accepted. Each req
 pktRxDnsQuery    |   2   | pkts  | True | Num of Dns queries received
 pktTxDnsResponse |   2   | pkts  | True | Num of Dns responses transmitted
 ----
+
+==== Dns Namespace Init Json
+
+DNS works both at client and namespace level. We already saw how we can define `resolvers` or `name servers` as DNS clients. However in order to order to query we must do this explicitly using the console or plugin APIs.
+At namespace level we can instruct the clients belonging to that namespace to automatically query. This is called `auto_play`.
+
+Let's suppose we defined the following `name server`:
+
+.Name Server Database
+[source, python]
+----
+name_server = {
+    "name_server": True,
+    "database": {
+        "domain1.com": [
+            {
+                "type": "A",
+                "class": "IN",
+                "answer": "1.1.1.1"
+            },
+            {
+                "type": "A",
+                "class": "IN",
+                "answer": "1.1.1.2"
+            }
+        ],
+        "domain2.com": [
+            {
+                "type": "A",
+                "class": "IN",
+                "answer": "2.2.2.2"
+            },
+            {
+                "type": "AAAA",
+                "class": "IN",
+                "answer": "2001:420:1101:1::2"
+            },
+        ],
+        "domain3.com": [
+            {
+                "type": "A",
+                "class": "CH",
+                "answer": "3.3.3.3"
+            }
+        ],
+        "domain4.com": [
+            {
+                "type": "A",
+                "class": "IN",
+                "answer": "4.4.4.4"
+            },
+            {
+                "type": "TXT",
+                "class": "IN",
+                "answer": "desc=domain4, gen=trex"
+            }
+        ]
+    }
+}
+
+# add simple entries for domains [5-255]
+for i in range (5, 256):
+    name_server["database"]["domain{}.com".format(i)] = [
+        {
+            "type": "A",
+            "class": "IN",
+            "answer": "{}.{}.{}.{}".format(i, i, i, i)
+        }
+    ]
+----
+
+We are defining 255 domains, from domain1.com to domain255.com. Most of the domains contain a simple `A` type Dns entry, however the first entries are different (type `AAAA`, `TXT`, class `CH`) in order to demonstrate that they are supported.
+
+Now we can define a namespace Init Json just as the one below:
+
+
+[source, python]
+.Init JSON example
+----
+{
+    "auto_play": True,                                              <1>
+    "auto_play_params": {                                           <2>
+        "rate": 0.5,                                                <3>
+        "query_amount": query_amount,                               <4>
+        "min_client": "00:00:00:70:00:04",                          <5>
+        "max_client": "00:00:00:70:00:{:02x}".format(max_client),
+        "client_step": 1,
+        "hostname_template": "domain%v.com",                        <6>
+        "min_hostname": 1,
+        "max_hostname": clients_size -1,
+        "hostname_step": 1,
+        "type": "A",                                                <7>
+        "class": "IN",                                              <8>
+        "program": {                                                <9>
+            "00:00:00:70:00:05": {
+                "hostnames": ["domain2.com"],
+                "type": "AAAA",
+                "class": "IN",
+            },
+            "00:00:00:70:00:06": {
+                "hostnames": ["domain3.com"],
+                "type": "A",
+                "class": "Any",
+            },
+            "00:00:00:70:00:07": {
+                "hostnames": ["domain4.com"],
+                "type": "TXT",
+            }
+        }
+    }
+}
+----
+<1> Should the namespace automatically play traffic?
+<2> Parameters that define how to play the traffic. The `auto_play_params` are parsed only if `auto_play` is True.
+<3> Rate in `pps` between two consecutive query **attempts**. Let's assume the rate is 0.5. The first client will send a query at 0.5 seconds. The second client will send a query at 2.5 second, and so on. By attempt, we mean the following:
+If the namespace doesn't find a client whose MAC address we generated, it will do nothing, and continue to the next client in another 0.5 seconds.
+<4> The amount of queries to send. Defaults to 0. In the case of 0, the program will send an infinite amount of queries.
+<5> Min client and max client specify a range of MAC addresses. We generate MAC addresses in this range using the `client_step` to increment. Each generated MAC address represents a client. If the namespace has such client, it will send a query using it. If it doesn't, nothing happens. The reason we prefer MAC addresses to IP addresses is because we support both IPv4 and IPv6. The reason why we use MAC addresses as strings instead of byte arrays is because they can be keys in JSON.
+The generation reminds xref:engines[engines]. For example, the MAC addresses that will be generated from the shown Json are [00:00:00:70:00:04, 00:00:00:70:00:05, 00:00:00:70:00:06, ..., 00:00:00:70:00:04, 00:00:00:70:00:05 ...]
+<6> A template string to which we apply numbers. The numbers are generated in the domain [`min_hostname`, `max_hostname`] using `hostname_step`. Note that you can also specify where to begin using `init_hostname`. For example, in the provided Json, we will generate the following hostnames [domain1.com, domain2.com, ..., domain1.com, domain2.com ...]. The first client will use the first hostname in list as query parameter, the second client the second hostname and so on. If we skip a client because the namespace doesn't find a client with such MAC address, we also skip the hostname.
+<7> Type of DNS query. Default is *A*.
+<8> Class of DNS query. Default is *IN*.
+<9> Program is a dictionary that allows you to specify special queries for clients. In the shown Json, the client with the MAC address 00:00:00:70:00:05 will send a *AAAA* type query. The client with the MAC address 00:00:00:70:00:06 will send a query with class *Any* since if you pay attention in the database, the entry for domain3.com is of class *CH*. This way we provide full control over queries. However note that if your simulating thousand of clients, you program will be massive and can't be passed as a Json to the Emu. Hence try to keep the program small.
+
+[NOTE]
+=====================================================================
+For an updated version of the fields refer to the link:https://trex-tgn.cisco.com/trex/doc/cp_emu_docs/api/plugins/dns.html[SDK].
+=====================================================================
+
+For a profile containing the example look here: link:{github_emu_path}/dns_auto_play.py[emu/dns_auto_play.py]
+
+For your knowledge the mapping between MAC -> IP is as follows: 00:00:00:70:00:x -> 1.1.1.x
+
+The first client (1.1.1.3) is the `name server`. The other clients are `resolvers` and they query domains incrementally. For example client 1.1.1.4 queries domain1.com, client 1.1.1.5 queries domain2.com and so on.
+
+We can see the recorded PCAP from this profile:
+
+image::images/dns_auto_play.png[title="DNS Auto Play",align="left",width={p_width}, link="images/dns_auto_play.png"]
+
+image::images/dns_auto_play_chaos.png[title="DNS Auto Play Chaos",align="left",width={p_width}, link="images/dns_auto_play_chaos.png"]
+
+A few things we can see from the capture:
+
+1. The first client indeed queries without a specific program.
+2. There is a 2 second gap between the queries.
+3. The second client queries an `AAAA` type as can be seen in the first picture.
+4. The third client queries using the `Any` class and receives a `CH` class response as seen in the second picture.
+5. The fourth client queries a `TXT` type.
 
 ==== Dns Plugin Api
 
@@ -2646,7 +2794,7 @@ For all the details and default values, please check the link:https://trex-tgn.c
 <3> Rate in `pps` between two consecutive query **attempts**. Let's assume the rate is 2.0. The first client will send a query at 0.5 seconds. The second client will send a query at 1 second, and so on. By attempt, we mean the following:
 If the namespace doesn't find a client whose MAC address we generated, it will do nothing, and continue to the next client in another 0.5 seconds.
 <4> The amount of queries to send. In this case, after 100 queries, the program will stop sending queries. Defaults to 0. In the case of 0, the program will send an infinite amount of queries.
-<5> Min client and max client specify a range of MAC addresses. We generate MAC addresses in this range using the `client_step` to increment. Each generated MAC address represents a client. If the namespace has such client, it will send a query using it. If it doesn't, nothing happens. The reason we prefer MAC addresses to IP addresses is because we support both IPv4 and IPv6. The reason why we use MAC addresses as strings instead of byte arrays is because they can be keys as we will soon see.
+<5> Min client and max client specify a range of MAC addresses. We generate MAC addresses in this range using the `client_step` to increment. Each generated MAC address represents a client. If the namespace has such client, it will send a query using it. If it doesn't, nothing happens. The reason we prefer MAC addresses to IP addresses is because we support both IPv4 and IPv6. The reason why we use MAC addresses as strings instead of byte arrays is because they can be keys in JSON.
 The generation reminds xref:engines[engines]. For example, the MAC addresses that will be generated from the shown Json are [00:00:00:70:00:02, 00:00:00:70:00:04, 00:00:00:70:00:06, 00:00:00:70:00:03, 00:00:00:70:00:05, 00:00:00:70:00:02...]
 <6> A template string to which we apply numbers. The numbers are generated in the domain [`min_hostname`, `max_hostname`] using `hostname_step`. Note that you can also specify where in the domain to begin using `init_hostname`. For example, in the provided Json, we will generate the following hostnames [trex-client-1._tcp.local, trex-client-3._tcp.local, trex-client-5._tcp.local, trex-client-2._tcp.local, trex-client-4._tcp.local, trex-client-1._tcp.local...]. The first client will use the first hostname in list as query parameter, the second client the second hostname and so on. If we skip a client because the namespace doesn't find a client with such MAC address, we also skip the hostname.
 <7> Type of mDNS query. Default is *A*.

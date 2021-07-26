@@ -36,6 +36,7 @@ type DnsTestBase struct {
 	ForcedgMac   core.MACKey
 	counters     DnsClientStats
 	initJSON     [][][]byte
+	nsInitJson   [][]byte
 	cb           DnsTestCb
 	cbArg1       interface{}
 	cbArg2       interface{}
@@ -106,6 +107,17 @@ func (o *DnsTestBase) Run(t *testing.T, compare bool) {
 		c.OnRemove()
 	}
 
+	if o.nsInitJson != nil {
+		// dump namespace counters too
+		nsPlug := ns.PluginCtx.Get(DNS_PLUG)
+		if nsPlug == nil {
+			t.Fatalf(" can't find plugin")
+		}
+		mDnsNsPlug := nsPlug.Ext.(*PluginDnsNs)
+		mDnsNsPlug.cdbv.Dump()
+		tctx.SimRecordAppend(mDnsNsPlug.cdb.MarshalValues(false))
+	}
+
 	if compare {
 		if o.monitor {
 			tctx.SimRecordCompare(o.testname, t)
@@ -128,6 +140,11 @@ func createSimulationEnv(simRx *core.VethIFSim, t *DnsTestBase) (*core.CThreadCt
 	var key core.CTunnelKey
 	key.Set(&core.CTunnelData{Vport: 1})
 	ns := core.NewNSCtx(tctx, &key)
+	ns.PluginCtx.CreatePlugins([]string{DNS_PLUG}, t.nsInitJson)
+	nsPlg := ns.PluginCtx.Get(DNS_PLUG)
+	if nsPlg == nil {
+		panic(" can't find plugin")
+	}
 	tctx.AddNs(&key, ns)
 	num := t.clientsToSim
 
@@ -714,6 +731,479 @@ func TestPluginDns12(t *testing.T) {
 		cb:           queryCb,
 		forceDGW:     true,
 		ForcedgMac:   core.MACKey{0, 0, 1, 0, 0, 1},
+	}
+	a.Run(t, true)
+}
+
+func getServerInitJsonAutoPlay() [][]byte {
+	return [][]byte{[]byte(`{
+		"name_server": true,
+		"database": {
+			"domain1.com": [
+				{
+					"type": "A",
+					"class": "IN",
+					"answer": "1.1.1.1"
+				}
+			],
+			"domain2.com": [
+				{
+					"type": "A",
+					"class": "IN",
+					"answer": "2.2.2.2"
+				},
+				{
+					"type": "A",
+					"class": "IN",
+					"answer": "2.2.2.1"
+				},
+				{
+					"type": "AAAA",
+					"class": "IN",
+					"answer": "2001:420:1101:1::2"
+				},
+				{
+					"type": "TXT",
+					"class": "IN",
+					"answer": "desc=domain2, gen=trex"
+				}
+			],
+			"domain3.com": [
+				{
+					"type": "A",
+					"class": "CH",
+					"answer": "3.3.3.3"
+				}
+			]
+		}
+	}`)}
+}
+
+func TestPluginDns13(t *testing.T) {
+
+	// Test Arch - Two Clients. First one is server, second one is client.
+	// Pay attention to this test, we are loopbacked
+	// query (TX) --(loopback)-> query(RX) --(logic) -> response (TX) --(loopback) -> response (RX)
+
+	// Basic Auto Play
+
+	initJsonClient := [][]byte{[]byte(`{
+		"name_server": false,
+		"dns_server_ip": "16.0.0.0"
+	}`)}
+
+	var initJsonArray = [][][]byte{getServerInitJsonAutoPlay(), initJsonClient, initJsonClient}
+
+	// Pay attention to this test, we are loopbacked
+	// query (TX) --(loopback)-> query(RX) --(logic) -> response (TX) --(loopback) -> response (RX)
+
+	nsInitJson := [][]byte{[]byte(`{
+		"auto_play": true,
+		"auto_play_params": {
+			"rate": 1.0,
+			"min_client": "00:00:01:00:00:01",
+			"max_client": "00:00:01:00:00:02",
+			"hostname_template": "domain%v.com"
+			"min_hostname": 1,
+			"max_hostname": 2,
+		}
+	}`)}
+
+	a := &DnsTestBase{
+		testname:     "dns13",
+		dropAll:      false,
+		monitor:      true,
+		capture:      true,
+		initJSON:     initJsonArray,
+		nsInitJson:   nsInitJson,
+		duration:     10 * time.Second,
+		clientsToSim: 3,
+		forceDGW:     true,
+		ForcedgMac:   core.MACKey{0, 0, 1, 0, 0, 0},
+	}
+	a.Run(t, true)
+}
+
+func TestPluginDns14(t *testing.T) {
+
+	// Test Arch - Two Clients. First one is server, second one is client.
+	// Pay attention to this test, we are loopbacked
+	// query (TX) --(loopback)-> query(RX) --(logic) -> response (TX) --(loopback) -> response (RX)
+
+	// There is no client with 00:00:01:00:00:04!
+
+	initJsonClient := [][]byte{[]byte(`{
+		"name_server": false,
+		"dns_server_ip": "16.0.0.0"
+	}`)}
+
+	var initJsonArray = [][][]byte{getServerInitJsonAutoPlay(), initJsonClient, initJsonClient, initJsonClient}
+
+	// Pay attention to this test, we are loopbacked
+	// query (TX) --(loopback)-> query(RX) --(logic) -> response (TX) --(loopback) -> response (RX)
+
+	nsInitJson := [][]byte{[]byte(`{
+		"auto_play": true,
+		"auto_play_params": {
+			"rate": 1.0,
+			"min_client": "00:00:01:00:00:01",
+			"max_client": "00:00:01:00:00:04",
+			"hostname_template": "domain%v.com"
+			"min_hostname": 1,
+			"max_hostname": 4,
+		}
+	}`)}
+
+	a := &DnsTestBase{
+		testname:     "dns14",
+		dropAll:      false,
+		monitor:      true,
+		capture:      true,
+		initJSON:     initJsonArray,
+		nsInitJson:   nsInitJson,
+		duration:     10 * time.Second,
+		clientsToSim: 4,
+		forceDGW:     true,
+		ForcedgMac:   core.MACKey{0, 0, 1, 0, 0, 0},
+	}
+	a.Run(t, true)
+}
+
+func TestPluginDns15(t *testing.T) {
+
+	// Test Arch - Two Clients. First one is server, second one is client.
+	// Pay attention to this test, we are loopbacked
+	// query (TX) --(loopback)-> query(RX) --(logic) -> response (TX) --(loopback) -> response (RX)
+
+	// Step Hostname + Step Client
+
+	initJsonClient := [][]byte{[]byte(`{
+		"name_server": false,
+		"dns_server_ip": "16.0.0.0"
+	}`)}
+
+	var initJsonArray = [][][]byte{getServerInitJsonAutoPlay(), initJsonClient, initJsonClient, initJsonClient}
+
+	// Pay attention to this test, we are loopbacked
+	// query (TX) --(loopback)-> query(RX) --(logic) -> response (TX) --(loopback) -> response (RX)
+
+	nsInitJson := [][]byte{[]byte(`{
+		"auto_play": true,
+		"auto_play_params": {
+			"rate": 1.0,
+			"min_client": "00:00:01:00:00:01",
+			"max_client": "00:00:01:00:00:03",
+			"client_step": 2,
+			"hostname_template": "domain%v.com"
+			"min_hostname": 1,
+			"max_hostname": 3,
+			"hostname_step": 2
+		}
+	}`)}
+
+	a := &DnsTestBase{
+		testname:     "dns15",
+		dropAll:      false,
+		monitor:      true,
+		capture:      true,
+		initJSON:     initJsonArray,
+		nsInitJson:   nsInitJson,
+		duration:     10 * time.Second,
+		clientsToSim: 4,
+		forceDGW:     true,
+		ForcedgMac:   core.MACKey{0, 0, 1, 0, 0, 0},
+	}
+	a.Run(t, true)
+}
+
+func TestPluginDns16(t *testing.T) {
+
+	// Test Arch - Two Clients. First one is server, second one is client.
+	// Pay attention to this test, we are loopbacked
+	// query (TX) --(loopback)-> query(RX) --(logic) -> response (TX) --(loopback) -> response (RX)
+
+	// Simple Program
+
+	initJsonClient := [][]byte{[]byte(`{
+		"name_server": false,
+		"dns_server_ip": "16.0.0.0"
+	}`)}
+
+	var initJsonArray = [][][]byte{getServerInitJsonAutoPlay(), initJsonClient, initJsonClient, initJsonClient}
+
+	// Pay attention to this test, we are loopbacked
+	// query (TX) --(loopback)-> query(RX) --(logic) -> response (TX) --(loopback) -> response (RX)
+
+	nsInitJson := [][]byte{[]byte(`{
+		"auto_play": true,
+		"auto_play_params": {
+			"rate": 1.0,
+			"min_client": "00:00:01:00:00:01",
+			"max_client": "00:00:01:00:00:03",
+			"hostname_template": "domain%v.com",
+			"min_hostname": 1,
+			"max_hostname": 3,
+			"program": {
+				"00:00:01:00:00:03": {
+					"hostnames": ["domain3.com"],
+					"class": "Any"
+				}
+			}
+		}
+	}`)}
+
+	a := &DnsTestBase{
+		testname:     "dns16",
+		dropAll:      false,
+		monitor:      true,
+		capture:      true,
+		initJSON:     initJsonArray,
+		nsInitJson:   nsInitJson,
+		duration:     10 * time.Second,
+		clientsToSim: 4,
+		forceDGW:     true,
+		ForcedgMac:   core.MACKey{0, 0, 1, 0, 0, 0},
+	}
+	a.Run(t, true)
+}
+
+func TestPluginDns17(t *testing.T) {
+
+	// Test Arch - Two Clients. First one is server, second one is client.
+	// Pay attention to this test, we are loopbacked
+	// query (TX) --(loopback)-> query(RX) --(logic) -> response (TX) --(loopback) -> response (RX)
+
+	// Simple Program + default type is AAAA
+
+	initJsonClient := [][]byte{[]byte(`{
+		"name_server": false,
+		"dns_server_ip": "16.0.0.0"
+	}`)}
+
+	var initJsonArray = [][][]byte{getServerInitJsonAutoPlay(), initJsonClient, initJsonClient, initJsonClient}
+
+	// Pay attention to this test, we are loopbacked
+	// query (TX) --(loopback)-> query(RX) --(logic) -> response (TX) --(loopback) -> response (RX)
+
+	nsInitJson := [][]byte{[]byte(`{
+		"auto_play": true,
+		"auto_play_params": {
+			"rate": 1.0,
+			"min_client": "00:00:01:00:00:01",
+			"max_client": "00:00:01:00:00:02",
+			"hostname_template": "domain%v.com",
+			"min_hostname": 1,
+			"max_hostname": 2,
+			"type": "AAAA",
+			"program": {
+				"00:00:01:00:00:01": {
+					"hostnames": ["domain1.com", "domain2.com"],
+					"type": "A"
+				}
+			}
+		}
+	}`)}
+
+	a := &DnsTestBase{
+		testname:     "dns17",
+		dropAll:      false,
+		monitor:      true,
+		capture:      true,
+		initJSON:     initJsonArray,
+		nsInitJson:   nsInitJson,
+		duration:     10 * time.Second,
+		clientsToSim: 4,
+		forceDGW:     true,
+		ForcedgMac:   core.MACKey{0, 0, 1, 0, 0, 0},
+	}
+	a.Run(t, true)
+}
+
+func TestPluginDns18(t *testing.T) {
+
+	// Test Arch - Two Clients. First one is server, second one is client.
+	// Pay attention to this test, we are loopbacked
+	// query (TX) --(loopback)-> query(RX) --(logic) -> response (TX) --(loopback) -> response (RX)
+
+	// Rate
+
+	initJsonClient := [][]byte{[]byte(`{
+		"name_server": false,
+		"dns_server_ip": "16.0.0.0"
+	}`)}
+
+	var initJsonArray = [][][]byte{getServerInitJsonAutoPlay(), initJsonClient, initJsonClient}
+
+	// Pay attention to this test, we are loopbacked
+	// query (TX) --(loopback)-> query(RX) --(logic) -> response (TX) --(loopback) -> response (RX)
+
+	nsInitJson := [][]byte{[]byte(`{
+		"auto_play": true,
+		"auto_play_params": {
+			"rate": 3.0,
+			"min_client": "00:00:01:00:00:01",
+			"max_client": "00:00:01:00:00:02",
+			"hostname_template": "domain%v.com"
+			"min_hostname": 1,
+			"max_hostname": 2,
+		}
+	}`)}
+
+	a := &DnsTestBase{
+		testname:     "dns18",
+		dropAll:      false,
+		monitor:      true,
+		capture:      true,
+		initJSON:     initJsonArray,
+		nsInitJson:   nsInitJson,
+		duration:     10 * time.Second,
+		clientsToSim: 3,
+		forceDGW:     true,
+		ForcedgMac:   core.MACKey{0, 0, 1, 0, 0, 0},
+	}
+	a.Run(t, true)
+}
+
+func TestPluginDns19(t *testing.T) {
+
+	// Test Arch - Two Clients. First one is server, second one is client.
+	// Pay attention to this test, we are loopbacked
+	// query (TX) --(loopback)-> query(RX) --(logic) -> response (TX) --(loopback) -> response (RX)
+
+	// Ipv6
+
+	initJsonClient := [][]byte{[]byte(`{
+		"name_server": false,
+		"dns_server_ip": "2001:db8::0"
+	}`)}
+
+	var initJsonArray = [][][]byte{getServerInitJsonAutoPlay(), initJsonClient, initJsonClient}
+
+	// Pay attention to this test, we are loopbacked
+	// query (TX) --(loopback)-> query(RX) --(logic) -> response (TX) --(loopback) -> response (RX)
+
+	nsInitJson := [][]byte{[]byte(`{
+		"auto_play": true,
+		"auto_play_params": {
+			"rate": 3.0,
+			"min_client": "00:00:01:00:00:01",
+			"max_client": "00:00:01:00:00:02",
+			"hostname_template": "domain%v.com"
+			"min_hostname": 1,
+			"max_hostname": 2,
+		}
+	}`)}
+
+	a := &DnsTestBase{
+		testname:     "dns19",
+		dropAll:      false,
+		monitor:      true,
+		capture:      true,
+		initJSON:     initJsonArray,
+		nsInitJson:   nsInitJson,
+		duration:     10 * time.Second,
+		clientsToSim: 3,
+		forceDGW:     true,
+		ForcedgMac:   core.MACKey{0, 0, 1, 0, 0, 0},
+	}
+	a.Run(t, true)
+}
+func TestPluginDns20(t *testing.T) {
+
+	// Test Arch - Two Clients. First one is server, second one is client.
+	// Pay attention to this test, we are loopbacked
+	// query (TX) --(loopback)-> query(RX) --(logic) -> response (TX) --(loopback) -> response (RX)
+
+	// Query Amount + Rate
+
+	initJsonClient := [][]byte{[]byte(`{
+		"name_server": false,
+		"dns_server_ip": "16.0.0.0"
+	}`)}
+
+	var initJsonArray = [][][]byte{getServerInitJsonAutoPlay(), initJsonClient, initJsonClient, initJsonClient}
+
+	// Pay attention to this test, we are loopbacked
+	// query (TX) --(loopback)-> query(RX) --(logic) -> response (TX) --(loopback) -> response (RX)
+
+	nsInitJson := [][]byte{[]byte(`{
+		"auto_play": true,
+		"auto_play_params": {
+			"rate": 5.0,
+			"min_client": "00:00:01:00:00:01",
+			"max_client": "00:00:01:00:00:03",
+			"hostname_template": "domain%v.com"
+			"min_hostname": 1,
+			"max_hostname": 3,
+			"query_amount": 5
+		}
+	}`)}
+
+	a := &DnsTestBase{
+		testname:     "dns20",
+		dropAll:      false,
+		monitor:      true,
+		capture:      true,
+		initJSON:     initJsonArray,
+		nsInitJson:   nsInitJson,
+		duration:     10 * time.Second,
+		clientsToSim: 4,
+		forceDGW:     true,
+		ForcedgMac:   core.MACKey{0, 0, 1, 0, 0, 0},
+	}
+	a.Run(t, true)
+}
+func TestPluginDns21(t *testing.T) {
+
+	// Test Arch - Two Clients. First one is server, second one is client.
+	// Pay attention to this test, we are loopbacked
+	// query (TX) --(loopback)-> query(RX) --(logic) -> response (TX) --(loopback) -> response (RX)
+
+	// Simple Program
+
+	initJsonClient := [][]byte{[]byte(`{
+		"name_server": false,
+		"dns_server_ip": "16.0.0.0"
+	}`)}
+
+	var initJsonArray = [][][]byte{getServerInitJsonAutoPlay(), initJsonClient, initJsonClient, initJsonClient}
+
+	// Pay attention to this test, we are loopbacked
+	// query (TX) --(loopback)-> query(RX) --(logic) -> response (TX) --(loopback) -> response (RX)
+
+	nsInitJson := [][]byte{[]byte(`{
+		"auto_play": true,
+		"auto_play_params": {
+			"rate": 1.0,
+			"min_client": "00:00:01:00:00:01",
+			"max_client": "00:00:01:00:00:03",
+			"hostname_template": "domain%v.com",
+			"min_hostname": 1,
+			"max_hostname": 3,
+			"program": {
+				"00:00:01:00:00:03": {
+					"hostnames": ["domain3.com"],
+					"class": "Any"
+				}
+				"00:00:01:00:00:02": {
+					"hostnames": ["domain2.com"],
+					"type": "TXT"
+				}
+			}
+		}
+	}`)}
+
+	a := &DnsTestBase{
+		testname:     "dns21",
+		dropAll:      false,
+		monitor:      true,
+		capture:      true,
+		initJSON:     initJsonArray,
+		nsInitJson:   nsInitJson,
+		duration:     10 * time.Second,
+		clientsToSim: 4,
+		forceDGW:     true,
+		ForcedgMac:   core.MACKey{0, 0, 1, 0, 0, 0},
 	}
 	a.Run(t, true)
 }
