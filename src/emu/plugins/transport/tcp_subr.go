@@ -35,7 +35,7 @@ func (o *TcpSocket) SetIoctl(m IoctlMap) error {
 	// mss
 	val, prs := m[TCP_IOCTL_MSS]
 	if prs {
-		mss, ok := val.(int)
+		mss, ok := getAsInt(val)
 		if ok {
 			if mss > 9*1024 {
 				mss = 9 * 1024
@@ -53,7 +53,7 @@ func (o *TcpSocket) SetIoctl(m IoctlMap) error {
 
 	val, prs = m[TCP_IOCTL_INITWND]
 	if prs {
-		initwnd, ok := val.(int)
+		initwnd, ok := getAsInt(val)
 		if ok {
 			if initwnd > 20 {
 				initwnd = 20
@@ -70,7 +70,7 @@ func (o *TcpSocket) SetIoctl(m IoctlMap) error {
 
 	val, prs = m[TCP_IOCTL_NODELAY]
 	if prs {
-		no_delay, ok := val.(int)
+		no_delay, ok := getAsInt(val)
 		if ok {
 			if no_delay > 2 {
 				no_delay = 0
@@ -87,7 +87,7 @@ func (o *TcpSocket) SetIoctl(m IoctlMap) error {
 
 	val, prs = m[TCP_IOCTL_NODELAY_CNT]
 	if prs {
-		no_delay_cnt, ok := val.(int)
+		no_delay_cnt, ok := getAsInt(val)
 		if ok {
 			if no_delay_cnt > 0xffff {
 				no_delay_cnt = 0xffff
@@ -98,7 +98,7 @@ func (o *TcpSocket) SetIoctl(m IoctlMap) error {
 
 	val, prs = m[TCP_IOCTL_DELAY_ACK_MSEC]
 	if prs {
-		ack_msec, ok := val.(int)
+		ack_msec, ok := getAsInt(val)
 		if ok {
 			if ack_msec < 20 {
 				ack_msec = 20
@@ -116,7 +116,7 @@ func (o *TcpSocket) SetIoctl(m IoctlMap) error {
 
 	val, prs = m[TCP_IOCTL_TX_BUF_SIZE]
 	if prs {
-		txbufsize, ok := val.(int)
+		txbufsize, ok := getAsInt(val)
 		if ok {
 			if txbufsize < 2*1024 {
 				txbufsize = 2 * 1024
@@ -136,7 +136,7 @@ func (o *TcpSocket) SetIoctl(m IoctlMap) error {
 
 	val, prs = m[TCP_IOCTL_RX_BUF_SIZE]
 	if prs {
-		rxbufsize, ok := val.(int)
+		rxbufsize, ok := getAsInt(val)
 		if ok {
 			if rxbufsize < 2*1024 {
 				rxbufsize = 2 * 1024

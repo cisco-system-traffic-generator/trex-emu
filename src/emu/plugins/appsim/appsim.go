@@ -110,7 +110,8 @@ func (o *appsimStream) createNewFlow() {
 
 	sim.is_client = true
 	d := o.dst
-	ap, err := sim.ctx.Dial(net, d, app.getCb(), ioctl, nil,0)
+	fmt.Printf(" %+v \n", ioctl)
+	ap, err := sim.ctx.Dial(net, d, app.getCb(), ioctl, nil, 0)
 	if err != nil {
 		fmt.Printf(" error dial %v \n ", err)
 		o.plug.stats.eventDropConnectionErr++

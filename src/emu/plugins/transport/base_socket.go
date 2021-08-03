@@ -12,6 +12,19 @@ import (
 	"strconv"
 )
 
+func getAsInt(val interface{}) (int, bool) {
+	vali, ok := val.(int)
+	if ok {
+		return vali, true
+	}
+	valf, ok := val.(float64)
+
+	if ok {
+		return int(valf), true
+	}
+	return 0, false
+}
+
 func (o *baseSocket) init(client *core.CClient, ctx *TransportCtx) {
 	o.client = client
 	o.ns = client.Ns
@@ -24,7 +37,8 @@ func (o *baseSocket) setIoctlBase(m IoctlMap) error {
 	// TOS
 	val, prs := m[IP_IOCTL_TOS]
 	if prs {
-		tos, ok := val.(int)
+		tos, ok := getAsInt(val)
+
 		if ok {
 			if o.ipv6 {
 				ipv6 := layers.IPv6Header(o.pktTemplate[o.l3Offset : o.l3Offset+core.IPV6_HEADER_SIZE])
@@ -40,7 +54,7 @@ func (o *baseSocket) setIoctlBase(m IoctlMap) error {
 	// TTL
 	val, prs = m[IP_IOCTL_TTL]
 	if prs {
-		ttl, ok := val.(int)
+		ttl, ok := getAsInt(val)
 		if ok {
 			if o.ipv6 {
 				ipv6 := layers.IPv6Header(o.pktTemplate[o.l3Offset : o.l3Offset+core.IPV6_HEADER_SIZE])
@@ -104,9 +118,9 @@ func (o *baseSocket) buildIpv4Template(udp bool) {
 		SrcIP:    net.IPv4(o.src[0], o.src[1], o.src[2], o.src[3]),
 		DstIP:    net.IPv4(o.dst[0], o.dst[1], o.dst[2], o.dst[3]),
 		Protocol: o.getNextHeader(udp)}
-		var dr []byte
+	var dr []byte
 	if udp {
-	
+
 		if net.IPv4(o.dst[0], o.dst[1], o.dst[2], o.dst[3]).IsMulticast() {
 			layers.EthernetHeader(l2[0:6]).SetDestAddress([]byte{0x01, 0x00, 0x5e, o.dst[1] & 0x7f, o.dst[2], o.dst[3]})
 			ipv4h.TTL = 1

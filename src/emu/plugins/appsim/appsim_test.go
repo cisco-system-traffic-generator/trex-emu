@@ -555,13 +555,13 @@ const input_json15 string = `
 }
 `
 
-/*func TestPluginAppSim15(t *testing.T) {
+func TestPluginAppSim15(t *testing.T) {
 	a := &AppL7SimTestBase{
 		testname:     "appsim-15",
 		monitor:      false,
 		match:        0,
 		capture:      true,
-		duration:     10 * time.Second,
+		duration:     50 * time.Second,
 		clientsToSim: 1,
 		param: transportSimParam{
 			name:         "a",
@@ -570,7 +570,7 @@ const input_json15 string = `
 		},
 	}
 	a.Run(t, false)
-}*/
+}
 
 const input_json16 string = `
 {
@@ -1153,6 +1153,108 @@ func TestPluginAppSim34(t *testing.T) {
 		duration:     10 * time.Second,
 		clientsToSim: 1,
 		c_json:       []byte(c_ssdp_ipv6),
+		ns_json:      []byte(simple_ssdp_p),
+	}
+	a.Run(t)
+}
+
+const c_ssdp_multi string = `{ "data" : { "s-1" : { "cps": 1.0, "t": "c", "tid": 0, "ipv6": false, "stream": false,"dst" :"239.255.255.250:1900"},
+                                    "s-2" : { "cps": 0.5, "t": "c", "tid": 0, "ipv6": false, "stream": false,"dst" :"48.0.0.1:1900"} 
+                                   } }`
+
+func TestPluginAppSim35(t *testing.T) {
+
+	b := base64.StdEncoding.EncodeToString([]byte(c_ssdp_l7))
+	simple_ssdp_p := fmt.Sprintf(simple_ssdp_template, b)
+
+	a := &TransimTestBase{
+		testname:     "appsim-35",
+		monitor:      false,
+		match:        0,
+		capture:      true,
+		duration:     10 * time.Second,
+		clientsToSim: 1,
+		c_json:       []byte(c_ssdp_multi),
+		ns_json:      []byte(simple_ssdp_p),
+	}
+	a.Run(t)
+}
+
+const c_ssdp_ioctl string = `{ "data" : { "s-1" : { "cps": 1.0, "t": "c", "tid": 0, "ipv6": false, "stream": false,"dst" :"239.255.255.250:1900"}} }`
+
+const simple_ssdp_template_ioctl string = `
+{
+    "buf_list": [
+        "%v",
+        "SFRUUC8xLjEgMjAwIE9LDQpTZXJ2ZXI6IE1pY3Jvc29mdC1JSVMvNi4wDQpDb250ZW50LVR5cGU6IHRleHQvaHRtbA0KQ29udGVudC1MZW5ndGg6IDMyMDAwDQoNCjxodG1sPjxwcmU+KioqKioqKioqKjwvcHJlPjwvaHRtbD4="
+    ],
+    "tunable_list": [ {"tos":7},{"tos":2,"mss":7}
+    ],
+
+    "program_list": [
+        {
+            "commands": [
+				{
+					"msec": 10,
+					"name": "keepalive"
+				},				
+                {
+                    "buf_index": 0,
+                    "name": "tx_msg"
+                },
+                {
+                    "min_pkts": 1,
+                    "name": "rx_msg"
+                }
+            ]
+        },
+        {
+            "commands": [
+				{
+					"msec": 10,
+					"name": "keepalive"
+				},				
+                {
+                    "min_pkts": 1,
+                    "name": "rx_msg"
+                },
+                {
+                    "buf_index": 1,
+                    "name": "tx_msg"
+                }
+            ]
+        }
+    ],
+
+    "templates": [{
+        "client_template" :{"program_index": 0,"tunable_index":0,
+                "port": 80,
+                "cps": 1
+              },
+        "server_template" : {"assoc": [
+                    {
+                        "port": 80
+                    }
+                ],
+                "program_index": 1
+                }
+    }]
+}
+`
+
+func TestPluginAppSim36(t *testing.T) {
+
+	b := base64.StdEncoding.EncodeToString([]byte(c_ssdp_l7))
+	simple_ssdp_p := fmt.Sprintf(simple_ssdp_template_ioctl, b)
+
+	a := &TransimTestBase{
+		testname:     "appsim-36",
+		monitor:      false,
+		match:        0,
+		capture:      true,
+		duration:     10 * time.Second,
+		clientsToSim: 1,
+		c_json:       []byte(c_ssdp_ioctl),
 		ns_json:      []byte(simple_ssdp_p),
 	}
 	a.Run(t)

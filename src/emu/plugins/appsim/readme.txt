@@ -1,4 +1,11 @@
 
++ add ioctl example 
+- add profile in trex-core 
+- add SDK docomentation 
+- add emu doc 
+- release it next version 
+
+
 + add ssdp example 
 ##################################
 - test number appsim15 crash ... ? need to understand why 
