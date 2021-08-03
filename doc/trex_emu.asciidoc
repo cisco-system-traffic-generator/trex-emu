@@ -3090,6 +3090,108 @@ invalidScopeCount*       | 0
 ----
 
 
+=== Tutorial: Appsim 
+
+appsim plugin try to mimic the interpreter L7 language instructions from ASTF to simulate application with EMU (instead of ASTF). This way you will get the functionality without the performance. Each client could have about ~250 active flows (UDP/TCP).
+
+let's start with a an example that simulate SSDP notification (IPv4/UDP/HTTP header)
+
+[source, python]
+----
+
+        self.def_ns_plugs = {'arp': {'enable': True},
+                            'ipv6' : {'dmac':self.mac.V()}
+                            'appsim': {
+                    "buf_list": [
+                        "%v", 
+                        "SFRUUC8xLjEgMjAwIE9LDQpTZXJ2ZXI6IE1pY3Jvc29mdC1JSVMvNi4wDQpDb250ZW50LVR5cGU6IHRleHQvaHRtbA0KQ29udGVudC1MZW5ndGg6IDMyMDAwDQoNCjxodG1sPjxwcmU+KioqKioqKioqKjwvcHJlPjwvaHRtbD4="
+                    ],
+                    "tunable_list": [ {"tos":7},{"tos":2,"mss":7}
+                    ],
+
+                    "program_list": [
+                        {
+                            "commands": [
+                                {
+                                    "msec": 10,
+                                    "name": "keepalive"
+                                },				
+                                {
+                                    "buf_index": 0,
+                                    "name": "tx_msg"
+                                }
+                            ]
+                        },
+                        {
+                            "commands": [
+                                {
+                                    "msec": 10,
+                                    "name": "keepalive"
+                                },				
+                                {
+                                    "min_pkts": 1,
+                                    "name": "rx_msg"
+                                },
+                                {
+                                    "buf_index": 1,
+                                    "name": "tx_msg"
+                                }
+                            ]
+                        }
+                    ],
+
+                    "templates": [{
+                        "client_template" :{"program_index": 0,"tunable_index":0,
+                                "port": 80,
+                                "cps": 1
+                            },
+                        "server_template" : {"assoc": [
+                                    {
+                                        "port": 80
+                                    }
+                                ],
+                                "program_index": 1
+                                }
+                    }]
+                }
+
+            }
+----
+
+The ns includes the program that is common for all the clients and each client has this json
+
+
+[source, python]
+----
+
+ { "data" : { "name-of-stream" : { "cps": 1.0, "t": "c", "tid": 0, "ipv6": false, "stream": false,"dst" :"239.255.255.250:1900"}} }`
+
+----
+
+in this case there is one stream base of  `tid`  0 (program 0), client side, ipv4, udp, to dest-ip 239.255.255.250:1900 (multicast)
+
+this will create a udp socket evey 1 second and will send one SSDP UDP packet and close the flow
+
+
+[source, python]
+----
+c_ssdp_l7 = r`NOTIFY * HTTP/1.1\r
+HOST: 239.255.255.250:1900\r
+CACHE-CONTROL: max-age=120\r
+lOCATION: http://192.168.1.1:7406/rootDesc.xml\r
+SERVER: UPnP/Tomato 1.28.7500 MIPSR2Toastman-RT K26 USB Ext UPnP/1.0 MiniUPnPd/1.6\r
+NT: upnp:rootdevice\r
+USN: uuid:04645c3d-e6b4-4eea-bd35-5c320c12969f::upnp:rootdevice\r
+NTS: ssdp:alive\r
+OPT: "http://schemas.upnp.org/upnp/1/0/";\r
+01-NLS: 1\r
+BOOTID.UPNP.ORG: 1\r
+CONFIGID.UPNP.ORG: 1337\r
+`
+----
+
+for more information about the json format (ns and client) and capabilities have a look into the SDK and into the tests
+
 === Tutorial: Load TRex server in multi-core
 
 EMU supports multi-core (STL and ASTF) in software mode, where the filter in done by each DP core, similar to BIRD integration.
