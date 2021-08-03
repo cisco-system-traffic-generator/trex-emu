@@ -3092,76 +3092,76 @@ invalidScopeCount*       | 0
 
 === Tutorial: Appsim 
 
-appsim plugin try to mimic the interpreter L7 language instructions from ASTF to simulate application with EMU (instead of ASTF). This way you will get the functionality without the performance. Each client could have about ~250 active flows (UDP/TCP).
+Appsim plugin has similar capabilities like the ASTF L7 interpreter instructions. The objective is to simulate L7 applications. This way you get the functionality but without the performance. Each client could have about ~250 active flows (UDP/TCP).
 
 let's start with a an example that simulate SSDP notification (IPv4/UDP/HTTP header)
 
 [source, python]
+.name space json
 ----
 
         self.def_ns_plugs = {'arp': {'enable': True},
                             'ipv6' : {'dmac':self.mac.V()}
                             'appsim': {
-                    "buf_list": [
-                        "%v", 
-                        "SFRUUC8xLjEgMjAwIE9LDQpTZXJ2ZXI6IE1pY3Jvc29mdC1JSVMvNi4wDQpDb250ZW50LVR5cGU6IHRleHQvaHRtbA0KQ29udGVudC1MZW5ndGg6IDMyMDAwDQoNCjxodG1sPjxwcmU+KioqKioqKioqKjwvcHJlPjwvaHRtbD4="
-                    ],
-                    "tunable_list": [ {"tos":7},{"tos":2,"mss":7}
-                    ],
+                            "buf_list": [
+                                "%v", # replace this with the base64 of the SSDP HTTP text see below  
+                                "SFRUUC8xLjEgMjAwIE9LDQpTZXJ2ZXI6IE1pY3Jvc29mdC1JSVMvNi4wDQpDb250ZW50LVR5cGU6IHRleHQvaHRtbA0KQ29udGVudC1MZW5ndGg6IDMyMDAwDQoNCjxodG1sPjxwcmU+KioqKioqKioqKjwvcHJlPjwvaHRtbD4="
+                            ],
+                            "tunable_list": [ {"tos":7},{"tos":2,"mss":7}
+                            ],
 
-                    "program_list": [
-                        {
-                            "commands": [
+                            "program_list": [
                                 {
-                                    "msec": 10,
-                                    "name": "keepalive"
-                                },				
-                                {
-                                    "buf_index": 0,
-                                    "name": "tx_msg"
-                                }
-                            ]
-                        },
-                        {
-                            "commands": [
-                                {
-                                    "msec": 10,
-                                    "name": "keepalive"
-                                },				
-                                {
-                                    "min_pkts": 1,
-                                    "name": "rx_msg"
+                                    "commands": [
+                                        {
+                                            "msec": 10,
+                                            "name": "keepalive"
+                                        },				
+                                        {
+                                            "buf_index": 0,
+                                            "name": "tx_msg"
+                                        }
+                                    ]
                                 },
                                 {
-                                    "buf_index": 1,
-                                    "name": "tx_msg"
+                                    "commands": [
+                                        {
+                                            "msec": 10,
+                                            "name": "keepalive"
+                                        },				
+                                        {
+                                            "min_pkts": 1,
+                                            "name": "rx_msg"
+                                        },
+                                        {
+                                            "buf_index": 1,
+                                            "name": "tx_msg"
+                                        }
+                                    ]
                                 }
-                            ]
+                            ],
+
+                            "templates": [{
+                                "client_template" :{"program_index": 0,"tunable_index":0,
+                                        "port": 80,
+                                        "cps": 1
+                                    },
+                                "server_template" : {"assoc": [
+                                            {
+                                                "port": 80
+                                            }
+                                        ],
+                                        "program_index": 1
+                                        }
+                            }]
                         }
-                    ],
 
-                    "templates": [{
-                        "client_template" :{"program_index": 0,"tunable_index":0,
-                                "port": 80,
-                                "cps": 1
-                            },
-                        "server_template" : {"assoc": [
-                                    {
-                                        "port": 80
-                                    }
-                                ],
-                                "program_index": 1
-                                }
-                    }]
-                }
-
-            }
 ----
 
-The ns includes the program that is common for all the clients and each client has this json
-
+The namespace includes the program that is common for all the clients and each client has this json
 
 [source, python]
+.per client json
 ----
 
  { "data" : { "name-of-stream" : { "cps": 1.0, "t": "c", "tid": 0, "ipv6": false, "stream": false,"dst" :"239.255.255.250:1900"}} }`
