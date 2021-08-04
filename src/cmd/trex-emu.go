@@ -15,6 +15,7 @@ import (
 
 	"github.com/akamensky/argparse"
 
+	"emu/plugins/appsim"
 	"emu/plugins/arp"
 	"emu/plugins/cdp"
 	dhcp "emu/plugins/dhcpv4"
@@ -53,6 +54,8 @@ func RegisterPlugins(tctx *core.CThreadCtx) {
 	tdl.Register(tctx)
 	transport.Register(tctx)
 	transport_example.Register(tctx)
+	appsim.Register(tctx)
+
 }
 
 type MainArgs struct {
