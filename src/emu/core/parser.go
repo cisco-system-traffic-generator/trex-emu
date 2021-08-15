@@ -92,6 +92,8 @@ type ParserStats struct {
 	igmpBytes             uint64
 	dhcpPkts              uint64
 	dhcpBytes             uint64
+	dhcpSrvPkts           uint64
+	dhcpSrvBytes          uint64
 	mDnsPkts              uint64
 	mDnsBytes             uint64
 	tcpPkts               uint64
@@ -320,6 +322,22 @@ func newParserStatsDb(o *ParserStats) *CCounterDb {
 		Info:     ScINFO})
 
 	db.Add(&CCounterRec{
+		Counter:  &o.dhcpSrvPkts,
+		Name:     "dhcpSrvPkts",
+		Help:     "Dhcp server packets",
+		Unit:     "pkts",
+		DumpZero: false,
+		Info:     ScINFO})
+
+	db.Add(&CCounterRec{
+		Counter:  &o.dhcpSrvBytes,
+		Name:     "dhcpSrvBytes",
+		Help:     "Dhcp server bytes",
+		Unit:     "bytes",
+		DumpZero: false,
+		Info:     ScINFO})
+
+	db.Add(&CCounterRec{
 		Counter:  &o.mDnsPkts,
 		Name:     "mDnsPkts",
 		Help:     "mDns packets",
@@ -488,18 +506,19 @@ type Parser struct {
 
 	stats ParserStats
 	/* call backs */
-	arp    ParserCb
-	icmp   ParserCb
-	igmp   ParserCb
-	dhcp   ParserCb
-	dhcpv6 ParserCb
-	mdns   ParserCb
-	tcp    ParserCb
-	udp    ParserCb
-	icmpv6 ParserCb
-	eapol  ParserCb
-	ppp    ParserCb
-	Cdb    *CCounterDb
+	arp     ParserCb
+	icmp    ParserCb
+	igmp    ParserCb
+	dhcp    ParserCb
+	dhcpsrv ParserCb
+	dhcpv6  ParserCb
+	mdns    ParserCb
+	tcp     ParserCb
+	udp     ParserCb
+	icmpv6  ParserCb
+	eapol   ParserCb
+	ppp     ParserCb
+	Cdb     *CCounterDb
 }
 
 func parserNotSupported(ps *ParserPacketState) int {
@@ -518,6 +537,9 @@ func (o *Parser) Register(protocol string) {
 	}
 	if protocol == "dhcp" {
 		o.dhcp = getProto("dhcp")
+	}
+	if protocol == "dhcpsrv" {
+		o.dhcpsrv = getProto("dhcpsrv")
 	}
 	if protocol == "icmpv6" {
 		o.icmpv6 = getProto("icmpv6")
@@ -548,6 +570,7 @@ func (o *Parser) Init(tctx *CThreadCtx) {
 	o.icmp = parserNotSupported
 	o.igmp = parserNotSupported
 	o.dhcp = parserNotSupported
+	o.dhcpsrv = parserNotSupported
 	o.tcp = parserNotSupported
 	o.udp = parserNotSupported
 	o.icmpv6 = parserNotSupported
@@ -641,9 +664,18 @@ func (o *Parser) parsePacketL4(ps *ParserPacketState,
 			}
 		} else {
 			if (udp.SrcPort() == 67) && (udp.DstPort() == 68) {
+				// S -> C, parse by client
 				o.stats.dhcpPkts++
 				o.stats.dhcpBytes += uint64(packetSize)
 				return o.dhcp(ps)
+			}
+			if udp.DstPort() == 67 && (udp.SrcPort() == 67 || udp.SrcPort() == 68) {
+				// C -> S, parse by server.
+				// If C -> S without relay, the source port is 68.
+				// If C -> S with relay, the relay changes the source port to 67.
+				o.stats.dhcpSrvPkts++
+				o.stats.dhcpSrvBytes += uint64(packetSize)
+				return o.dhcpsrv(ps)
 			}
 		}
 

@@ -28,19 +28,19 @@ The framework has an **event driven architecture**, this way it can scale. The f
 ## Supported protocols
 
 
-| Plugin               | Description            |
-| :---------:          |:-----------------------|
-| ARP                  | RFC 826                |
-| CDP                  | Cisco Delivery Protocol|
-| DHCPv4               | RFC 2131 client side   |
-| DHCPv6               | RFC 8415 client side   |
+| Plugin               | Description               |
+| :---------:          |:------------------------- |
+| ARP                  | RFC 826                   |
+| CDP                  | Cisco Delivery Protocol   |
+| DHCPv4               | RFC 2131 Client & Server  |
+| DHCPv6               | RFC 8415 client side      |
 | DNS                  | Domain Name System, RFC 1034/1035|
 | DOT1X                | EAP-MD5/EAP-MSCHAPv2  RFC 3748/2759, IEEE 802.1X-2001|
 | ICMP                 | RFC 777                |
 | IGMP                 | IGMP v3/v2/v1 RFC3376  |
 | IPv6                 | IPv6 ND, RFC 4443, RFC 4861, RFC 4862 and MLD and MLDv2 RFC 3810|
-| LLDP                 | IEEE 802.1AB
-| mDNS                 | Multicast DNS, RFC 6762
+| LLDP                 | IEEE 802.1AB |
+| mDNS                 | Multicast DNS, RFC 6762 |
 | Netflow              | Netflow v9, RFC 3954 and Netflow v10 (IPFix), RFC 7011 |
 | Transport            | User space TCP (based on BSD, converted to native golang) and UDP |
 | Cisco telemetry TDL  | Simulate TDL from network devices (incomplete) |

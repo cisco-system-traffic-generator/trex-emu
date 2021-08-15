@@ -185,6 +185,12 @@ func (d *DHCPv4) Len() uint16 {
 	return n
 }
 
+// Broadcast indicates if the broadcast bit is on.
+func (d *DHCPv4) Broadcast() bool {
+	// MSB represents broadcast, others bits must be 0.
+	return d.Flags == 0x8000
+}
+
 // SerializeTo writes the serialized form of this layer into the
 // SerializationBuffer, implementing gopacket.SerializableLayer.
 // See the docs for gopacket.SerializableLayer for more info.

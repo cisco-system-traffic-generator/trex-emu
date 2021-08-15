@@ -21,6 +21,7 @@ import (
 	"emu/plugins/arp"
 	"emu/plugins/cdp"
 	dhcp "emu/plugins/dhcpv4"
+	dhcpsrv "emu/plugins/dhcpv4srv"
 	"emu/plugins/dhcpv6"
 	"emu/plugins/dns"
 	"emu/plugins/dot1x"
@@ -41,10 +42,12 @@ const (
 )
 
 func RegisterPlugins(tctx *core.CThreadCtx) {
-	// These are order alphabetically, just like in the imports.
+	// These are ordered alphabetically, just like in the imports.
+	appsim.Register(tctx)
 	arp.Register(tctx)
 	cdp.Register(tctx)
 	dhcp.Register(tctx)
+	dhcpsrv.Register(tctx)
 	dhcpv6.Register(tctx)
 	dns.Register(tctx)
 	dot1x.Register(tctx)
@@ -58,8 +61,6 @@ func RegisterPlugins(tctx *core.CThreadCtx) {
 	ppp.Register(tctx)
 	transport.Register(tctx)
 	transport_example.Register(tctx)
-	appsim.Register(tctx)
-
 }
 
 type MainArgs struct {
