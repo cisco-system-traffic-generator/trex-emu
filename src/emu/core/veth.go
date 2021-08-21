@@ -112,7 +112,7 @@ type VethIF interface {
 	Send(m *Mbuf)
 
 	// SendBuffer get a buffer as input, should allocate mbuf and call send
-	SendBuffer(unicast bool, c *CClient, b []byte)
+	SendBuffer(unicast bool, c *CClient, b []byte, ipv6 bool)
 
 	// get
 	OnRx(m *Mbuf)
@@ -204,26 +204,29 @@ func (o *VethIFSimulator) Send(m *Mbuf) {
 }
 
 // SendBuffer get a buffer as input, should allocate mbuf and call send
-func (o *VethIFSimulator) SendBuffer(unicast bool, c *CClient, b []byte) {
+func (o *VethIFSimulator) SendBuffer(unicast bool, c *CClient, b []byte, ipv6 bool) {
 	var vport uint16
 	vport = c.Ns.GetVport()
 	m := o.tctx.MPool.Alloc(uint16(len(b)))
 	m.SetVPort(vport)
 	m.Append(b)
 	if unicast {
-		if c.DGW == nil {
+		var dgMac MACKey
+		var ok bool
+		if ipv6 {
+			dgMac, ok = c.ResolveIPv6DGMac()
+		} else {
+			dgMac, ok = c.ResolveIPv4DGMac()
+		}
+		if !ok {
 			m.FreeMbuf()
 			o.stats.TxDropNotResolve++
 			return
+		} else {
+			p := m.GetData()
+			copy(p[6:12], c.Mac[:])
+			copy(p[0:6], dgMac[:])
 		}
-		if !c.DGW.IpdgResolved {
-			m.FreeMbuf()
-			o.stats.TxDropNotResolve++
-			return
-		}
-		p := m.GetData()
-		copy(p[6:12], c.Mac[:])
-		copy(p[0:6], c.DGW.IpdgMac[:])
 	}
 	o.Send(m)
 }

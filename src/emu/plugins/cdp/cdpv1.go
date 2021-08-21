@@ -169,7 +169,7 @@ func (o *PluginCdpClient) preparePacketTemplate() {
 func (o *PluginCdpClient) SendCdp() {
 	o.restartTimer(o.timerSec)
 	o.stats.pktTx++
-	o.Tctx.Veth.SendBuffer(false, o.Client, o.pktTemplate)
+	o.Tctx.Veth.SendBuffer(false, o.Client, o.pktTemplate, false)
 }
 
 /*OnEvent support event change of IP  */

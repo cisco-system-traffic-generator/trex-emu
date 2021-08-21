@@ -751,7 +751,7 @@ func (o *PluginArpClient) SendGArp() {
 		o.arpHeader.SetSrcIpAddress(o.Client.Ipv4.Uint32())
 		o.arpHeader.SetDstIpAddress(o.Client.Ipv4.Uint32())
 		o.arpHeader.SetDestAddress([]byte{0, 0, 0, 0, 0, 0})
-		o.Tctx.Veth.SendBuffer(false, o.Client, o.arpPktTemplate)
+		o.Tctx.Veth.SendBuffer(false, o.Client, o.arpPktTemplate, false)
 	} else {
 		//panic("  SendGArp() arp wasn't sent ")
 	}
@@ -764,7 +764,7 @@ func (o *PluginArpClient) SendQuery() {
 		o.arpHeader.SetSrcIpAddress(o.Client.Ipv4.Uint32())
 		o.arpHeader.SetDstIpAddress(o.Client.DgIpv4.Uint32())
 		o.arpHeader.SetDestAddress([]byte{0, 0, 0, 0, 0, 0})
-		o.Tctx.Veth.SendBuffer(false, o.Client, o.arpPktTemplate)
+		o.Tctx.Veth.SendBuffer(false, o.Client, o.arpPktTemplate, false)
 	} else {
 		//panic("  SendQuery() arp wasn't sent ")
 	}
@@ -782,7 +782,7 @@ func (o *PluginArpClient) Respond(arpHeader *layers.ArpHeader) {
 	eth := layers.EthernetHeader(o.arpPktTemplate[0:12])
 
 	eth.SetDestAddress(arpHeader.GetSourceAddress())
-	o.Tctx.Veth.SendBuffer(false, o.Client, o.arpPktTemplate)
+	o.Tctx.Veth.SendBuffer(false, o.Client, o.arpPktTemplate, false)
 	eth.SetBroadcast() /* back to default as broadcast */
 }
 

@@ -504,7 +504,7 @@ func (o *PluginDhcpClient) SendDiscover() {
 	o.cnt = 0
 	o.restartTimer(o.timerDiscoverRetransmitSec)
 	o.stats.pktTxDiscover++
-	o.Tctx.Veth.SendBuffer(false, o.Client, o.discoverPktTemplate)
+	o.Tctx.Veth.SendBuffer(false, o.Client, o.discoverPktTemplate, false)
 }
 
 /*OnEvent support event change of IP  */
@@ -565,7 +565,7 @@ func (o *PluginDhcpClient) SendRenewRebind(rebind bool, release bool, timerSec u
 	o.stats.pktTxRequest++
 
 	o.restartTimer(timerSec)
-	o.Tctx.Veth.SendBuffer(false, o.Client, pkt)
+	o.Tctx.Veth.SendBuffer(false, o.Client, pkt, false)
 }
 
 func (o *PluginDhcpClient) SendReq() {
@@ -588,7 +588,7 @@ func (o *PluginDhcpClient) SendReq() {
 
 	o.stats.pktTxRequest++
 	o.restartTimer(o.timerOfferRetransmitSec)
-	o.Tctx.Veth.SendBuffer(false, o.Client, pkt)
+	o.Tctx.Veth.SendBuffer(false, o.Client, pkt, false)
 }
 
 func convert(ipv4 net.IP) core.Ipv4Key {
