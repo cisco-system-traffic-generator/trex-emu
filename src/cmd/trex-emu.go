@@ -2,6 +2,8 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // that can be found in the LICENSE file in the root of the source
 // tree.
+// August 2021 Eolo S.p.A. and Altran Italia S.p.A.
+// - added Point to Point reference to lines 26 and 44
 package main
 
 import (
@@ -21,6 +23,7 @@ import (
 	"emu/plugins/igmp"
 	"emu/plugins/ipfix"
 	"emu/plugins/ipv6"
+	ppp "emu/plugins/point2point"
 	"emu/plugins/transport"
 	"emu/plugins/transport_example"
 )
@@ -38,6 +41,7 @@ func RegisterPlugins(tctx *core.CThreadCtx) {
 	dhcpv6.Register(tctx)
 	dot1x.Register(tctx)
 	ipfix.Register(tctx)
+	ppp.Register(tctx)
 	transport.Register(tctx)
 	transport_example.Register(tctx)
 }
@@ -49,7 +53,7 @@ type MainArgs struct {
 	capture    *bool
 	monitor    *bool
 	time       *int
-	file       *string
+	file       *string 
 	dummyVeth  *bool
 	vethPort   *int
 	zmqServer  *string

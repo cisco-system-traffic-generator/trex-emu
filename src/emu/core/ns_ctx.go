@@ -2,13 +2,18 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // that can be found in the LICENSE file in the root of the source
 // tree.
+// August 2021 Eolo S.p.A. and Altran Italia S.p.A.
+// - added RandMACKey function at line 630
+// - added String for MACKey at line 652
 
 package core
 
 import (
 	"encoding/binary"
 	"fmt"
+	"math/rand"
 	"net"
+	"time"
 	"unsafe"
 )
 
@@ -620,4 +625,30 @@ func (o *CNSCtx) GetL2Header(broadcast bool, next uint16) []byte {
 	b = append(b, 0, 0)
 	binary.BigEndian.PutUint16(b[len(b)-2:], uint16(next))
 	return b
+}
+
+// RandMACKey generates a random MAC address optionally using seed as first bytes
+func RandMACKey(seed ...byte) MACKey {
+
+	var token []byte
+	var arr [6]byte
+
+	seedLength := len(seed)
+
+	if seedLength > 5 {
+		panic("Base seed cannot be higher than 5 bytes!")
+	}
+	token = make([]byte, 6-seedLength)
+	rand.Seed(time.Now().UTC().UnixNano())
+	rand.Read(token)
+
+	copy(arr[0:seedLength], seed[:])
+	copy(arr[seedLength:], token[:6-seedLength])
+
+	return MACKey(arr)
+}
+
+// (core.MACKey).String is printable version of MAC Address
+func (key MACKey) String() string {
+	return fmt.Sprintf("%02x:%02x:%02x:%02x:%02x:%02x", key[0], key[1], key[2], key[3], key[4], key[5])
 }

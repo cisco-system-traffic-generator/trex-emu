@@ -2,6 +2,8 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // that can be found in the LICENSE file in the root of the source
 // tree.
+// August 2021 Eolo S.p.A. and Altran Italia S.p.A.
+// - modified ApiGetVersionResult object to return value defined at build time at line 132
 
 package core
 
@@ -128,10 +130,10 @@ func (h ApiPingHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessag
 func (h ApiGetVersionHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
 
 	return ApiGetVersionResult{
-		Version:   "v0.1",
-		Builddate: "05.05.2019",
-		Buildtime: "16:00",
-		Buildby:   "hhaim",
+		Version:   BuildVersion,
+		Builddate: BuildDate,
+		Buildtime: BuildTime,
+		Buildby:   BuildBy,
 		Mode:      "emulation",
 	}, nil
 }

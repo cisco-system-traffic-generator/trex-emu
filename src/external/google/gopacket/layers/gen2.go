@@ -3,6 +3,8 @@
 // Use of this source code is governed by a BSD-style license
 // that can be found in the LICENSE file in the root of the source
 // tree.
+// August 2021 Eolo S.p.A. and Altran Italia S.p.A.
+// - added PPP layers generation data at lines from 88 to 90
 
 // +build ignore
 
@@ -83,6 +85,9 @@ func main() {
 		{"IPProtocol", 256},
 		{"SCTPChunkType", 256},
 		{"PPPoECode", 256},
+		{"LCPType", 256},
+		{"PAPType", 256},
+		{"IPCPType", 256},
 		{"FDDIFrameControl", 256},
 		{"EAPOLType", 256},
 		{"ProtocolFamily", 256},

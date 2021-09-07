@@ -2,6 +2,8 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // that can be found in the LICENSE file in the root of the source
 // tree.
+// August 2021 Eolo S.p.A. and Altran Italia S.p.A.
+// - added unit test for PPP and PPPoE packet parsing
 
 package core
 
@@ -28,6 +30,95 @@ func arpSupported(ps *ParserPacketState) int {
 	lastTun = *ps.Tun
 	fmt.Printf("call arp %s\n", ps.Tun.String())
 	return -1
+}
+
+func TestParserDot1Q_PPP(t *testing.T) {
+	tctx := NewThreadCtx(0, 4510, false, nil)
+	var parser Parser
+	parser.tctx = tctx
+	parser.arp = arpSupported
+	m1 := tctx.MPool.Alloc(128)
+
+	buf := gopacket.NewSerializeBuffer()
+	opts := gopacket.SerializeOptions{}
+
+	gopacket.SerializeLayers(buf, opts,
+		&layers.Ethernet{
+			SrcMAC:       net.HardwareAddr{0, 1, 1, 1, 1, 1},
+			DstMAC:       net.HardwareAddr{0, 2, 2, 2, 2, 2},
+			EthernetType: layers.EthernetTypeDot1Q,
+		},
+		&layers.Dot1Q{
+			Priority:       uint8(0),
+			VLANIdentifier: uint16(100),
+			Type:           layers.EthernetTypePPPoEDiscovery,
+		},
+		&layers.PPPoE{
+			Version:   0x1,
+			Type:      0x1,
+			Code:      layers.PPPoECodePADI,
+			SessionID: 0x0000,
+			Length:    0x4, // filled in next line of code
+			Tags: []layers.PPPoEDTag{{
+				Type:   layers.PPPoEDTagTypeServiceName,
+				Length: 0x0000,
+				Value:  []uint8{},
+			}},
+		})
+
+	data := buf.Bytes()
+	m1.Append(data)
+	m1.SetVPort(100)
+	m1.Dump()
+	parser.ParsePacket(m1)
+
+	if parser.stats.errToManyDot1q != 1 {
+		t.Fatalf(" errToManyDot1q should be 1")
+	} else {
+		t.Log("OK")
+	}
+}
+
+func TestParser_PPP(t *testing.T) {
+	tctx := NewThreadCtx(0, 4510, false, nil)
+	var parser Parser
+	parser.tctx = tctx
+	parser.arp = arpSupported
+	m1 := tctx.MPool.Alloc(128)
+
+	buf := gopacket.NewSerializeBuffer()
+	opts := gopacket.SerializeOptions{}
+
+	gopacket.SerializeLayers(buf, opts,
+		&layers.Ethernet{
+			SrcMAC:       net.HardwareAddr{0, 1, 1, 1, 1, 1},
+			DstMAC:       net.HardwareAddr{0, 2, 2, 2, 2, 2},
+			EthernetType: layers.EthernetTypePPPoEDiscovery,
+		},
+		&layers.PPPoE{
+			Version:   0x1,
+			Type:      0x1,
+			Code:      layers.PPPoECodePADI,
+			SessionID: 0x0000,
+			Length:    0x4, // filled in next line of code
+			Tags: []layers.PPPoEDTag{{
+				Type:   layers.PPPoEDTagTypeServiceName,
+				Length: 0x0000,
+				Value:  []uint8{},
+			}},
+		})
+
+	data := buf.Bytes()
+	m1.Append(data)
+	m1.SetVPort(0)
+	m1.Dump()
+	parser.ParsePacket(m1)
+
+	if parser.stats.errToManyDot1q != 1 {
+		t.Fatalf(" errToManyDot1q should be 1")
+	} else {
+		t.Log("OK")
+	}
 }
 
 func TestParserArp(t *testing.T) {

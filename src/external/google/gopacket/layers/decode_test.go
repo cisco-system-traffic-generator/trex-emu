@@ -4,6 +4,8 @@
 // Use of this source code is governed by a BSD-style license
 // that can be found in the LICENSE file in the root of the source
 // tree.
+// August 2021 Eolo S.p.A. and Altran Italia S.p.A.
+// - removed broken code into TCP object at line 434
 
 package layers
 
@@ -436,8 +438,6 @@ func TestDecodeSimpleTCPPacket(t *testing.T) {
 			Seq:        0xc57e0e48,
 			Ack:        0x49074232,
 			DataOffset: 8,
-			ACK:        true,
-			PSH:        true,
 			Window:     0x73,
 			Checksum:   0x9a8f,
 			Urgent:     0,

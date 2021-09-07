@@ -3,6 +3,8 @@
 // Use of this source code is governed by a BSD-style license
 // that can be found in the LICENSE file in the root of the source
 // tree.
+// August 2021 Eolo S.p.A. and Altran Italia S.p.A.
+// - added PPP layers type anchors at lines from 152 to 154
 
 package layers
 
@@ -146,7 +148,10 @@ var (
 	LayerTypeRMCP                         = gopacket.RegisterLayerType(142, gopacket.LayerTypeMetadata{Name: "RMCP", Decoder: gopacket.DecodeFunc(decodeRMCP)})
 	LayerTypeASF                          = gopacket.RegisterLayerType(143, gopacket.LayerTypeMetadata{Name: "ASF", Decoder: gopacket.DecodeFunc(decodeASF)})
 	LayerTypeASFPresencePong              = gopacket.RegisterLayerType(144, gopacket.LayerTypeMetadata{Name: "ASFPresencePong", Decoder: gopacket.DecodeFunc(decodeASFPresencePong)})
-	LayerTypeIPFix              		  = gopacket.RegisterLayerType(145, gopacket.LayerTypeMetadata{Name: "IPFix", Decoder: gopacket.DecodeFunc(decodeIPFix)})
+	LayerTypeIPFix                        = gopacket.RegisterLayerType(145, gopacket.LayerTypeMetadata{Name: "IPFix", Decoder: gopacket.DecodeFunc(decodeIPFix)})
+	LayerTypeLCP                          = gopacket.RegisterLayerType(146, gopacket.LayerTypeMetadata{Name: "LCP", Decoder: gopacket.DecodeFunc(decodeLCP)})
+	LayerTypePAP                          = gopacket.RegisterLayerType(147, gopacket.LayerTypeMetadata{Name: "PAP", Decoder: gopacket.DecodeFunc(decodePAP)})
+	LayerTypeIPCP                         = gopacket.RegisterLayerType(148, gopacket.LayerTypeMetadata{Name: "IPCP", Decoder: gopacket.DecodeFunc(decodeIPCP)})
 )
 
 var (
