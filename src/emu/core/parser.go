@@ -780,12 +780,18 @@ func (o *Parser) ParsePacket(m *Mbuf) int {
 			valnIndex++
 			nextHdr = layers.EthernetType(binary.BigEndian.Uint16(p[offset+2 : offset+4]))
 			if nextHdr == layers.EthernetTypePPPoEDiscovery || nextHdr == layers.EthernetTypePPPoESession {
+				fmt.Printf("333 \n")
 				tun.Set(&d)
+				fmt.Printf("444 \n")
 				return o.ppp(&ps)
 			}
 			offset += 4
 		case layers.EthernetTypePPPoEDiscovery, layers.EthernetTypePPPoESession:
+			fmt.Printf("111 \n")
 			tun.Set(&d)
+			fmt.Printf("2 \n")
+
+			fmt.Printf(" %p \n", o.ppp)
 			return o.ppp(&ps)
 		case layers.EthernetTypeIPv4:
 			ps.L3 = offset
