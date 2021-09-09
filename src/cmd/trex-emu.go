@@ -2,6 +2,8 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // that can be found in the LICENSE file in the root of the source
 // tree.
+// August 2021 Eolo S.p.A. and Altran Italia S.p.A.
+// - added Point to Point reference to lines 26 and 44
 package main
 
 import (
@@ -28,6 +30,7 @@ import (
 	"emu/plugins/ipv6"
 	"emu/plugins/lldp"
 	"emu/plugins/mdns"
+	ppp "emu/plugins/point2point"
 	"emu/plugins/tdl"
 	"emu/plugins/transport"
 	"emu/plugins/transport_example"
@@ -52,6 +55,7 @@ func RegisterPlugins(tctx *core.CThreadCtx) {
 	lldp.Register(tctx)
 	mdns.Register(tctx)
 	tdl.Register(tctx)
+	ppp.Register(tctx)
 	transport.Register(tctx)
 	transport_example.Register(tctx)
 	appsim.Register(tctx)
@@ -92,7 +96,6 @@ func printVersion() {
 	fmt.Printf("Date             : %s \n", version.Date)
 	fmt.Printf("Git SHA          : %s \n", version.GitSha)
 	fmt.Println()
-
 }
 
 func parseMainArgs() *MainArgs {

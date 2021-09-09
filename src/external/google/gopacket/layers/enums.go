@@ -4,6 +4,9 @@
 // Use of this source code is governed by a BSD-style license
 // that can be found in the LICENSE file in the root of the source
 // tree.
+// August 2021 Eolo S.p.A. and Altran Italia S.p.A.
+// - added constant PPP Type at lines from 161 to 163
+// - added decode method anchors at lines from 377 to 379
 
 package layers
 
@@ -155,6 +158,9 @@ const (
 	PPPTypeIPv6          PPPType = 0x0057
 	PPPTypeMPLSUnicast   PPPType = 0x0281
 	PPPTypeMPLSMulticast PPPType = 0x0283
+	PPPTypeLCP           PPPType = 0xc021
+	PPPTypeIPCP          PPPType = 0x8021
+	PPPTypePAP           PPPType = 0xc023
 )
 
 // SCTPChunkType is an enumeration of chunk types inside SCTP packets.
@@ -367,6 +373,10 @@ func initActualTypeData() {
 	PPPTypeMetadata[PPPTypeIPv6] = EnumMetadata{DecodeWith: gopacket.DecodeFunc(decodeIPv6), Name: "IPv6"}
 	PPPTypeMetadata[PPPTypeMPLSUnicast] = EnumMetadata{DecodeWith: gopacket.DecodeFunc(decodeMPLS), Name: "MPLSUnicast"}
 	PPPTypeMetadata[PPPTypeMPLSMulticast] = EnumMetadata{DecodeWith: gopacket.DecodeFunc(decodeMPLS), Name: "MPLSMulticast"}
+
+	PPPTypeMetadata[PPPTypeLCP] = EnumMetadata{DecodeWith: gopacket.DecodeFunc(decodeLCP), Name: "LCP"}
+	PPPTypeMetadata[PPPTypePAP] = EnumMetadata{DecodeWith: gopacket.DecodeFunc(decodePAP), Name: "PAP"}
+	PPPTypeMetadata[PPPTypeIPCP] = EnumMetadata{DecodeWith: gopacket.DecodeFunc(decodeIPCP), Name: "IPCP"}
 
 	PPPoECodeMetadata[PPPoECodeSession] = EnumMetadata{DecodeWith: gopacket.DecodeFunc(decodePPP), Name: "PPP"}
 

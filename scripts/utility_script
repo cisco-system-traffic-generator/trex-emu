@@ -15,6 +15,31 @@ if [[ $1 == "build" ]]; then
     cd $GOPATH/src
     go install $2 cmd/trex-emu.go
 
+elif [[ $1 == "release" ]]; then
+
+    VERSION=`git rev-parse --verify HEAD`
+    DATE=`date +%d.%m.%Y`
+    TIME=`date +%H:%M`
+
+    VERSION_FILE=$GOPATH/src/emu/core/version.go
+    # cleanup previous status (if present)
+    git checkout $VERSION_FILE
+    sed -i "s/BuildVersion string = \"*.\"/BuildVersion string = \"${VERSION}\"/g" $VERSION_FILE
+    sed -i "s/BuildDate    string = \"*.\"/BuildDate    string = \"${DATE}\"/g" $VERSION_FILE
+    sed -i "s/BuildTime    string = \"*.\"/BuildTime    string = \"${TIME}\"/g" $VERSION_FILE
+    sed -i "s/BuildBy      string = \"*.\"/BuildBy      string = \"${USER}\"/g" $VERSION_FILE
+
+    GC_FLAGS='all=-N -l'
+
+    cd $GOPATH/src
+    BUILD_CMD="go install "$2" -gcflags=\"${GC_FLAGS}\" cmd/trex-emu.go"
+    #function myecho { echo " \"'$@'\""; }
+    #myecho "$BUILD_CMD"
+    #exit 0
+    eval "${BUILD_CMD}"
+    # cleanup version file modification
+    git checkout $VERSION_FILE
+
 elif [[ $1 == "test" ]]; then
 
     cd $GOPATH/src
@@ -41,6 +66,6 @@ elif [[ $1 == "clean" ]]; then
         go clean -modcache -cache $2
     fi
 else
-    echo "Unknown command: $1, Please provide one of: build, test or clean."
+    echo "Unknown command: $1, Please provide one of: release, build, test or clean."
     exit 1
 fi

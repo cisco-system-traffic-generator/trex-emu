@@ -2,6 +2,11 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // that can be found in the LICENSE file in the root of the source
 // tree.
+// August 2021 Eolo S.p.A. and Altran Italia S.p.A.
+// - added reference to ppp parser at line 476
+// - modify if logic into function parserNotSupported at line 506
+// - modify Init method at line 525
+// - modify ParsePacket method at line 668
 
 package core
 
@@ -493,6 +498,7 @@ type Parser struct {
 	udp    ParserCb
 	icmpv6 ParserCb
 	eapol  ParserCb
+	ppp    ParserCb
 	Cdb    *CCounterDb
 }
 
@@ -526,6 +532,10 @@ func (o *Parser) Register(protocol string) {
 		o.mdns = getProto("mdns")
 	}
 
+	if protocol == "ppp" {
+		o.ppp = getProto("ppp")
+	}
+
 	if protocol == "transport" {
 		o.tcp = getProto("transport")
 		o.udp = getProto("transport")
@@ -543,6 +553,7 @@ func (o *Parser) Init(tctx *CThreadCtx) {
 	o.icmpv6 = parserNotSupported
 	o.dhcpv6 = parserNotSupported
 	o.mdns = parserNotSupported
+	o.ppp = parserNotSupported
 	o.Cdb = newParserStatsDb(&o.stats)
 }
 
@@ -768,7 +779,14 @@ func (o *Parser) ParsePacket(m *Mbuf) int {
 			d.Vlans[valnIndex] = val
 			valnIndex++
 			nextHdr = layers.EthernetType(binary.BigEndian.Uint16(p[offset+2 : offset+4]))
+			if nextHdr == layers.EthernetTypePPPoEDiscovery || nextHdr == layers.EthernetTypePPPoESession {
+				tun.Set(&d)
+				return o.ppp(&ps)
+			}
 			offset += 4
+		case layers.EthernetTypePPPoEDiscovery, layers.EthernetTypePPPoESession:
+			tun.Set(&d)
+			return o.ppp(&ps)
 		case layers.EthernetTypeIPv4:
 			ps.L3 = offset
 			if packetSize < uint32(offset+20) {

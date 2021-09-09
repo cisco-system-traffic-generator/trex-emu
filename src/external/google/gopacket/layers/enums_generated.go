@@ -3,7 +3,7 @@
 package layers
 
 // Created by gen2.go, don't edit manually
-// Generated at 2017-10-23 10:20:24.458771856 -0600 MDT m=+0.001159033
+// Generated at 2020-09-05 01:43:22.2627222 +0200 DST m=+0.003340001
 
 import (
 	"fmt"
@@ -18,6 +18,9 @@ func init() {
 	initUnknownTypesForIPProtocol()
 	initUnknownTypesForSCTPChunkType()
 	initUnknownTypesForPPPoECode()
+	initUnknownTypesForLCPType()
+	initUnknownTypesForPAPType()
+	initUnknownTypesForIPCPType()
 	initUnknownTypesForFDDIFrameControl()
 	initUnknownTypesForEAPOLType()
 	initUnknownTypesForProtocolFamily()
@@ -244,6 +247,117 @@ func initUnknownTypesForPPPoECode() {
 		PPPoECodeMetadata[i] = EnumMetadata{
 			DecodeWith: &errorDecodersForPPPoECode[i],
 			Name:       "UnknownPPPoECode",
+		}
+	}
+}
+
+// Decoder calls LCPTypeMetadata.DecodeWith's decoder.
+func (a LCPType) Decode(data []byte, p gopacket.PacketBuilder) error {
+	return LCPTypeMetadata[a].DecodeWith.Decode(data, p)
+}
+
+// String returns LCPTypeMetadata.Name.
+func (a LCPType) String() string {
+	return LCPTypeMetadata[a].Name
+}
+
+// LayerType returns LCPTypeMetadata.LayerType.
+func (a LCPType) LayerType() gopacket.LayerType {
+	return LCPTypeMetadata[a].LayerType
+}
+
+type errorDecoderForLCPType int
+
+func (a *errorDecoderForLCPType) Decode(data []byte, p gopacket.PacketBuilder) error {
+	return a
+}
+func (a *errorDecoderForLCPType) Error() string {
+	return fmt.Sprintf("Unable to decode LCPType %d", int(*a))
+}
+
+var errorDecodersForLCPType [256]errorDecoderForLCPType
+var LCPTypeMetadata [256]EnumMetadata
+
+func initUnknownTypesForLCPType() {
+	for i := 0; i < 256; i++ {
+		errorDecodersForLCPType[i] = errorDecoderForLCPType(i)
+		LCPTypeMetadata[i] = EnumMetadata{
+			DecodeWith: &errorDecodersForLCPType[i],
+			Name:       "UnknownLCPType",
+		}
+	}
+}
+
+// Decoder calls PAPTypeMetadata.DecodeWith's decoder.
+func (a PAPType) Decode(data []byte, p gopacket.PacketBuilder) error {
+	return PAPTypeMetadata[a].DecodeWith.Decode(data, p)
+}
+
+// String returns PAPTypeMetadata.Name.
+func (a PAPType) String() string {
+	return PAPTypeMetadata[a].Name
+}
+
+// LayerType returns PAPTypeMetadata.LayerType.
+func (a PAPType) LayerType() gopacket.LayerType {
+	return PAPTypeMetadata[a].LayerType
+}
+
+type errorDecoderForPAPType int
+
+func (a *errorDecoderForPAPType) Decode(data []byte, p gopacket.PacketBuilder) error {
+	return a
+}
+func (a *errorDecoderForPAPType) Error() string {
+	return fmt.Sprintf("Unable to decode PAPType %d", int(*a))
+}
+
+var errorDecodersForPAPType [256]errorDecoderForPAPType
+var PAPTypeMetadata [256]EnumMetadata
+
+func initUnknownTypesForPAPType() {
+	for i := 0; i < 256; i++ {
+		errorDecodersForPAPType[i] = errorDecoderForPAPType(i)
+		PAPTypeMetadata[i] = EnumMetadata{
+			DecodeWith: &errorDecodersForPAPType[i],
+			Name:       "UnknownPAPType",
+		}
+	}
+}
+
+// Decoder calls IPCPTypeMetadata.DecodeWith's decoder.
+func (a IPCPType) Decode(data []byte, p gopacket.PacketBuilder) error {
+	return IPCPTypeMetadata[a].DecodeWith.Decode(data, p)
+}
+
+// String returns IPCPTypeMetadata.Name.
+func (a IPCPType) String() string {
+	return IPCPTypeMetadata[a].Name
+}
+
+// LayerType returns IPCPTypeMetadata.LayerType.
+func (a IPCPType) LayerType() gopacket.LayerType {
+	return IPCPTypeMetadata[a].LayerType
+}
+
+type errorDecoderForIPCPType int
+
+func (a *errorDecoderForIPCPType) Decode(data []byte, p gopacket.PacketBuilder) error {
+	return a
+}
+func (a *errorDecoderForIPCPType) Error() string {
+	return fmt.Sprintf("Unable to decode IPCPType %d", int(*a))
+}
+
+var errorDecodersForIPCPType [256]errorDecoderForIPCPType
+var IPCPTypeMetadata [256]EnumMetadata
+
+func initUnknownTypesForIPCPType() {
+	for i := 0; i < 256; i++ {
+		errorDecodersForIPCPType[i] = errorDecoderForIPCPType(i)
+		IPCPTypeMetadata[i] = EnumMetadata{
+			DecodeWith: &errorDecodersForIPCPType[i],
+			Name:       "UnknownIPCPType",
 		}
 	}
 }
