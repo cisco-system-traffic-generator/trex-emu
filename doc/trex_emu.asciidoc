@@ -1491,7 +1491,18 @@ addresses and exploit a Denial of Service attack. Use with care!
 
 - The server can be specified a default lease time to provide its clients with. It can also be provided with a minimal and maximal possible lease time so that clients requesting a specific lease time can be granted that lease iff the requested lease time is within the bounds of minimal and maximal possible lease.
 
-- The server supports multiple pools/scopes. Each pool must be passed in a CIDR format. Also, we can specify a list of IPv4 to exclude from the pool in case of static addresses or addresses already in use by the default gateway.
+- The server supports multiple pools/scopes. Each pool is represented by a range [min-max] and a subnet mask given as a prefix. Also, we can specify a list of IPv4 to exclude from the pool in case of static addresses or addresses already in use by the default gateway.
+
+[WARNING]
+=====================================================================
+Two different pools cannot be in the same subnet. If two pools share the same subnet, with the current implementation we will always offer an IP from the first pool in the list.
+=====================================================================
+
+[NOTE]
+=====================================================================
+No need to worry about Network Id and Broadcast Id addresses, the 
+implementation handles it by skipping these addresses.
+=====================================================================
 
 - Lastly, the server can be provided with a list of options for each type of response it sends. Note however that you mustn't provide options that are forbidden for that type of response.
 
@@ -1512,16 +1523,21 @@ A configuration of a DHCPv4 Server looks like this:
             "next_server_ip": "1.1.1.2"                     <4>
             "pools": [                                      <5>
                 {
-                    "subnet": "1.1.2.0/24",
+                    "min": "1.1.2.0",
+                    "max": "1.1.2.255",
+                    "prefix": 24,
                     "exclude": ["1.1.2.1", "1.1.2.2"]       <6>
                 },
                 {
-                    "subnet": "1.1.100.0/24",
+                    "min": "1.1.100.0",
+                    "max": "1.1.100.255",
+                    "prefix": 24,
                     "exclude": ["1.1.100.1"]
                 },
                 {
-                    "subnet": "1.1.200.0/24",
-                    "exclude": ["1.1.200.1"]
+                    "min": "1.1.200.2",
+                    "max": "1.1.200.255",
+                    "prefix": 24,
                 }
             ],
             "options": {

@@ -36,10 +36,12 @@ const (
 
 func TestIpv4PoolSmall(t *testing.T) {
 	cidr := "192.168.0.0/29"
+	min := core.Ipv4Key{192, 168, 0, 0}
+	max := core.Ipv4Key{192, 168, 0, 7}
 	excludedIPv4 := []core.Ipv4Key{core.Ipv4Key{192, 168, 0, 1}}
 
 	_, ipNet, _ := net.ParseCIDR(cidr)
-	pool := CreateIpv4Pool(ipNet, excludedIPv4)
+	pool := CreateIpv4Pool(ipNet, min, max, excludedIPv4)
 
 	subnet := core.Ipv4Key{255, 255, 255, 248}
 	if pool.GetSubnetMask() != subnet {
@@ -78,7 +80,7 @@ func TestIpv4PoolSmall(t *testing.T) {
 	// Attempt to add excluded
 	ok = pool.AddFirst(core.Ipv4Key{192, 168, 0, 1})
 	if ok {
-		t.Error("Added an Ipv4 that doesn't belong to subnet!")
+		t.Error("Added an Ipv4 that doesn't belong to subnet or excluded!")
 		t.FailNow()
 	}
 
@@ -92,10 +94,12 @@ func TestIpv4PoolSmall(t *testing.T) {
 
 func TestIpv4PoolMedium(t *testing.T) {
 	cidr := "192.168.0.0/24"
+	min := core.Ipv4Key{192, 168, 0, 0}
+	max := core.Ipv4Key{192, 168, 0, 255}
 	excludedIPv4 := []core.Ipv4Key{core.Ipv4Key{192, 168, 0, 1}}
 
 	_, ipNet, _ := net.ParseCIDR(cidr)
-	pool := CreateIpv4Pool(ipNet, excludedIPv4)
+	pool := CreateIpv4Pool(ipNet, min, max, excludedIPv4)
 
 	subnet := core.Ipv4Key{255, 255, 255, 0}
 	if pool.GetSubnetMask() != subnet {
@@ -127,12 +131,72 @@ func TestIpv4PoolMedium(t *testing.T) {
 	}
 }
 
+func TestIpv4PoolMediumRange(t *testing.T) {
+	cidr := "192.168.0.0/24"
+	min := core.Ipv4Key{192, 168, 0, 50}
+	max := core.Ipv4Key{192, 168, 0, 100}
+
+	_, ipNet, _ := net.ParseCIDR(cidr)
+	pool := CreateIpv4Pool(ipNet, min, max, []core.Ipv4Key{})
+
+	subnet := core.Ipv4Key{255, 255, 255, 0}
+	if pool.GetSubnetMask() != subnet {
+		t.Errorf("Invalid subnet mask, want %v and have %v\n", subnet, pool.GetSubnetMask())
+		t.FailNow()
+	}
+
+	if pool.Empty() {
+		t.Error("Pool Should not be Empty, and is.")
+		t.FailNow()
+	}
+
+	if pool.Contains(core.Ipv4Key{192, 168, 0, 49}) {
+		t.Error("Pool contains invalid address 192.168.0.49!")
+		t.FailNow()
+	}
+
+	if pool.Contains(core.Ipv4Key{192, 168, 0, 101}) {
+		t.Error("Pool contains invalid address 192.168.0.101!")
+		t.FailNow()
+	}
+
+	if pool.canAdd(core.Ipv4Key{192, 168, 0, 49}) {
+		t.Error("Can Add invalid address 192.168.0.49 to pool!")
+		t.FailNow()
+	}
+
+	if pool.canAdd(core.Ipv4Key{192, 168, 0, 101}) {
+		t.Error("Can Add invalid address 192.168.0.101 to pool!")
+		t.FailNow()
+	}
+
+	requestedIp := core.Ipv4Key{192, 168, 0, 120}
+	ok := pool.GetEntry(requestedIp)
+	if ok {
+		t.Error("Can Request invalid address 192.168.0.120 from pool!")
+		t.FailNow()
+	}
+
+	requestedIp = core.Ipv4Key{192, 168, 0, 55}
+	ok = pool.GetEntry(requestedIp)
+	if ok {
+		// Requested Ip was provided, let's request it again
+		if pool.GetEntry(requestedIp) {
+			t.Errorf("Ipv4 %v was provided twice simultaneously!", requestedIp)
+			t.FailNow()
+		}
+	}
+
+}
+
 func TestIpv4PoolLarge(t *testing.T) {
 	cidr := "10.0.0.0/16"
+	min := core.Ipv4Key{10, 0, 0, 0}
+	max := core.Ipv4Key{10, 0, 255, 255}
 	excludedIPv4 := []core.Ipv4Key{core.Ipv4Key{10, 0, 1, 1}}
 
 	_, ipNet, _ := net.ParseCIDR(cidr)
-	pool := CreateIpv4Pool(ipNet, excludedIPv4)
+	pool := CreateIpv4Pool(ipNet, min, max, excludedIPv4)
 
 	subnet := core.Ipv4Key{255, 255, 0, 0}
 	if pool.GetSubnetMask() != subnet {
@@ -175,6 +239,69 @@ func TestIpv4PoolLarge(t *testing.T) {
 
 	if pool.AddLast(core.Ipv4Key{10, 1, 0, 1}) {
 		t.Errorf("Ipv4 not in subnet was added to the pool!")
+		t.FailNow()
+	}
+}
+
+func TestIpv4PoolLargeRange(t *testing.T) {
+	cidr := "10.0.0.0/16"
+	min := core.Ipv4Key{10, 0, 0, 0}
+	max := core.Ipv4Key{10, 0, 2, 255}
+	excludedIPv4 := []core.Ipv4Key{core.Ipv4Key{10, 0, 1, 1}}
+
+	_, ipNet, _ := net.ParseCIDR(cidr)
+	pool := CreateIpv4Pool(ipNet, min, max, excludedIPv4)
+
+	subnet := core.Ipv4Key{255, 255, 0, 0}
+	if pool.GetSubnetMask() != subnet {
+		t.Errorf("Invalid subnet mask, want %v and have %v\n", subnet, pool.GetSubnetMask())
+		t.FailNow()
+	}
+
+	if pool.Empty() {
+		t.Error("Pool should not be Empty, and is.")
+		t.FailNow()
+	}
+
+	if pool.Contains(core.Ipv4Key{10, 0, 3, 0}) {
+		t.Error("Pool contains invalid address 10.0.3.0!")
+		t.FailNow()
+	}
+
+	if !pool.Contains(core.Ipv4Key{10, 0, 0, 0}) {
+		t.Error("Pool doesn't contain valid address 10.0.0.0!")
+		t.FailNow()
+	}
+
+	if !pool.Contains(core.Ipv4Key{10, 0, 2, 255}) {
+		t.Error("Pool doesn't contain valid address 10.0.2.255!")
+		t.FailNow()
+	}
+
+	if pool.canAdd(core.Ipv4Key{10, 0, 3, 1}) {
+		t.Error("Can Add invalid address 10.0.3.1 to pool!")
+		t.FailNow()
+	}
+
+	requestedIp := core.Ipv4Key{10, 0, 0, 0}
+	ok := pool.GetEntry(requestedIp)
+	if ok {
+		t.Error("Can Request invalid address 10.0.0.0 from pool!")
+		t.FailNow()
+	}
+
+	// 768 entries in the pool - 1 for networkId, - 1 for excluded
+	for i := 0; i < 766; i++ {
+		_, _ = pool.GetFirst()
+	}
+	// Pool Should be Empty
+	if !pool.Empty() {
+		t.Error("Pool should be Empty, and is not!")
+		t.FailNow()
+	}
+
+	if pool.AddLast(core.Ipv4Key{10, 1, 0, 1}) {
+		t.Errorf("Excluded Ipv4 was added to the pool!")
 		t.FailNow()
 	}
 }
@@ -776,7 +903,9 @@ func TestPluginDhcpSrv1(t *testing.T) {
 	initJson1 := [][]byte{[]byte(`{
 		"pools": [
 			{
-				"subnet": "16.0.0.0/24",
+				"min": "16.0.0.0",
+				"max": "16.0.0.255",
+				"prefix": 24,
 				"exclude": ["16.0.0.1"]
 			}
 		]
@@ -808,7 +937,9 @@ func TestPluginDhcpSrv2(t *testing.T) {
 	initJson1 := [][]byte{[]byte(`{
 		"pools": [
 			{
-				"subnet": "16.0.0.0/24",
+				"min": "16.0.0.0",
+				"max": "16.0.0.255",
+				"prefix": 24,
 				"exclude": ["16.0.0.1"]
 			}
 		]
@@ -840,7 +971,9 @@ func TestPluginDhcpSrv3(t *testing.T) {
 	initJson1 := [][]byte{[]byte(`{
 		"pools": [
 			{
-				"subnet": "48.0.0.0/28",
+				"min": "48.0.0.0",
+				"max": "48.0.0.15",
+				"prefix": 28,
 				"exclude": ["48.0.0.1"]
 			}
 		]
@@ -872,7 +1005,9 @@ func TestPluginDhcpSrv4(t *testing.T) {
 	initJson1 := [][]byte{[]byte(`{
 		"pools": [
 			{
-				"subnet": "48.0.0.0/28",
+				"min": "48.0.0.0",
+				"max": "48.0.0.15",
+				"prefix": 28,
 				"exclude": ["48.0.0.1"]
 			}
 		]
@@ -905,7 +1040,9 @@ func TestPluginDhcpSrv5(t *testing.T) {
 	initJson1 := [][]byte{[]byte(`{
 		"pools": [
 			{
-				"subnet": "16.0.0.0/24",
+				"min": "16.0.0.0",
+				"max": "16.0.0.255",
+				"prefix": 24,
 				"exclude": ["16.0.0.1"]
 			}
 		],
@@ -940,7 +1077,9 @@ func TestPluginDhcpSrv6(t *testing.T) {
 	initJson1 := [][]byte{[]byte(`{
 		"pools": [
 			{
-				"subnet": "16.0.0.0/24",
+				"min": "16.0.0.0",
+				"max": "16.0.0.255",
+				"prefix": 24,
 				"exclude": ["16.0.0.1"]
 			}
 		],
@@ -990,7 +1129,9 @@ func TestPluginDhcpSrv7(t *testing.T) {
 	initJson1 := [][]byte{[]byte(`{
 		"pools": [
 			{
-				"subnet": "16.0.0.0/28",
+				"min": "16.0.0.0",
+				"max": "16.0.0.15",
+				"prefix": 28,
 				"exclude": ["16.0.0.1"]
 			}
 		],
@@ -1041,7 +1182,9 @@ func TestPluginDhcpSrv8(t *testing.T) {
 	initJson1 := [][]byte{[]byte(`{
 		"pools": [
 			{
-				"subnet": "48.0.0.0/24",
+				"min": "48.0.0.0",
+				"max": "48.0.0.255",
+				"prefix": 24,
 				"exclude": ["48.0.0.1"]
 			}
 		],
@@ -1092,7 +1235,9 @@ func TestPluginDhcpSrv9(t *testing.T) {
 	initJson1 := [][]byte{[]byte(`{
 		"pools": [
 			{
-				"subnet": "16.0.0.0/24",
+				"min": "16.0.0.0",
+				"max": "16.0.0.255",
+				"prefix": 24,
 				"exclude": ["16.0.0.1"]
 			}
 		],
@@ -1143,7 +1288,9 @@ func TestPluginDhcpSrv10(t *testing.T) {
 	initJson1 := [][]byte{[]byte(`{
 		"pools": [
 			{
-				"subnet": "16.0.0.0/24",
+				"min": "16.0.0.0",
+				"max": "16.0.0.255",
+				"prefix": 24,
 				"exclude": ["16.0.0.1"]
 			}
 		],
@@ -1199,7 +1346,9 @@ func TestPluginDhcpSrv11(t *testing.T) {
 	initJson1 := [][]byte{[]byte(`{
 		"pools": [
 			{
-				"subnet": "16.0.0.0/24",
+				"min": "16.0.0.0",
+				"max": "16.0.0.255",
+				"prefix": 24,
 				"exclude": ["16.0.0.1"]
 			}
 		],
@@ -1255,7 +1404,9 @@ func TestPluginDhcpSrv12(t *testing.T) {
 	initJson1 := [][]byte{[]byte(`{
 		"pools": [
 			{
-				"subnet": "48.0.0.0/24",
+				"min": "48.0.0.0",
+				"max": "48.0.0.255",
+				"prefix": 24,
 				"exclude": ["48.0.0.1"]
 			}
 		],
@@ -1320,7 +1471,9 @@ func TestPluginDhcpSrv13(t *testing.T) {
 	initJson1 := [][]byte{[]byte(`{
 		"pools": [
 			{
-				"subnet": "48.0.0.0/24",
+				"min": "48.0.0.0",
+				"max": "48.0.0.255",
+				"prefix": 24,
 				"exclude": ["48.0.0.1"]
 			}
 		],
@@ -1384,7 +1537,9 @@ func TestPluginDhcpSrv14(t *testing.T) {
 	initJson1 := [][]byte{[]byte(`{
 		"pools": [
 			{
-				"subnet": "16.0.0.0/24",
+				"min": "16.0.0.0",
+				"max": "16.0.0.255",
+				"prefix": 24,
 				"exclude": ["16.0.0.1"]
 			}
 		]
@@ -1418,7 +1573,9 @@ func TestPluginDhcpSrv15(t *testing.T) {
 	initJson1 := [][]byte{[]byte(`{
 		"pools": [
 			{
-				"subnet": "48.0.0.0/24",
+				"min": "48.0.0.0",
+				"max": "48.0.0.255",
+				"prefix": 24,
 				"exclude": ["48.0.0.1"]
 			}
 		]
@@ -1453,7 +1610,9 @@ func TestPluginDhcpSrv16(t *testing.T) {
 	initJson1 := [][]byte{[]byte(`{
 		"pools": [
 			{
-				"subnet": "16.0.0.0/24",
+				"min": "16.0.0.0",
+				"max": "16.0.0.255",
+				"prefix": 24,
 				"exclude": ["16.0.0.1"]
 			}
 		],
@@ -1509,7 +1668,9 @@ func TestPluginDhcpSrv17(t *testing.T) {
 	initJson1 := [][]byte{[]byte(`{
 		"pools": [
 			{
-				"subnet": "48.0.0.0/24",
+				"min": "48.0.0.0",
+				"max": "48.0.0.255",
+				"prefix": 24,
 				"exclude": ["48.0.0.1"]
 			}
 		],
@@ -1566,7 +1727,9 @@ func TestPluginDhcpSrv19(t *testing.T) {
 	initJson1 := [][]byte{[]byte(`{
 		"pools": [
 			{
-				"subnet": "16.0.0.0/24",
+				"min": "16.0.0.0",
+				"max": "16.0.0.255",
+				"prefix": 24,
 				"exclude": ["16.0.0.1"]
 			}
 		],
@@ -1623,7 +1786,9 @@ func TestPluginDhcpSrv18(t *testing.T) {
 	initJson1 := [][]byte{[]byte(`{
 		"pools": [
 			{
-				"subnet": "16.0.0.0/24",
+				"min": "16.0.0.0",
+				"max": "16.0.0.255",
+				"prefix": 24,
 				"exclude": ["16.0.0.1"]
 			}
 		],

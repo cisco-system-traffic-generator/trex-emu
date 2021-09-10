@@ -338,21 +338,28 @@ type Ipv4Pool struct {
 	ipNet        *net.IPNet                      // Subnet
 	head         core.DList                      // Head pointer to double linked list.
 	subnetMask   core.Ipv4Key                    // Subnet Mask for this pool for fast lookup.
-	size         uint32                          // Size of the subnet, including Network Id and Broadcast Id.
+	min          core.Ipv4Key                    // Minimal Address in the Subnet.
+	max          core.Ipv4Key                    // Maximal Address in the Subnet.
+	firstIp      core.Ipv4Key                    // First Ip that we can offer. Not necessarily min, since min can be the Network Id.
+	lastIp       core.Ipv4Key                    // Last Ip that we can offer. Not necessarily max, since max can be the Broadcast Id.
+	subnetSize   uint32                          // Size of the subnet, including Network Id and Broadcast Id.
+	size         uint32                          // Size of pool, total number of addresses the pool can distribute.
 	exhausted    bool                            // Did we finish all the available entries?
-	currPoolSize uint32                          // Amount of Ipv4 addresses already used, including Network Id and Broadcast Id.
+	currPoolSize uint32                          // Amount of Ipv4 addresses already used.
 }
 
 // CreateIpv4Pool creates a new Ipv4 pool.
-func CreateIpv4Pool(ipNet *net.IPNet, excluded []core.Ipv4Key) *Ipv4Pool {
+func CreateIpv4Pool(ipNet *net.IPNet, min, max core.Ipv4Key, excluded []core.Ipv4Key) *Ipv4Pool {
 	o := new(Ipv4Pool)
 	o.ipNet = ipNet
 	ones, bits := o.ipNet.Mask.Size()
-	o.size = 1 << (bits - ones) // Calculate Size
-	o.head.SetSelf()            // Set pointer to itself.
+	o.subnetSize = 1 << (bits - ones) // Calculate Size of the Subnet
+	o.head.SetSelf()                  // Set pointer to itself.
 
 	subnetMask := net.IP(o.ipNet.Mask).To4()
 	copy(o.subnetMask[:], subnetMask[0:4])
+	o.min = min
+	o.max = max
 
 	// Make a simple map of excluded Ipv4s. For simplicity, this map is kept with keys of uint32.
 	o.excludedMap = make(map[uint32]bool, len(excluded))
@@ -360,32 +367,30 @@ func CreateIpv4Pool(ipNet *net.IPNet, excluded []core.Ipv4Key) *Ipv4Pool {
 		o.excludedMap[ip.Uint32()] = true
 	}
 
-	var ipv4Key core.Ipv4Key
-	ipv4 := o.ipNet.IP.To4()
-	copy(ipv4Key[:], ipv4[0:4])
-	startingIp := ipv4Key.Uint32()
+	var networkId core.Ipv4Key
+	copy(networkId[:], o.ipNet.IP.To4()[0:4])
 
-	var chunkSize uint32 = 256
-	if o.size <= chunkSize {
-		o.exhausted = true
-		o.currPoolSize = o.size
-		chunkSize = o.size - 1 // Accounting for Broadcast Id
+	if o.min.Uint32() > networkId.Uint32() {
+		o.firstIp = o.min
 	} else {
-		o.currPoolSize = chunkSize
+		// Since min is part of the network, then min == networkId
+		o.firstIp.SetUint32(o.min.Uint32() + 1)
 	}
 
-	o.pool = make(map[core.Ipv4Key]*Ipv4PoolEntry, chunkSize)
+	var broadcastId core.Ipv4Key
+	broadcastId.SetUint32(networkId.Uint32() + o.subnetSize - 1)
 
-	var i uint32
-	for i = 1; i < chunkSize; i++ {
-		// Skip NetworkId by starting i = 1
-		if o.excludedMap[startingIp+i] {
-			// need to skip this Ip
-			continue
-		}
-		ipv4Key.SetUint32(startingIp + i)
-		o.AddLast(ipv4Key)
+	if o.max.Uint32() < broadcastId.Uint32() {
+		o.lastIp = o.max
+	} else {
+		// Since max is part of the network, then max == broadcastId
+		o.lastIp.SetUint32(o.max.Uint32() - 1)
 	}
+
+	o.size = o.lastIp.Uint32() - o.firstIp.Uint32() + 1
+	o.pool = make(map[core.Ipv4Key]*Ipv4PoolEntry)
+
+	o.enlargePool()
 	return o
 }
 
@@ -394,8 +399,7 @@ func CreateIpv4Pool(ipNet *net.IPNet, excluded []core.Ipv4Key) *Ipv4Pool {
 func (o *Ipv4Pool) removeEntry(entry *Ipv4PoolEntry) {
 	entry, ok := o.pool[entry.ipv4]
 	if !ok {
-		// nothing to remove
-		return
+		panic("Trying to removing non-existing entry from Ipv4Pool.")
 	}
 
 	o.head.RemoveNode(&entry.dlist)
@@ -412,21 +416,18 @@ func (o *Ipv4Pool) enlargePool() {
 		return
 	}
 
-	var ipv4Key core.Ipv4Key
-	ipv4 := o.ipNet.IP.To4()
-	copy(ipv4Key[:], ipv4[0:4])
-	startingIp := ipv4Key.Uint32() + o.currPoolSize
+	startingIp := o.firstIp.Uint32() + o.currPoolSize
 
 	var chunkSize uint32 = 256
-	// There should be at least another 256 entries.
-	o.currPoolSize += chunkSize
-	if o.currPoolSize == o.size {
-		// This is the last available chunk, the last address is Broadcast Id.
+	if o.size-o.currPoolSize < chunkSize {
+		// Less than chunkSize IPv4s left. Last available chunk.
+		chunkSize = o.size - o.currPoolSize
 		o.exhausted = true
-		chunkSize = 255
 	}
+	o.currPoolSize += chunkSize
 
 	var i uint32
+	var ipv4Key core.Ipv4Key
 	for i = 0; i < chunkSize; i++ {
 		if o.excludedMap[startingIp+i] {
 			// need to skip this Ip
@@ -443,15 +444,8 @@ func (o *Ipv4Pool) canAdd(ipv4 core.Ipv4Key) bool {
 		// Entry already exists
 		return false
 	}
-	if !o.Contains(ipv4) {
-		// Ipv4 doesn't belong to this subnet
-		return false
-	}
-	if _, ok := o.excludedMap[ipv4.Uint32()]; ok {
-		// Value is excluded, can't add it
-		return false
-	}
-	return true
+
+	return o.Contains(ipv4)
 }
 
 // AddLast adds an Ipv4 address to the end of the pool in O(1).
@@ -511,9 +505,19 @@ func (o *Ipv4Pool) GetSubnetMask() core.Ipv4Key {
 	return o.subnetMask
 }
 
-// Contains returns true if the Ipv4 is contained in this pool (subnet wise).
-func (o *Ipv4Pool) Contains(ipv4 core.Ipv4Key) bool {
+// InSubnet returns true if the Ipv4 is contained in this subnet.
+func (o *Ipv4Pool) InSubnet(ipv4 core.Ipv4Key) bool {
 	return o.ipNet.Contains(ipv4.ToIP())
+}
+
+// Contains returns true if the Ipv4 is contained in this pool.
+func (o *Ipv4Pool) Contains(ipv4 core.Ipv4Key) bool {
+	ipv4Uint32 := ipv4.Uint32()
+	if _, ok := o.excludedMap[ipv4Uint32]; ok {
+		return false
+	}
+	return (o.min.Uint32() <= ipv4Uint32) && (ipv4Uint32 <= o.max.Uint32())
+
 }
 
 // Empty returns True iff Ipv4Pool is empty.
@@ -678,8 +682,10 @@ type DhcpSrvOptions struct {
 
 // DhcpSrvPoolParams consolidates the parameters for each input pool to the DhcpSrv.
 type DhcpSrvPoolParams struct {
-	Subnet   string   `json:"subnet" validate:"required"` // Subnet for this pool. Required
-	Excluded []string `json:"exclude"`                    // Excluded addresses from the pool. Useful for Relays, DGs etc.
+	Min      string   `json:"min" validate:"required"`               // Min IP address in subnet
+	Max      string   `json:"max" validate:"required"`               // Max IP address in subnet
+	Prefix   uint8    `json:"prefix" validate:"required,gt=0,lt=32"` // Prefix
+	Excluded []string `json:"exclude"`                               // Excluded addresses from the pool. Useful for Relays, DGs etc.
 }
 
 // DhcpSrvParams represents the init json Api for the Dhcp Server Emu Client.
@@ -755,6 +761,23 @@ func NewDhcpSrvClient(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
 	return &o.PluginBase
 }
 
+// validIPv4 validates that a string is a valid IPv4 address and returns True iff this is the case.
+func (o *PluginDhcpSrvClient) validIPv4(ipv4Str string) bool {
+	ip := net.ParseIP(ipv4Str)
+	if ip == nil {
+		// Invalid IP
+		o.stats.invalidInitJson++
+		return false
+	}
+	ipv4 := ip.To4()
+	if ipv4 == nil {
+		// Invalid IPv4
+		o.stats.invalidInitJson++
+		return false
+	}
+	return true
+}
+
 // OnCreate is called upon the creation of a new DhcpSrv Emu client.
 func (o *PluginDhcpSrvClient) OnCreate() {
 	o.clientCtxDb = make(map[core.MACKey]*DhcpClientCtx)
@@ -767,31 +790,38 @@ func (o *PluginDhcpSrvClient) OnCreate() {
 	}
 
 	for _, pool := range o.params.Pools {
-		_, netIp, err := net.ParseCIDR(pool.Subnet)
+		if !o.validIPv4(pool.Min) {
+			return
+		}
+		if !o.validIPv4(pool.Max) {
+			return
+		}
+		cidr := fmt.Sprintf("%s/%d", pool.Min, pool.Prefix)
+		_, netIp, err := net.ParseCIDR(cidr)
 		if err != nil {
 			// Invalid Subnet
+			o.stats.invalidInitJson++
+			return
+		}
+		if !netIp.Contains(net.ParseIP(pool.Max)) {
+			// Max not in the same subnet as min
 			o.stats.invalidInitJson++
 			return
 		}
 		var excludedIpv4Key []core.Ipv4Key
 		var ipv4Key core.Ipv4Key
 		for _, ipString := range pool.Excluded {
-			ip := net.ParseIP(ipString)
-			if ip == nil {
-				// Invalid IP
-				o.stats.invalidInitJson++
+			if !o.validIPv4(ipString) {
 				return
 			}
-			ipv4 := ip.To4()
-			if ipv4 == nil {
-				// Invalid IPv4
-				o.stats.invalidInitJson++
-				return
-			}
+			ipv4 := net.ParseIP(ipString).To4()
 			copy(ipv4Key[:], ipv4[0:4])
 			excludedIpv4Key = append(excludedIpv4Key, ipv4Key)
 		}
-		o.pools = append(o.pools, CreateIpv4Pool(netIp, excludedIpv4Key))
+		var min, max core.Ipv4Key
+		copy(min[:], net.ParseIP(pool.Min).To4()[0:4])
+		copy(max[:], net.ParseIP(pool.Max).To4()[0:4])
+		o.pools = append(o.pools, CreateIpv4Pool(netIp, min, max, excludedIpv4Key))
 	}
 
 	o.nextServerIp = net.ParseIP(o.params.NextServerIp)
@@ -803,7 +833,7 @@ func (o *PluginDhcpSrvClient) OnCreate() {
 
 	// Hold a pointer to the pool in which the server belongs too.
 	for _, pool := range o.pools {
-		if pool.Contains(o.Client.Ipv4) {
+		if pool.InSubnet(o.Client.Ipv4) {
 			o.serverPool = pool
 			break
 		}
@@ -1005,6 +1035,17 @@ func (o *PluginDhcpSrvClient) computeOptions() {
 	})
 }
 
+// getClientCtx returns the context of the client in case such context exists.
+// In case it doesn't, it will return
+func (o *PluginDhcpSrvClient) getClientCtx(chaddr core.MACKey) *DhcpClientCtx {
+	dhcpClientCtx, ok := o.clientCtxDb[chaddr]
+	if !ok {
+		o.stats.pktRxNoClientCtx++
+		return nil
+	}
+	return dhcpClientCtx
+}
+
 // selectIpToOffer selects the Ipv4 to offer doing the best effort on the algorithm below
 /*When a server receives a DHCPDISCOVER message from a client, the
   server chooses a network address for the requesting client.  If no
@@ -1049,7 +1090,7 @@ func (o *PluginDhcpSrvClient) selectIpToOffer(giaddr core.Ipv4Key,
 	} else {
 		// Need to select from the pool in which giaddr is located.
 		for _, poolIter := range o.pools {
-			if poolIter.Contains(giaddr) {
+			if poolIter.InSubnet(giaddr) {
 				pool = poolIter
 				break
 			}
@@ -1457,6 +1498,9 @@ func (o *PluginDhcpSrvClient) HandleDiscover(dhcph layers.DHCPv4, chaddr core.MA
 	var giaddr core.Ipv4Key
 	copy(giaddr[:], dhcph.RelayAgentIP[0:4])
 
+	// This handles existing clients also, the handling is done inside selectIpToOffer,
+	// selectLeaseToOffer
+
 	pool, yiaddr, subnetMask, err := o.selectIpToOffer(giaddr, reqIp, chaddr)
 	if err != nil {
 		o.stats.noIpAvailable++
@@ -1465,9 +1509,11 @@ func (o *PluginDhcpSrvClient) HandleDiscover(dhcph layers.DHCPv4, chaddr core.MA
 
 	lease := o.selectLeaseToOffer(reqLease, chaddr)
 
-	ctx := CreateDhcpClientCtx(o, chaddr, pool, yiaddr, subnetMask, lease)
-	o.clientCtxDb[chaddr] = ctx
-	o.stats.activeClients++
+	if _, ok := o.clientCtxDb[chaddr]; !ok {
+		ctx := CreateDhcpClientCtx(o, chaddr, pool, yiaddr, subnetMask, lease)
+		o.clientCtxDb[chaddr] = ctx
+		o.stats.activeClients++
+	}
 
 	o.SendOffer(dhcph, yiaddr, subnetMask, lease)
 }
@@ -1482,9 +1528,9 @@ func (o *PluginDhcpSrvClient) HandleRequest(dhcph layers.DHCPv4, chaddr core.MAC
 		return
 	}
 
-	dhcpClientCtx, ok := o.clientCtxDb[chaddr]
-	if !ok {
-		o.stats.pktRxNoClientCtx++
+	dhcpClientCtx := o.getClientCtx(chaddr)
+	if dhcpClientCtx == nil {
+		// Error already set.
 		return
 	}
 	state := dhcpClientCtx.state
@@ -1528,13 +1574,13 @@ func (o *PluginDhcpSrvClient) HandleRequest(dhcph layers.DHCPv4, chaddr core.MAC
 				copy(giaddr[:], dhcph.RelayAgentIP[0:4])
 				if giaddr.IsZero() {
 					// Should be in the same subnet as the server.
-					if o.serverPool.Contains(reqIp) {
+					if o.serverPool.InSubnet(reqIp) {
 						o.SendAck(dhcph, dhcpClientCtx.ipv4, false)
 					} else {
 						o.SendNak(dhcph)
 					}
 				} else {
-					if dhcpClientCtx.pool.Contains(giaddr) {
+					if dhcpClientCtx.pool.InSubnet(giaddr) {
 						o.SendAck(dhcph, dhcpClientCtx.ipv4, false)
 					} else {
 						o.SendNak(dhcph)
@@ -1578,9 +1624,9 @@ func (o *PluginDhcpSrvClient) HandleDecline(dhcph layers.DHCPv4, chaddr core.MAC
 		return
 	}
 
-	dhcpClientCtx, ok := o.clientCtxDb[chaddr]
-	if !ok {
-		o.stats.pktRxNoClientCtx++
+	dhcpClientCtx := o.getClientCtx(chaddr)
+	if dhcpClientCtx == nil {
+		// Error already set.
 		return
 	}
 
@@ -1612,9 +1658,9 @@ func (o *PluginDhcpSrvClient) HandleRelease(dhcph layers.DHCPv4, chaddr core.MAC
 	var ciaddr core.Ipv4Key
 	copy(ciaddr[:], dhcph.ClientIP[0:4])
 
-	dhcpClientCtx, ok := o.clientCtxDb[chaddr]
-	if !ok {
-		o.stats.pktRxNoClientCtx++
+	dhcpClientCtx := o.getClientCtx(chaddr)
+	if dhcpClientCtx == nil {
+		// Error already set.
 		return
 	}
 
