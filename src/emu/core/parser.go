@@ -725,7 +725,7 @@ func (o *Parser) ParsePacket(m *Mbuf) int {
 	var tun CTunnelKey
 	var d CTunnelData
 	d.Vport = m.port
-	valnIndex := 0
+	vlanIndex := 0
 	packetSize := m.PktLen()
 
 	offset := uint16(14)
@@ -771,27 +771,21 @@ func (o *Parser) ParsePacket(m *Mbuf) int {
 				o.stats.errDot1qTooShort++
 				return PARSER_ERR
 			}
-			if valnIndex > 1 {
+			if vlanIndex > 1 {
 				o.stats.errToManyDot1q++
 				return PARSER_ERR
 			}
 			val := binary.BigEndian.Uint32(p[offset-2:offset+2]) & 0xffff0fff
-			d.Vlans[valnIndex] = val
-			valnIndex++
+			d.Vlans[vlanIndex] = val
+			vlanIndex++
 			nextHdr = layers.EthernetType(binary.BigEndian.Uint16(p[offset+2 : offset+4]))
 			if nextHdr == layers.EthernetTypePPPoEDiscovery || nextHdr == layers.EthernetTypePPPoESession {
-				fmt.Printf("333 \n")
 				tun.Set(&d)
-				fmt.Printf("444 \n")
 				return o.ppp(&ps)
 			}
 			offset += 4
 		case layers.EthernetTypePPPoEDiscovery, layers.EthernetTypePPPoESession:
-			fmt.Printf("111 \n")
 			tun.Set(&d)
-			fmt.Printf("2 \n")
-
-			fmt.Printf(" %p \n", o.ppp)
 			return o.ppp(&ps)
 		case layers.EthernetTypeIPv4:
 			ps.L3 = offset
