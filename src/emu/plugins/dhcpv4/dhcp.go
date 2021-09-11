@@ -428,8 +428,8 @@ func (o *PluginDhcpClient) preparePacketTemplate() {
 
 	binary.BigEndian.PutUint16(dr[24:26], uint16(len(dr)-20))
 	binary.BigEndian.PutUint16(dr[26:28], 0)
-	cs = layers.PktChecksumTcpUdp(d[20:], 0, ipv4)
-	binary.BigEndian.PutUint16(d[26:28], cs)
+	cs = layers.PktChecksumTcpUdp(dr[20:], 0, ipv4)
+	binary.BigEndian.PutUint16(dr[26:28], cs)
 
 	o.requestPktTemplate = append(l2, dr...)
 
@@ -492,8 +492,8 @@ func (o *PluginDhcpClient) preparePacketTemplate() {
 
 	binary.BigEndian.PutUint16(drn[24:26], uint16(len(drn)-20))
 	binary.BigEndian.PutUint16(drn[26:28], 0)
-	cs = layers.PktChecksumTcpUdp(d[20:], 0, ipv4)
-	binary.BigEndian.PutUint16(d[26:28], cs)
+	cs = layers.PktChecksumTcpUdp(drn[20:], 0, ipv4)
+	binary.BigEndian.PutUint16(drn[26:28], cs)
 
 	o.requestRenewPktTemplate = append(l2, drn...)
 
