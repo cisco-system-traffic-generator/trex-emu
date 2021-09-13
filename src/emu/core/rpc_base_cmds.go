@@ -133,12 +133,12 @@ func (h ApiPingHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessag
 
 // GetVersion
 func (h ApiGetVersionHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
-
+	// replaced by build script
 	return ApiGetVersionResult{
-		Version:   BuildVersion,
-		Builddate: BuildDate,
-		Buildtime: BuildTime,
-		Buildby:   BuildBy,
+		Version:   "v0.1",
+		Builddate: "05.05.2019",
+		Buildtime: "16:00",
+		Buildby:   "hhaim",
 		Mode:      "emulation",
 	}, nil
 }
