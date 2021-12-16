@@ -655,6 +655,11 @@ func (o *CThreadCtx) GetNsRpc(params *fastjson.RawMessage) (*CNSCtx, error) {
 
 // UnmarshalValidate unmarshals the data and validates the struct fields.
 func (o *CThreadCtx) UnmarshalValidate(data []byte, v interface{}) error {
+	// nothing to do
+	if data == nil {
+		return nil
+	}
+
 	err := fastjson.Unmarshal(data, v)
 	if err != nil {
 		return err

@@ -742,19 +742,13 @@ func NewIgmpNs(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
 
 	o := new(PluginIgmpNs)
 	init := IgmpNsInit{Mtu: 1500, Version: IGMP_VERSION_3}
-	err := ctx.Tctx.UnmarshalValidate(initJson, &init)
-
-	if err != nil {
-		return &o.PluginBase
-	}
-
+	ctx.Tctx.UnmarshalValidate(initJson, &init)
 	o.InitPluginBase(ctx, o)
 	o.RegisterEvents(ctx, []string{}, o)
 	o.cdb = NewIgmpNsStatsDb(&o.stats)
 	o.cdbv = core.NewCCounterDbVec("igmp")
 	o.cdbv.Add(o.cdb)
 	o.tbl.OnCreate(&o.stats)
-	fmt.Printf(" ns : %v \n", o.Ns)
 	o.tbl.ns = o.Ns // save the ns
 	if !init.DesignatorMac.IsZero() {
 		o.designatorMac = init.DesignatorMac
