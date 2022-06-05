@@ -32,7 +32,7 @@ import (
 
 const (
 	ZMQ_PACKET_HEADER_MAGIC = 0xBEEF
-	ZMQ_TX_PKT_BUTST_SIZE   = 64
+	ZMQ_TX_PKT_BURST_SIZE   = 64
 	ZMQ_TX_MAX_BUFFER_SIZE  = 32 * 1024
 	ZMQ_EMU_IPC_PATH        = "/tmp/emu" // path should be /tmp/emu-port.ipc
 )
@@ -194,7 +194,7 @@ func (o *VethIFZmq) Send(m *Mbuf) {
 		o.vec = append(o.vec, m)
 	}
 	o.txVecSize += pktlen
-	if len(o.vec) == ZMQ_TX_PKT_BUTST_SIZE {
+	if len(o.vec) == ZMQ_TX_PKT_BURST_SIZE {
 		o.FlushTx()
 	}
 }

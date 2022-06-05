@@ -2498,6 +2498,47 @@ func TestPluginIPFix23(t *testing.T) {
 	a.Run(t, true)
 }
 
+//func TestPluginIPFix24(t *testing.T) {
+//
+//	//host, port, err := net.SplitHostPort("file://localhost/auto/srg-sce-swinfra-usr/emb/users/obarash/sdflow/fnf_agg_files")
+//	//host, port, err := net.SplitHostPort("http://127.0.0.1:8080/auto/srg-sce-swinfra-usr/emb/users/obarash/sdflow/fnf_agg_files")
+//	//fmt.Println("[TestPluginIPFix24]", host, port, err)
+//
+//	// DNS Generator - 7 Records in One Data Packet with 2 Data packets per second
+//	templateParams := TemplateParams{
+//		autoStart:  true,
+//		rate:       2,
+//		recordsNum: 7,
+//	}
+//
+//	initJson := fmt.Sprintf(`
+//	{
+//		"netflow_version": 10,
+//		"dst": "file:///scratch/obarash/ipfixplugin/fnf_agg.ipfix",
+//		"domain_id": 7777,
+//		"file_export": {
+//			"max_size": 1048576,
+//			"max_interval": 62,
+//			"compress": true,
+//			"max_files": 0
+//		},
+//		"generators": [%s]
+//	}
+//	`, getTemplate261(&templateParams))
+//
+//	a := &IPFixTestBase{
+//		testname:     "ipfix1",
+//		dropAll:      false,
+//		monitor:      true,
+//		match:        0,
+//		capture:      true,
+//		initJSON:     [][]byte{[]byte(initJson)},
+//		duration:     10 * time.Second,
+//		clientsToSim: 1,
+//	}
+//	a.Run(t, true)
+//}
+
 func init() {
 	flag.IntVar(&monitor, "monitor", 0, "monitor")
 }

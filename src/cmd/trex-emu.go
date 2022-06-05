@@ -75,6 +75,7 @@ type MainArgs struct {
 	verbose     *bool   // verbose mode, will print details
 	version     *bool   // print version of EMU and exit
 	emuTCPoZMQ  *bool   // use TCP over ZMQ instead of the classic IPC to connect with TRex.
+	kernelMode  *bool   // Run Emu in kernel mode
 }
 
 func printVersion() {
@@ -114,6 +115,7 @@ func parseMainArgs() *MainArgs {
 	args.verbose = parser.Flag("v", "verbose", &argparse.Options{Default: false, Help: "Run server in verbose mode"})
 	args.version = parser.Flag("V", "version", &argparse.Options{Default: false, Help: "Show TRex-Emu version"})
 	args.emuTCPoZMQ = parser.Flag("", "emu-zmq-tcp", &argparse.Options{Default: false, Help: "Run TCP over ZMQ. Default is IPC"})
+	args.kernelMode = parser.Flag("k", "kernel-mode", &argparse.Options{Default: false, Help: "Run server in kernel mode"})
 
 	err := parser.Parse(os.Args)
 	if err != nil {
@@ -126,6 +128,8 @@ func parseMainArgs() *MainArgs {
 func RunCoreZmq(args *MainArgs) {
 
 	var zmqVeth core.VethIFZmq
+	var dummyVeth bool
+	var simrx core.VethIFSim
 
 	if *args.version {
 		printVersion()
@@ -141,15 +145,18 @@ func RunCoreZmq(args *MainArgs) {
 
 	rand.Seed(time.Now().UnixNano())
 
-	var simrx core.VethIFSim
-	if *args.dummyVeth {
+	dummyVeth = *args.dummyVeth || *args.kernelMode
+
+	if dummyVeth {
 		var simVeth core.VethSink
 		simrx = &simVeth
 	}
 
-	tctx := core.NewThreadCtx(0, port, *args.dummyVeth, &simrx)
+	tctx := core.NewThreadCtx(0, port, dummyVeth, &simrx)
+	tctx.SetVerbose(*args.verbose)
+	tctx.SetKernelMode(*args.kernelMode)
 
-	if !*args.dummyVeth {
+	if !dummyVeth {
 		zmqVeth.Create(tctx, uint16(*args.vethPort), *args.zmqServer, *args.emuTCPoZMQ, false)
 		zmqVeth.StartRxThread()
 		tctx.SetZmqVeth(&zmqVeth)

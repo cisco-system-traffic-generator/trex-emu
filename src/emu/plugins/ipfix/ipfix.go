@@ -22,11 +22,13 @@ import (
 	engines "emu/plugins/field_engine"
 	"emu/plugins/transport"
 	"encoding/binary"
+	"errors"
 	"external/google/gopacket/layers"
 	"external/osamingo/jsonrpc"
 	"fmt"
 	"math/rand"
 	"net"
+	"net/url"
 	"strings"
 	"time"
 
@@ -95,6 +97,7 @@ type IPFixGenParams struct {
 type IPFixGen struct {
 	name                   string                           // Name of this generator.
 	enabled                bool                             // Is generator exporting at the moment.
+	paused                 bool                             // Temporarily pause exporting to avoid blocking
 	templateRate           float32                          // Template rate in PPS.
 	dataRate               float32                          // Data rate in PPS.
 	templateID             uint16                           // Template ID.
@@ -103,7 +106,7 @@ type IPFixGen struct {
 	variableLengthFields   bool                             // Has variable length fields?
 	optionsTemplate        bool                             // Is Options Template or Data Template
 	scopeCount             uint16                           // Scope Count for Option Templates, the number of fields that are scoped.
-	availableRecordPayload uint16                           // Available bytes for record payloads.
+	availableRecordPayload int                              // Available bytes for record payloads.
 	dataTicks              uint32                           // Ticks between 2 consequent Data Set packets.
 	dataPktsPerInterval    uint32                           // How many data packets to send each interval
 	templateTicks          uint32                           // Ticks between 2 consequent Template Set packets.
@@ -228,7 +231,7 @@ func NewIPFixGen(ipfix *PluginIPFixClient, initJson *fastjson.RawMessage) (*IPFi
 
 	// verify each engine name is a correct field
 	if o.engineMgr != nil {
-		for engineName, _ := range o.engineMap {
+		for engineName := range o.engineMap {
 			if _, ok := o.fieldNames[engineName]; !ok {
 				o.ipfixPlug.stats.invalidEngineName++
 			}
@@ -248,6 +251,10 @@ func NewIPFixGen(ipfix *PluginIPFixClient, initJson *fastjson.RawMessage) (*IPFi
 	}
 
 	return o, true
+}
+
+func (o *IPFixGen) Pause(pause bool) {
+	o.paused = pause
 }
 
 // OnCreate initializes fields of the IPFixGen.
@@ -324,16 +331,16 @@ func (o *IPFixGen) calcAvailableRecordPayload() {
 	if o.ipfixPlug.ver == 9 {
 		ipfixHeaderLen = layers.IpfixHeaderLenVer9
 	}
-	o.availableRecordPayload = o.ipfixPlug.availableL7MTU - uint16(ipfixHeaderLen+4) // set header length is 4
+	o.availableRecordPayload = o.ipfixPlug.exporter.GetMaxSize() - (ipfixHeaderLen + 4) // set header length is 4
 }
 
 // calcShortestRecord calculates the length of the shortest possible record in case of variable length.
-func (o *IPFixGen) calcShortestRecord() (length uint16) {
+func (o *IPFixGen) calcShortestRecord() (length int) {
 	if !o.variableLengthFields {
-		length = uint16(len(o.dataBuffer))
+		length = len(o.dataBuffer)
 	} else {
-		length = uint16(len(o.dataBuffer))
-		for i, _ := range o.fields {
+		length = len(o.dataBuffer)
+		for i := range o.fields {
 			if o.fields[i].isVariableLength() {
 				length += 1 // one for each variable length
 			}
@@ -343,15 +350,15 @@ func (o *IPFixGen) calcShortestRecord() (length uint16) {
 }
 
 // calcLongestRecord calculates the length of the longest possible record in case of variable length.
-func (o *IPFixGen) calcLongestRecord() (length uint16) {
+func (o *IPFixGen) calcLongestRecord() (length int) {
 	if !o.variableLengthFields {
-		length = uint16(len(o.dataBuffer))
+		length = len(o.dataBuffer)
 	} else {
-		length = uint16(len(o.dataBuffer))
-		for i, _ := range o.fields {
+		length = len(o.dataBuffer)
+		for i := range o.fields {
 			if o.fields[i].isVariableLength() {
 				eng := o.engineMap[o.fields[i].Name]
-				length += eng.GetSize() // Size is the upper limit.
+				length += int(eng.GetSize()) // Size is the upper limit.
 			}
 		}
 	}
@@ -362,7 +369,7 @@ func (o *IPFixGen) calcLongestRecord() (length uint16) {
 // This function should be called only on generators that don't contain variable length fields.
 func (o *IPFixGen) calcMaxRecords() uint32 {
 	recordLength := len(o.dataBuffer) // length of 1 record.
-	return uint32(o.availableRecordPayload / uint16(recordLength))
+	return uint32(o.availableRecordPayload / recordLength)
 }
 
 // calcMaxRecordsVarLength calculates the maximum number of records we can send in case of variable length.
@@ -374,51 +381,70 @@ func (o *IPFixGen) calcMaxRecordsVarLength() uint32 {
 /*======================================================================================================
 										Send packet
 ======================================================================================================*/
+func (o *IPFixGen) sendTemplatePktInt() {
+	ipfixVer := o.ipfixPlug.ver
+	payload := o.templatePayload
+	o.fixPayload(payload)
+
+	_, err := o.ipfixPlug.exporter.Write(payload)
+	if err != nil {
+		o.ipfixPlug.stats.exporterWriteError++
+	} else {
+		o.ipfixPlug.stats.pktTempSent++
+		if ipfixVer == 9 {
+			o.ipfixPlug.flowSeqNum++
+		}
+	}
+}
 
 // sendTemplatePkt sends a Template packet
 func (o *IPFixGen) sendTemplatePkt() {
-	if o.enabled {
-		ipfixVer := o.ipfixPlug.ver
-		payload := o.templatePayload
-		o.fixPayload(payload)
-		err, _ := o.ipfixPlug.socket.Write(payload)
-		if err != transport.SeOK {
-			o.ipfixPlug.stats.socketWriteError++
-		} else {
-			o.ipfixPlug.stats.pktTempSent++
-			if ipfixVer == 9 {
-				o.ipfixPlug.flowSeqNum++
-			}
+	if o.enabled && !o.paused {
+		o.sendTemplatePktInt()
+	}
+
+	if o.paused {
+		o.ipfixPlug.stats.genPausedSkipWrite++
+	}
+
+	o.timerw.StartTicks(&o.templateTimer, o.templateTicks)
+}
+
+func (o *IPFixGen) sendDataPktInt() {
+	ipfixVer := o.ipfixPlug.ver
+	records := o.prepareDataPayload()
+	payload := o.dataPayload
+	o.fixPayload(payload)
+
+	_, err := o.ipfixPlug.exporter.Write(payload)
+	if err != nil {
+		o.ipfixPlug.stats.exporterWriteError++
+	} else {
+		o.ipfixPlug.stats.pktDataSent++
+		// updating the flow sequence number must be inside the loop because fixPayload uses the value.
+		if ipfixVer == 9 {
+			o.ipfixPlug.flowSeqNum++
+		} else if ipfixVer == 10 {
+			o.ipfixPlug.flowSeqNum += records
+		}
+		if o.recordsNum > records {
+			mtuMissedRecords := o.recordsNum - records
+			o.ipfixPlug.stats.recordsMtuMissErr += uint64(mtuMissedRecords)
 		}
 	}
-	o.timerw.StartTicks(&o.templateTimer, o.templateTicks)
 }
 
 // sendDataPkt sends a burst of data packets (burst can be of size 1)
 func (o *IPFixGen) sendDataPkt() {
 	if o.enabled {
-		ipfixVer := o.ipfixPlug.ver
 		// Only Data Packets can have bursts.
 		for i := 0; i < int(o.dataPktsPerInterval); i++ {
-			records := o.prepareDataPayload()
-			payload := o.dataPayload
-			o.fixPayload(payload)
-			err, _ := o.ipfixPlug.socket.Write(payload)
-			if err != transport.SeOK {
-				o.ipfixPlug.stats.socketWriteError++
-			} else {
-				o.ipfixPlug.stats.pktDataSent++
-				// updating the flow sequence number must be inside the loop because fixPayload uses the value.
-				if ipfixVer == 9 {
-					o.ipfixPlug.flowSeqNum++
-				} else if ipfixVer == 10 {
-					o.ipfixPlug.flowSeqNum += records
-				}
-				if o.recordsNum > records {
-					mtuMissedRecords := o.recordsNum - records
-					o.ipfixPlug.stats.recordsMtuMissErr += uint64(mtuMissedRecords)
-				}
+			if o.paused {
+				o.ipfixPlug.stats.genPausedSkipWrite++
+				break
 			}
+
+			o.sendDataPktInt()
 		}
 	}
 	o.timerw.StartTicks(&o.dataTimer, o.dataTicks)
@@ -525,7 +551,7 @@ func (o *IPFixGen) prepareTemplatePayload() bool {
 			Sets:      sets,
 		},
 	)
-	if len(ipFixHeader) > int(o.ipfixPlug.availableL7MTU) {
+	if len(ipFixHeader) > o.ipfixPlug.exporter.GetMaxSize() {
 		o.ipfixPlug.stats.templatePktLongerThanMTU++
 		return false
 	}
@@ -636,7 +662,7 @@ func (o *IPFixGen) getDataSets() (layers.IPFixSets, uint32) {
 			break
 		} else {
 			data := o.getDataRecord()
-			availablePayload -= uint16(len(data))
+			availablePayload -= len(data)
 			setEntries = append(setEntries, layers.IPFixSetEntry(&layers.IPFixRecord{Data: data}))
 		}
 	}
@@ -726,26 +752,28 @@ func (o *IPFixGen) GetInfo() *GenInfo {
 ======================================================================================================*/
 // IPFixStats
 type IPFixStats struct {
-	pktTempSent              uint64 // How many Template packets sent.
-	pktDataSent              uint64 // How many Data packets sent.
-	templatePktLongerThanMTU uint64 // Template Packet Length is longer than MTU, hence we can't send Template packets or any packets for that matter.
-	recordsMtuMissErr        uint64 // How many Data records dropped cause the record num is too big for MTU
-	dataIncorrectLength      uint64 // Data entry of field is not the same as the length provided in the same field.
-	invalidSocket            uint64 // Error while creating socket
-	socketWriteError         uint64 // Error while writing on a socket.
-	invalidJson              uint64 // Json could not be unmarshalled or validated correctly.
-	invalidDst               uint64 // Invalid Dst provided.
-	failedCreatingGen        uint64 // Failed creating a generator with the generator's provided JSON.
-	enterpriseFieldv9        uint64 // Enterprise Fields are not supported for V9.
-	variableLengthFieldv9    uint64 // Variable length Fields are not supported for V9.
-	variableLengthNoEngine   uint64 // Variable length field without engine provided.
-	badOrNoInitJson          uint64 // Init Json was either not provided or invalid.
-	duplicateGenName         uint64 // Generator with the same name already registered.
-	duplicateTemplateID      uint64 // Two generators with the same template ID.
-	invalidTemplateID        uint64 // Invalid Template ID, smaller than 255.
-	failedBuildingEngineMgr  uint64 // Failed Building Engine Manager with the provided JSON.
-	invalidEngineName        uint64 // Invalid Engine Name. Engine name must be a field name.
-	invalidScopeCount        uint64 // Invalid Scope Count, in case of Options Template user must specify a scope count > 0.
+	pktTempSent                           uint64 // How many Template packets sent.
+	pktDataSent                           uint64 // How many Data packets sent.
+	templatePktLongerThanMTU              uint64 // Template Packet Length is longer than MTU, hence we can't send Template packets or any packets for that matter.
+	recordsMtuMissErr                     uint64 // How many Data records dropped cause the record num is too big for MTU
+	dataIncorrectLength                   uint64 // Data entry of field is not the same as the length provided in the same field.
+	failedCreatingExporter                uint64 // Failed creating a new exporter
+	failedCreatingExporterWrongKernelMode uint64 // Failed creating a new exporter since kernel mode is wrong
+	exporterWriteError                    uint64 // Error writing to exporter
+	genPausedSkipWrite                    uint64 // Num of write skips when generator is paused to avoid exporter blocking
+	invalidJson                           uint64 // Json could not be unmarshalled or validated correctly.
+	invalidDst                            uint64 // Invalid Dst provided.
+	failedCreatingGen                     uint64 // Failed creating a generator with the generator's provided JSON.
+	enterpriseFieldv9                     uint64 // Enterprise Fields are not supported for V9.
+	variableLengthFieldv9                 uint64 // Variable length Fields are not supported for V9.
+	variableLengthNoEngine                uint64 // Variable length field without engine provided.
+	badOrNoInitJson                       uint64 // Init Json was either not provided or invalid.
+	duplicateGenName                      uint64 // Generator with the same name already registered.
+	duplicateTemplateID                   uint64 // Two generators with the same template ID.
+	invalidTemplateID                     uint64 // Invalid Template ID, smaller than 255.
+	failedBuildingEngineMgr               uint64 // Failed Building Engine Manager with the provided JSON.
+	invalidEngineName                     uint64 // Invalid Engine Name. Engine name must be a field name.
+	invalidScopeCount                     uint64 // Invalid Scope Count, in case of Options Template user must specify a scope count > 0.
 }
 
 // NewIPFixStatsDb creates a IPFixStats database.
@@ -793,20 +821,36 @@ func NewIPFixStatsDb(o *IPFixStats) *core.CCounterDb {
 		Info:     core.ScERROR})
 
 	db.Add(&core.CCounterRec{
-		Counter:  &o.invalidSocket,
-		Name:     "invalidSocket",
-		Help:     "Error creating socket.",
+		Counter:  &o.failedCreatingExporter,
+		Name:     "failedCreatingExporter",
+		Help:     "Failure creating a new exporter based on init JSON.",
 		Unit:     "ops",
 		DumpZero: false,
 		Info:     core.ScERROR})
 
 	db.Add(&core.CCounterRec{
-		Counter:  &o.socketWriteError,
-		Name:     "socketWriteError",
-		Help:     "Error writing in socket.",
+		Counter:  &o.failedCreatingExporterWrongKernelMode,
+		Name:     "failedCreatingExporterWrongKernelMode",
+		Help:     "Failure creating a new exporter since kernel mode is wrong.",
 		Unit:     "ops",
 		DumpZero: false,
 		Info:     core.ScERROR})
+
+	db.Add(&core.CCounterRec{
+		Counter:  &o.exporterWriteError,
+		Name:     "exporterWriteError",
+		Help:     "Error writing to exporter.",
+		Unit:     "ops",
+		DumpZero: false,
+		Info:     core.ScERROR})
+
+	db.Add(&core.CCounterRec{
+		Counter:  &o.genPausedSkipWrite,
+		Name:     "genPausedSkipWrite",
+		Help:     "Num of write skips when generator is paused to avoid exporter blocking.",
+		Unit:     "ops",
+		DumpZero: false,
+		Info:     core.ScINFO})
 
 	db.Add(&core.CCounterRec{
 		Counter:  &o.invalidJson,
@@ -921,9 +965,10 @@ func NewIPFixStatsDb(o *IPFixStats) *core.CCounterDb {
 
 // IPFixClientParams defines the json structure for Ipfix plugin.
 type IPFixClientParams struct {
-	Ver        uint16                 `json:"netflow_version"`                // NetFlow version 9 or 10
-	Dst        string                 `json:"dst" validate:"required"`        // Destination Address. Combination of Host:Port.
-	DomainID   uint32                 `json:"domain_id"`                      // Observation Domain ID
+	Ver        uint16                 `json:"netflow_version"`         // NetFlow version 9 or 10
+	Dst        string                 `json:"dst" validate:"required"` // Destination Address. Combination of Host:Port.
+	DomainID   uint32                 `json:"domain_id"`               // Observation Domain ID
+	FileExport *fastjson.RawMessage   `json:"file_export"`
 	Generators []*fastjson.RawMessage `json:"generators" validate:"required"` // Ipfix Generators (Template or Data)
 }
 
@@ -935,36 +980,82 @@ type IPFixTimerCallback struct{}
 // PluginIPFixClient represents an IPFix client, someone that owns one or multiple exporting processes.
 // Each IPFixGen is an exporting process.
 type PluginIPFixClient struct {
-	core.PluginBase                         // Plugin Base
-	ver             uint16                  // NetFlow version 9 or 10
-	dstAddress      string                  // Destination Address. Combination of Host:Port.
-	isIpv6          bool                    // Is destination address IPv6 or IPv4 address
-	sysStartTime    time.Time               // Start time of the system in order to calculate uptime.
-	sysUpTime       uint32                  // System Up Time (Only in Ver 9) in resolution of milliseconds.
-	unixTimeNow     int64                   // Unix Time Now for Unix Time in Header, should be on resolution of seconds.
-	domainID        uint32                  // Observation Domain ID
-	flowSeqNum      uint32                  // Flow sequence number must be common for all IPFix Gen.
-	transportCtx    *transport.TransportCtx // Transport Layer Context
-	socket          transport.SocketApi     // Socket API
-	dgMacResolved   bool                    // Is the default gateway MAC address resolved?
-	availableL7MTU  uint16                  // Available L7 MTU
-	timerw          *core.TimerCtx          // Timer Wheel
-	timer           core.CHTimerObj         // Timer Object for calculating Unix time every tick
-	timerCb         IPFixTimerCallback      // Timer Callback object
-	stats           IPFixStats              // IPFix statistics
-	cdb             *core.CCounterDb        // Counters Database
-	cdbv            *core.CCounterDbVec     // Counters Database Vector
-	generators      []*IPFixGen             // List of Generators
-	generatorsMap   map[string]*IPFixGen    // Generator Map for fast lookup with generator name.
-	templateIDSet   map[uint16]bool         // Set of Template IDs.
+	core.PluginBase                      // Plugin Base
+	ver             uint16               // NetFlow version 9 or 10
+	dstUrl          url.URL              // Destination URL.
+	isIpv6          bool                 // Is destination address IPv6 or IPv4 address
+	sysStartTime    time.Time            // Start time of the system in order to calculate uptime.
+	sysUpTime       uint32               // System Up Time (Only in Ver 9) in resolution of milliseconds.
+	unixTimeNow     int64                // Unix Time Now for Unix Time in Header, should be on resolution of seconds.
+	domainID        uint32               // Observation Domain ID
+	flowSeqNum      uint32               // Flow sequence number must be common for all IPFix Gen.
+	dgMacResolved   bool                 // Is the default gateway MAC address resolved?
+	timerw          *core.TimerCtx       // Timer Wheel
+	timer           core.CHTimerObj      // Timer Object for calculating Unix time every tick
+	timerCb         IPFixTimerCallback   // Timer Callback object
+	stats           IPFixStats           // IPFix statistics
+	cdb             *core.CCounterDb     // Counters Database
+	cdbv            *core.CCounterDbVec  // Counters Database Vector
+	generators      []*IPFixGen          // List of Generators
+	generatorsMap   map[string]*IPFixGen // Generator Map for fast lookup with generator name.
+	templateIDSet   map[uint16]bool      // Set of Template IDs.
+	exporter        Exporter             // Factory class to create and store exporters based on the given dst URL
+	init            bool                 // Is client initialization succeeded
+	stop            bool
 }
 
 var ipfixEvents = []string{core.MSG_DG_MAC_RESOLVED}
 
+func isSupportedUrlScheme(scheme string) bool {
+	switch scheme {
+	case "emu-udp", "udp", "file", "http", "https":
+		return true
+	default:
+	}
+
+	return false
+}
+
+func parseDstField(dstField string) (*url.URL, bool, error) {
+	var err error
+	var dstUrl *url.URL
+	var isHostPort = false
+	var isUrl = false
+	var isIpv6 = false
+
+	if dstUrl, err = url.Parse(dstField); err == nil {
+		// dstField is a valid URL with a scheme
+		isUrl = true
+	}
+
+	if !isUrl {
+		if _, _, err = net.SplitHostPort(dstField); err == nil {
+			//dstField is a valid host or host:port
+			isHostPort = true
+			dstUrl = new(url.URL)
+			// Default URL scheme is emu-udp (udp based on emu's udp transport layer)
+			dstUrl.Scheme = "emu-udp"
+			dstUrl.Host = dstField
+		}
+	}
+
+	if !isHostPort && !isUrl {
+		return nil, false, errors.New("Invalid dst URL or HostPort field in init JSON")
+	}
+
+	if !isSupportedUrlScheme(dstUrl.Scheme) {
+		return nil, false, errors.New("Invalid dst URL scheme in init JSON (should be emu-udp, udp, file, http or https)")
+	}
+
+	host, _, _ := net.SplitHostPort(dstUrl.Host)
+	isIpv6 = strings.Contains(host, ":")
+
+	return dstUrl, isIpv6, nil
+}
+
 // NewIPFixClient creates an IPFix client plugin. An IPFix client can own multiple generators
 // (exporting processes).
 func NewIPFixClient(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
-
 	o := new(PluginIPFixClient)
 	o.InitPluginBase(ctx, o)              // Init base object
 	o.RegisterEvents(ctx, ipfixEvents, o) // Register events, only if they exist
@@ -973,25 +1064,24 @@ func NewIPFixClient(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
 	// Parse the Init JSON.
 	init := IPFixClientParams{Ver: DefaultIPFixVersion, DomainID: o.domainID}
 	err := o.Tctx.UnmarshalValidate(initJson, &init)
-
 	if err != nil {
 		o.stats.badOrNoInitJson++
 		return &o.PluginBase
 	}
 
 	// Init Json was provided and successfully unmarshalled.
-	var host string
-	if host, _, err = net.SplitHostPort(init.Dst); err != nil {
+
+	// Parse dst URL field
+	dstUrl, isIpv6, err := parseDstField(init.Dst)
+	if err != nil {
 		o.stats.invalidDst++
 		return &o.PluginBase
 	}
-	o.isIpv6 = strings.Contains(host, ":")
 
 	o.ver = init.Ver
-	o.dstAddress = init.Dst
+	o.dstUrl = *dstUrl
+	o.isIpv6 = isIpv6
 	o.domainID = init.DomainID
-
-	o.transportCtx = transport.GetTransportCtx(o.Client)
 
 	if len(init.Generators) > 0 {
 		o.generatorsMap = make(map[string]*IPFixGen, len(init.Generators))
@@ -1008,7 +1098,31 @@ func NewIPFixClient(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
 		}
 	}
 
+	// Create a corresponding new exporter based on dst url
+	o.exporter, err = CreateExporter(o, &o.dstUrl, init.FileExport)
+	if err != nil {
+		o.stats.failedCreatingExporter++
+		if err == ErrExporterWrongKernelMode {
+			o.stats.failedCreatingExporterWrongKernelMode++
+		}
+		return &o.PluginBase
+	}
+
+	if o.exporter.GetKernelMode() {
+		o.OnResolve()
+	}
+
+	o.cdbv.AddVec(o.exporter.GetCountersDbVec())
+
+	o.init = true
+
 	return &o.PluginBase
+}
+
+func (o *PluginIPFixClient) Pause(pause bool) {
+	for _, gen := range o.generators {
+		gen.Pause(pause)
+	}
 }
 
 // OnCreate is called upon creating a new IPFix client.
@@ -1039,21 +1153,20 @@ func (o *PluginIPFixClient) OnCreate() {
 // OnResolve is called when the default gateway mac address is resolved. Here we can start the dial.
 func (o *PluginIPFixClient) OnResolve() {
 	o.dgMacResolved = true
-	if o.transportCtx != nil {
-		var err error
-		o.socket, err = o.transportCtx.Dial("udp", o.dstAddress, o, nil, nil, 0)
-		if err != nil {
-			o.stats.invalidSocket++
-			return
-		}
-		o.availableL7MTU = o.socket.GetL7MTU()
+	var err error
 
-		for i, _ := range o.generators {
-			// Created generators can now proceed.
-			o.generators[i].OnResolve()
+	if o.exporter == nil {
+		o.exporter, err = CreateExporter(o, &o.dstUrl, nil)
+		if err != nil {
+			o.stats.failedCreatingExporter++
+			return
 		}
 	}
 
+	for i := range o.generators {
+		// Created generators can now proceed.
+		o.generators[i].OnResolve()
+	}
 }
 
 // OnRemove is called when we are trying to remove this IPFix client.
@@ -1067,13 +1180,20 @@ func (o *PluginIPFixClient) OnRemove(ctx *core.PluginCtx) {
 	for _, gen := range o.generators {
 		gen.OnRemove()
 	}
-	if o.socket != nil {
-		o.socket.Close()
+
+	if o.exporter != nil {
+		o.exporter.Close()
+		o.exporter = nil
 	}
 }
 
 // OnEvent callback of the IPFix client plugin.
 func (o *PluginIPFixClient) OnEvent(msg string, a, b interface{}) {
+	if o.init == false {
+		/* Client initialization failed */
+		return
+	}
+
 	switch msg {
 	case core.MSG_DG_MAC_RESOLVED:
 		bitMask, ok := a.(uint8)
@@ -1131,6 +1251,7 @@ type PluginIPFixNsReg struct{}
 
 func (o PluginIPFixCReg) NewPlugin(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
 	Simulation = ctx.Tctx.Simulation // init simulation mode
+	configureLogger(ctx.Tctx.GetVerbose())
 	return NewIPFixClient(ctx, initJson)
 }
 
@@ -1171,6 +1292,8 @@ type (
 		GensInfos map[string]GenInfo `json:"generators_info"`
 	}
 	ApiIpfixClientGetGenNamesHandler struct{}
+
+	ApiIpfixClientGetExpInfoHandler struct{}
 )
 
 // getClientPlugin gets the client plugin given the client parameters (Mac & Tunnel Key)
@@ -1265,6 +1388,20 @@ func (h ApiIpfixClientGetGensInfoHandler) ServeJSONRPC(ctx interface{}, params *
 	return res, nil
 }
 
+func (h ApiIpfixClientGetExpInfoHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
+	c, err := getClientPlugin(ctx, params)
+	if err != nil {
+		return nil, &jsonrpc.Error{
+			Code:    jsonrpc.ErrorCodeInvalidRequest,
+			Message: err.Error(),
+		}
+	}
+
+	res := c.exporter.GetInfoJson()
+
+	return res, nil
+}
+
 func init() {
 
 	/* register of plugins callbacks for ns,c level  */
@@ -1291,6 +1428,7 @@ func init() {
 	core.RegisterCB("ipfix_c_cnt", ApiIpfixClientCntHandler{}, false) // get counters / meta
 	core.RegisterCB("ipfix_c_set_gen_state", ApiIpfixClientSetGenStateHandler{}, false)
 	core.RegisterCB("ipfix_c_get_gens_info", ApiIpfixClientGetGensInfoHandler{}, false)
+	core.RegisterCB("ipfix_c_get_exp_info", ApiIpfixClientGetExpInfoHandler{}, false)
 }
 
 func Register(ctx *core.CThreadCtx) {

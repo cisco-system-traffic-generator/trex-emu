@@ -218,6 +218,8 @@ type CThreadCtx struct {
 	shutdownTimer   CHTimerObj            // Timer object for shutdown
 	shutdownTimerCb ShutdownTimerCallback // Timer callback object
 	markForShutdown bool                  // device should shutdown, timer completed
+	verbose         bool
+	kernelMode      bool
 }
 
 func NewThreadCtxProxy() *CThreadCtx {
@@ -276,6 +278,14 @@ func NewThreadCtx(Id uint32, serverPort uint16, simulation bool, simRx *VethIFSi
 	cdb.IOpt = &o.stats
 	o.cdbv.Add(cdb)
 	return o
+}
+
+func (o *CThreadCtx) SetVerbose(verbose bool) {
+	o.verbose = verbose
+}
+
+func (o *CThreadCtx) SetKernelMode(kernelMode bool) {
+	o.kernelMode = kernelMode
 }
 
 func (o *CThreadCtx) SetZmqVeth(veth VethIF) {
@@ -878,4 +888,12 @@ func (o *CThreadCtx) GetCounterDbVec() *CCounterDbVec {
 func (o *CThreadCtx) SetRpcParams(v, c bool) {
 	o.rpc.mr.Verbose = v
 	o.rpc.mr.Capture = c
+}
+
+func (o *CThreadCtx) GetVerbose() bool {
+	return o.verbose
+}
+
+func (o *CThreadCtx) GetKernelMode() bool {
+	return o.kernelMode
 }
