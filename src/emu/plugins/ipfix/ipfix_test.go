@@ -647,7 +647,8 @@ func TestPluginIPFixNeg6(t *testing.T) {
 		initJSON:     [][]byte{[]byte(initJson)},
 		duration:     10 * time.Second,
 		clientsToSim: 1,
-		counters:     IPFixStats{pktTempSent: 11, pktDataSent: 21, failedCreatingGen: 1, duplicateGenName: 1},
+		counters: IPFixStats{pktTempSent: 11, pktDataSent: 21,
+			recordsDataSent: 105, recordsTempSent: 11, failedCreatingGen: 1, duplicateGenName: 1},
 	}
 	a.Run(t, true)
 }
@@ -703,7 +704,8 @@ func TestPluginIPFixNeg7(t *testing.T) {
 		initJSON:     [][]byte{[]byte(initJson)},
 		duration:     10 * time.Second,
 		clientsToSim: 1,
-		counters:     IPFixStats{pktTempSent: 11, pktDataSent: 21, invalidEngineName: 1},
+		counters: IPFixStats{pktTempSent: 11, pktDataSent: 21,
+			recordsDataSent: 105, recordsTempSent: 11, invalidEngineName: 1},
 	}
 	a.Run(t, true)
 }
@@ -762,7 +764,8 @@ func TestPluginIPFixNeg8(t *testing.T) {
 		initJSON:     [][]byte{[]byte(initJson)},
 		duration:     10 * time.Second,
 		clientsToSim: 1,
-		counters:     IPFixStats{pktTempSent: 11, pktDataSent: 21, failedCreatingGen: 1, duplicateTemplateID: 1},
+		counters: IPFixStats{pktTempSent: 11, pktDataSent: 21, recordsDataSent: 105,
+			recordsTempSent: 11, failedCreatingGen: 1, duplicateTemplateID: 1},
 	}
 	a.Run(t, true)
 }

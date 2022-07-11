@@ -26,6 +26,7 @@ import (
 	"external/google/gopacket/layers"
 	"external/osamingo/jsonrpc"
 	"fmt"
+	"math"
 	"math/rand"
 	"net"
 	"net/url"
@@ -247,7 +248,6 @@ func NewIPFixGen(ipfix *PluginIPFixClient, initJson *fastjson.RawMessage) (*IPFi
 		if ok := o.OnResolve(); !ok {
 			return nil, false
 		}
-
 	}
 
 	return o, true
@@ -391,15 +391,32 @@ func (o *IPFixGen) sendTemplatePktInt() {
 		o.ipfixPlug.stats.exporterWriteError++
 	} else {
 		o.ipfixPlug.stats.pktTempSent++
+		o.ipfixPlug.stats.recordsTempSent++
 		if ipfixVer == 9 {
 			o.ipfixPlug.flowSeqNum++
 		}
 	}
 }
 
+func (o *IPFixGen) isReachedMaxTempRecordsToSend() bool {
+	var isReachedMaxTempRecordsToSend bool
+
+	if o.ipfixPlug.stats.maxTempRecordsToSend > 0 {
+		isReachedMaxTempRecordsToSend = o.ipfixPlug.stats.recordsTempSent >= o.ipfixPlug.stats.maxTempRecordsToSend
+	}
+
+	return isReachedMaxTempRecordsToSend
+}
+
 // sendTemplatePkt sends a Template packet
 func (o *IPFixGen) sendTemplatePkt() {
-	if o.enabled && !o.paused {
+	if o.isReachedMaxTempRecordsToSend() {
+		// Max tx template records reached - stop sending template records.
+		return
+	}
+
+	isSend := o.enabled && !o.paused
+	if isSend {
 		o.sendTemplatePktInt()
 	}
 
@@ -408,6 +425,16 @@ func (o *IPFixGen) sendTemplatePkt() {
 	}
 
 	o.timerw.StartTicks(&o.templateTimer, o.templateTicks)
+}
+
+func (o *IPFixGen) isReachedMaxDataRecordsToSend() bool {
+	var isReachedMaxDataRecordsToSend bool
+
+	if o.ipfixPlug.stats.maxDataRecordsToSend > 0 {
+		isReachedMaxDataRecordsToSend = o.ipfixPlug.stats.recordsDataSent >= o.ipfixPlug.stats.maxDataRecordsToSend
+	}
+
+	return isReachedMaxDataRecordsToSend
 }
 
 func (o *IPFixGen) sendDataPktInt() {
@@ -421,13 +448,15 @@ func (o *IPFixGen) sendDataPktInt() {
 		o.ipfixPlug.stats.exporterWriteError++
 	} else {
 		o.ipfixPlug.stats.pktDataSent++
+		o.ipfixPlug.stats.recordsDataSent += uint64(records)
+
 		// updating the flow sequence number must be inside the loop because fixPayload uses the value.
 		if ipfixVer == 9 {
 			o.ipfixPlug.flowSeqNum++
 		} else if ipfixVer == 10 {
 			o.ipfixPlug.flowSeqNum += records
 		}
-		if o.recordsNum > records {
+		if o.recordsNum > records && !o.isReachedMaxDataRecordsToSend() {
 			mtuMissedRecords := o.recordsNum - records
 			o.ipfixPlug.stats.recordsMtuMissErr += uint64(mtuMissedRecords)
 		}
@@ -436,6 +465,8 @@ func (o *IPFixGen) sendDataPktInt() {
 
 // sendDataPkt sends a burst of data packets (burst can be of size 1)
 func (o *IPFixGen) sendDataPkt() {
+	var restartTimer = true
+
 	if o.enabled {
 		// Only Data Packets can have bursts.
 		for i := 0; i < int(o.dataPktsPerInterval); i++ {
@@ -444,10 +475,19 @@ func (o *IPFixGen) sendDataPkt() {
 				break
 			}
 
+			if o.isReachedMaxDataRecordsToSend() {
+				// Max tx data records reached - no need to restart data timer.
+				restartTimer = false
+				break
+			}
+
 			o.sendDataPktInt()
 		}
 	}
-	o.timerw.StartTicks(&o.dataTimer, o.dataTicks)
+
+	if restartTimer {
+		o.timerw.StartTicks(&o.dataTimer, o.dataTicks)
+	}
 }
 
 // fixPayload makes the differential fixes in each packet, like FlowSeq, Timestamp, Length, etc.
@@ -656,7 +696,14 @@ func (o *IPFixGen) getDataSets() (layers.IPFixSets, uint32) {
 	var setEntries layers.IPFixSetEntries
 	availablePayload := o.availableRecordPayload
 	longestRecord := o.calcLongestRecord()
-	for i := uint32(0); i < o.recordsNumToSent; i++ {
+
+	recordsNumToSend := o.recordsNumToSent
+	if o.ipfixPlug.stats.maxDataRecordsToSend > 0 {
+		recordsNumToSend = uint32(math.Min(float64(o.recordsNumToSent),
+			float64(o.ipfixPlug.stats.maxDataRecordsToSend-o.ipfixPlug.stats.recordsDataSent)))
+	}
+
+	for i := uint32(0); i < recordsNumToSend; i++ {
 		if availablePayload < longestRecord {
 			// in case we don't have variable length fields this shouldn't happen
 			break
@@ -702,11 +749,13 @@ func (o *IPFixGen) prepareDataPayload() (records uint32) {
 /*======================================================================================================
 										RPC API for IPFixGen
 ======================================================================================================*/
+
 // SetDataRate sets a new data rate through RPC.
 func (o *IPFixGen) SetDataRate(rate float32) {
 	o.dataRate = rate
 	duration := time.Duration(float32(time.Second) / o.dataRate)
 	o.dataTicks, o.dataPktsPerInterval = o.timerw.DurationToTicksBurst(duration)
+
 	// Restart the timer.
 	if o.dataTimer.IsRunning() {
 		o.timerw.Stop(&o.dataTimer)
@@ -718,6 +767,7 @@ func (o *IPFixGen) SetDataRate(rate float32) {
 func (o *IPFixGen) SetTemplateRate(rate float32) {
 	o.templateRate = rate
 	o.templateTicks = o.timerw.DurationToTicks(time.Duration(float32(time.Second) / o.templateRate))
+
 	// Restart the timer.
 	if o.templateTimer.IsRunning() {
 		o.timerw.Stop(&o.templateTimer)
@@ -754,6 +804,10 @@ func (o *IPFixGen) GetInfo() *GenInfo {
 type IPFixStats struct {
 	pktTempSent                           uint64 // How many Template packets sent.
 	pktDataSent                           uint64 // How many Data packets sent.
+	recordsTempSent                       uint64 // Number of template records sent.
+	recordsDataSent                       uint64 // Number of data records sent.
+	maxTempRecordsToSend                  uint64 // Maximum number of temp records to send by the client (0 - no limit)
+	maxDataRecordsToSend                  uint64 // Maximum number of data records to send by the client (0 - no limit)
 	templatePktLongerThanMTU              uint64 // Template Packet Length is longer than MTU, hence we can't send Template packets or any packets for that matter.
 	recordsMtuMissErr                     uint64 // How many Data records dropped cause the record num is too big for MTU
 	dataIncorrectLength                   uint64 // Data entry of field is not the same as the length provided in the same field.
@@ -793,6 +847,38 @@ func NewIPFixStatsDb(o *IPFixStats) *core.CCounterDb {
 		Name:     "pktDataSent",
 		Help:     "Data packets sent.",
 		Unit:     "pkts",
+		DumpZero: false,
+		Info:     core.ScINFO})
+
+	db.Add(&core.CCounterRec{
+		Counter:  &o.recordsTempSent,
+		Name:     "recordsTempSent",
+		Help:     "Template records sent.",
+		Unit:     "records",
+		DumpZero: false,
+		Info:     core.ScINFO})
+
+	db.Add(&core.CCounterRec{
+		Counter:  &o.recordsDataSent,
+		Name:     "recordsDataSent",
+		Help:     "Data records sent.",
+		Unit:     "records",
+		DumpZero: false,
+		Info:     core.ScINFO})
+
+	db.Add(&core.CCounterRec{
+		Counter:  &o.maxTempRecordsToSend,
+		Name:     "maxTempRecordsToSend",
+		Help:     "Max number of temp records to send.",
+		Unit:     "records",
+		DumpZero: false,
+		Info:     core.ScINFO})
+
+	db.Add(&core.CCounterRec{
+		Counter:  &o.maxDataRecordsToSend,
+		Name:     "maxDataRecordsToSend",
+		Help:     "Max number of data records to send.",
+		Unit:     "records",
 		DumpZero: false,
 		Info:     core.ScINFO})
 
@@ -965,11 +1051,13 @@ func NewIPFixStatsDb(o *IPFixStats) *core.CCounterDb {
 
 // IPFixClientParams defines the json structure for Ipfix plugin.
 type IPFixClientParams struct {
-	Ver        uint16                 `json:"netflow_version"`         // NetFlow version 9 or 10
-	Dst        string                 `json:"dst" validate:"required"` // Destination Address. Combination of Host:Port.
-	DomainID   uint32                 `json:"domain_id"`               // Observation Domain ID
-	FileExport *fastjson.RawMessage   `json:"file_export"`
-	Generators []*fastjson.RawMessage `json:"generators" validate:"required"` // Ipfix Generators (Template or Data)
+	Ver                  uint16                 `json:"netflow_version"`              // NetFlow version 9 or 10
+	Dst                  string                 `json:"dst" validate:"required"`      // Destination Address. Combination of Host:Port.
+	DomainID             uint32                 `json:"domain_id"`                    // Observation Domain ID
+	MaxDataRecordsToSend uint64                 `json:"max_data_records_to_send"`     // Max number of data records to send (0 - no limit)
+	MaxTempRecordsToSend uint64                 `json:"max_template_records_to_send"` // Max number of template records to send (0 - no limit)
+	FileExport           *fastjson.RawMessage   `json:"file_export"`
+	Generators           []*fastjson.RawMessage `json:"generators" validate:"required"` // Ipfix Generators (Template or Data)
 }
 
 // IPFixTimerCallback is an empty struct used as a callback for the timer which resolves the UnixTime.
@@ -1082,6 +1170,9 @@ func NewIPFixClient(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
 	o.dstUrl = *dstUrl
 	o.isIpv6 = isIpv6
 	o.domainID = init.DomainID
+
+	o.stats.maxDataRecordsToSend = init.MaxDataRecordsToSend
+	o.stats.maxTempRecordsToSend = init.MaxTempRecordsToSend
 
 	if len(init.Generators) > 0 {
 		o.generatorsMap = make(map[string]*IPFixGen, len(init.Generators))
