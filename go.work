@@ -1,3 +1,8 @@
 go 1.18
 
-use ./src
+use (
+	./src
+	./src/emu
+	./src/external
+	./src/external/google/gopacket
+)
