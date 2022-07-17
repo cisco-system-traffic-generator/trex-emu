@@ -482,10 +482,7 @@ func (p *FileExporter) cmdThread() {
 			}
 		case cmdTimerTick:
 			p.counters.cmdTimerTick++
-			expiryTime := p.creationTime.Add(p.maxInterval)
-			if currentTime().After(expiryTime) {
-				p.Rotate()
-			}
+			p.Rotate()
 		case cmdRotate:
 			p.counters.cmdRotate++
 			if err := p.rotateInt(); err != nil {
