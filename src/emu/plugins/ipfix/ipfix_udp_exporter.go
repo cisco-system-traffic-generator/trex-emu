@@ -166,7 +166,7 @@ func (p *UdpExporter) writerThread() {
 	}
 }
 
-func (p *UdpExporter) Write(b []byte) (int, error) {
+func (p *UdpExporter) Write(b []byte, tempRecordsNum uint32, dataRecordsNum uint32) (int, error) {
 	if p.init == false {
 		return 0, errors.New("Failed to write - udp exporter object is uninitialized")
 	}

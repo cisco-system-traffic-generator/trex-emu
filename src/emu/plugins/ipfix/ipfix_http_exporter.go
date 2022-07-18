@@ -42,38 +42,45 @@ type HttpExporterStats struct {
 	httpStatus3xx          uint64
 	httpStatus4xx          uint64
 	httpStatus5xx          uint64
+	bytesUploaded          uint64 // Total number of bytes uploaded successfully
+	tempRecordsUploaded    uint64 // Total number of template records uploaded successfully
+	dataRecordsUploaded    uint64 // Total number of data records uploaded successfully
 }
 
 type HttpExporter struct {
-	url                 url.URL
-	tlsCertFile         string
-	tlsKeyFile          string
-	httpRespTimeout     time.Duration
-	removeDirOnClose    bool
-	init                bool
-	fileExporter        *FileExporter
-	fileExporterEvQueue chan FileExporterEvent
-	retryTimer          *time.Timer
-	lock                sync.Mutex
-	done                chan bool
-	wg                  sync.WaitGroup
-	httpClient          *http.Client
-	counters            HttpExporterStats
-	countersDb          *core.CCounterDb
-	retryWaitState      bool
-	currFileToSend      string
-	fileInfoDb          []*HttpExporterFileInfo
-	currFileInfo        *HttpExporterFileInfo
+	url                    url.URL
+	tlsCertFile            string
+	tlsKeyFile             string
+	httpRespTimeout        time.Duration
+	removeDirOnClose       bool
+	init                   bool
+	fileExporter           *FileExporter
+	fileExporterEvQueue    chan FileExporterEvent
+	retryTimer             *time.Timer
+	lock                   sync.Mutex
+	done                   chan bool
+	wg                     sync.WaitGroup
+	httpClient             *http.Client
+	counters               HttpExporterStats
+	countersDb             *core.CCounterDb
+	retryWaitState         bool
+	currFileToSend         string
+	currFileTempRecordsNum uint32
+	currFileDataRecordsNum uint32
+	fileInfoDb             []*HttpExporterFileInfo
+	currFileInfo           *HttpExporterFileInfo
 }
 
 type HttpExporterFileInfo struct {
-	Name            string                      `json:"name"`
-	Time            string                      `json:"time"`
-	Status          HttpExporterFileSendStatus  `json:"status"`
-	HttpStatus      string                      `json:"http_status_code"`
-	HttpResponseMsg string                      `json:"http_response_msg"`
-	TransportStatus HttpExporterTransportStatus `json:"transport_status"`
-	BytesUploaded   int64                       `json:"bytes_uploaded"`
+	Name                string                      `json:"name"`
+	Time                string                      `json:"time"`
+	Status              HttpExporterFileSendStatus  `json:"status"`
+	HttpStatus          string                      `json:"http_status_code"`
+	HttpResponseMsg     string                      `json:"http_response_msg"`
+	TransportStatus     HttpExporterTransportStatus `json:"transport_status"`
+	BytesUploaded       int64                       `json:"bytes_uploaded"`
+	TempRecordsUploaded uint32                      `json:"temp_records_uploaded"`
+	DataRecordsUploaded uint32                      `json:"data_records_uploaded"`
 }
 
 func (p *HttpExporter) beginFileInfo(filePath string) {
@@ -314,6 +321,30 @@ func (p *HttpExporter) newHttpExporterCountersDb() {
 		Unit:     "ops",
 		DumpZero: false,
 		Info:     core.ScINFO})
+
+	p.countersDb.Add(&core.CCounterRec{
+		Counter:  &p.counters.bytesUploaded,
+		Name:     "bytesUploaded",
+		Help:     "Total number of bytes uploaded successfully",
+		Unit:     "bytes",
+		DumpZero: false,
+		Info:     core.ScINFO})
+
+	p.countersDb.Add(&core.CCounterRec{
+		Counter:  &p.counters.tempRecordsUploaded,
+		Name:     "tempRecordsUploaded",
+		Help:     "Total number of template records uploaded successfully",
+		Unit:     "records",
+		DumpZero: false,
+		Info:     core.ScINFO})
+
+	p.countersDb.Add(&core.CCounterRec{
+		Counter:  &p.counters.dataRecordsUploaded,
+		Name:     "dataRecordsUploaded",
+		Help:     "Total number of data records uploaded successfully",
+		Unit:     "records",
+		DumpZero: false,
+		Info:     core.ScINFO})
 }
 
 func (p *HttpExporter) GetName() string {
@@ -357,7 +388,7 @@ func (p *HttpExporter) GetInfoJson() interface{} {
 	return &res
 }
 
-func (p *HttpExporter) Write(b []byte) (int, error) {
+func (p *HttpExporter) Write(b []byte, tempRecordsNum uint32, dataRecordsNum uint32) (int, error) {
 	if p.init == false {
 		return 0, fmt.Errorf("Failed to write - http exporter object is uninitialized")
 	}
@@ -367,7 +398,7 @@ func (p *HttpExporter) Write(b []byte) (int, error) {
 
 	p.counters.writes++
 
-	n, err := p.fileExporter.Write(b)
+	n, err := p.fileExporter.Write(b, tempRecordsNum, dataRecordsNum)
 	if err == nil {
 		p.counters.txBytes += uint64(len(b))
 	} else {
@@ -424,13 +455,13 @@ func (p *HttpExporter) notify(event FileExporterEvent) {
 func (p *HttpExporter) handlefileExporterEv(event FileExporterEvent) {
 	switch event.id {
 	case EvFileCreated:
-		log.Debug("Got fileCreated event for file ", event.filePath)
-		err := p.sendFile(event.filePath)
+		log.Debug("Got fileCreated event - \n", event)
+		err := p.sendFile(event.filePath, event.tempRecordsNum, event.dataRecordsNum)
 		if err != nil {
 			log.Debug("Failed to send file, error: ", err)
 		}
 	case EvFileRemoved:
-		log.Debug("Got fileRemoved event for file ", event.filePath)
+		log.Debug("Got fileRemoved event - \n", event)
 		/* not supported */
 	default:
 	}
@@ -451,10 +482,10 @@ func (p *HttpExporter) observerThread() {
 		case true:
 			select {
 			case <-p.retryTimer.C:
-				log.Debug("RETRY TIMER ")
+				log.Debug("HTTP file upload retry timer expired")
 				p.retryWaitState = false
 				p.counters.filesExportRetry++
-				err := p.sendFile(p.currFileToSend)
+				err := p.sendFile(p.currFileToSend, p.currFileTempRecordsNum, p.currFileDataRecordsNum)
 				if err != nil {
 					log.Debug("Failed to send file, error: ", err)
 				}
@@ -536,8 +567,10 @@ func (p *HttpExporter) createHttpPostRequest(url *url.URL, filePath string) (*ht
 	return r, nil
 }
 
-func (p *HttpExporter) preSendFile(filePath string) {
+func (p *HttpExporter) preSendFile(filePath string, tempRecordsNum uint32, dataRecordsNum uint32) {
 	p.currFileToSend = filePath
+	p.currFileTempRecordsNum = tempRecordsNum
+	p.currFileDataRecordsNum = dataRecordsNum
 	p.beginFileInfo(filePath)
 }
 
@@ -548,14 +581,14 @@ func (p *HttpExporter) postSendFile() {
 	}
 }
 
-func (p *HttpExporter) sendFile(filePath string) error {
+func (p *HttpExporter) sendFile(filePath string, tempRecordsNum uint32, dataRecordsNum uint32) error {
 	var err error
 
 	log.Info("Trying to send file: ",
 		"\n\tfile name:", filePath,
 		"\n\tdestination URL:", p.url.String())
 
-	p.preSendFile(filePath)
+	p.preSendFile(filePath, tempRecordsNum, dataRecordsNum)
 	defer p.postSendFile()
 
 	req, err := p.createHttpPostRequest(&p.url, filePath)
@@ -612,6 +645,13 @@ func (p *HttpExporter) sendFile(filePath string) error {
 	p.currFileInfo.HttpStatus = resp.Status
 	if p.currFileInfo.Status == StSuccess {
 		p.currFileInfo.BytesUploaded, _ = getFileSize(p.currFileToSend)
+		p.counters.bytesUploaded += uint64(p.currFileInfo.BytesUploaded)
+
+		p.currFileInfo.TempRecordsUploaded = p.currFileTempRecordsNum
+		p.counters.tempRecordsUploaded += uint64(p.currFileTempRecordsNum)
+
+		p.currFileInfo.DataRecordsUploaded = p.currFileDataRecordsNum
+		p.counters.dataRecordsUploaded += uint64(p.currFileDataRecordsNum)
 	}
 
 	return nil

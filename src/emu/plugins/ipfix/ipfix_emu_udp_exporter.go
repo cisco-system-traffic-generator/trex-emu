@@ -86,7 +86,7 @@ func (p *EmuUdpExporter) newEmuUdpExporterCountersDb() {
 		Info:     core.ScINFO})
 }
 
-func (p *EmuUdpExporter) Write(b []byte) (int, error) {
+func (p *EmuUdpExporter) Write(b []byte, tempRecordsNum uint32, dataRecordsNum uint32) (int, error) {
 	if p.init == false {
 		return 0, fmt.Errorf("Failed to write - file exporter object is uninitialized")
 	}

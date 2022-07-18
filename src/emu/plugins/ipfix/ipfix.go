@@ -386,7 +386,7 @@ func (o *IPFixGen) sendTemplatePktInt() {
 	payload := o.templatePayload
 	o.fixPayload(payload)
 
-	_, err := o.ipfixPlug.exporter.Write(payload)
+	_, err := o.ipfixPlug.exporter.Write(payload, 1, 0)
 	if err != nil {
 		o.ipfixPlug.stats.exporterWriteError++
 	} else {
@@ -443,7 +443,7 @@ func (o *IPFixGen) sendDataPktInt() {
 	payload := o.dataPayload
 	o.fixPayload(payload)
 
-	_, err := o.ipfixPlug.exporter.Write(payload)
+	_, err := o.ipfixPlug.exporter.Write(payload, 0, records)
 	if err != nil {
 		o.ipfixPlug.stats.exporterWriteError++
 	} else {

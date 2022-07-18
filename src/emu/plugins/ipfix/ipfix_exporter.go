@@ -28,7 +28,7 @@ var (
 
 // Interface type for exporters
 type Exporter interface {
-	Write(b []byte) (n int, err error)
+	Write(b []byte, tempRecordsNum uint32, dataRecordsNum uint32) (n int, err error)
 	Close() error
 	GetMaxSize() int
 	GetType() string

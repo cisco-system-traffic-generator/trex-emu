@@ -59,8 +59,20 @@ func (s FileExporterEventId) String() string {
 }
 
 type FileExporterEvent struct {
-	id       FileExporterEventId
-	filePath string
+	id             FileExporterEventId
+	filePath       string
+	tempRecordsNum uint32
+	dataRecordsNum uint32
+}
+
+func (s FileExporterEvent) String() string {
+	str := fmt.Sprintf("FileExporterEvent: \n"+
+		"  id = %s \n"+
+		"  filePath = %s \n"+
+		"  tempRecordsNum = %d \n"+
+		"  dataRecordsNum = %d \n",
+		s.id, s.filePath, s.tempRecordsNum, s.dataRecordsNum)
+	return str
 }
 
 type FileExporterObserver interface {
@@ -68,21 +80,21 @@ type FileExporterObserver interface {
 }
 
 type FileExporter struct {
-	name         string
-	namePrefix   string
-	nameExt      string
-	maxSize      int
-	maxInterval  time.Duration
-	compress     bool
-	dir          string
-	maxFiles     int
-	init         bool
-	file         *os.File
-	creationTime time.Time
-	// Running index for created files
-	index uint64
-	// Current size
-	size               int
+	name               string
+	namePrefix         string
+	nameExt            string
+	maxSize            int
+	maxInterval        time.Duration
+	compress           bool
+	dir                string
+	maxFiles           int
+	init               bool
+	file               *os.File
+	creationTime       time.Time
+	index              uint64 // Running index for created files
+	size               int    // Size of current file
+	tempRecordsNum     uint32 // Number of template records in current file
+	dataRecordsNum     uint32 // Number of data records in current file
 	observerList       []*FileExporterObserver
 	fileFormatRegexStr string
 	fileFormatRegex    *regexp.Regexp
@@ -131,8 +143,10 @@ func (s fileExporterCmdId) String() string {
 }
 
 type fileExporterCmd struct {
-	id          fileExporterCmdId
-	writeBuffer []byte
+	id                  fileExporterCmdId
+	writeBuffer         []byte
+	writeTempRecordsNum uint32
+	writeDataRecordsNum uint32
 }
 
 func NewFileExporter(client *PluginIPFixClient, params *FileExporterParams) (*FileExporter, error) {
@@ -378,7 +392,7 @@ func (p *FileExporter) GetInfoJson() interface{} {
 	return &res
 }
 
-func (p *FileExporter) Write(b []byte) (int, error) {
+func (p *FileExporter) Write(b []byte, tempRecordsNum uint32, dataRecordsNum uint32) (int, error) {
 	if p.init == false {
 		return 0, errors.New("Failed to write - file exporter object is uninitialized")
 	}
@@ -387,6 +401,8 @@ func (p *FileExporter) Write(b []byte) (int, error) {
 	cmd = new(fileExporterCmd)
 	cmd.id = cmdWrite
 	cmd.writeBuffer = b
+	cmd.writeTempRecordsNum = tempRecordsNum
+	cmd.writeDataRecordsNum = dataRecordsNum
 
 	p.counters.writes++
 
@@ -474,7 +490,7 @@ func (p *FileExporter) cmdThread() {
 		switch cmd.id {
 		case cmdWrite:
 			p.counters.cmdWrite++
-			_, err = p.writeInt(*&cmd.writeBuffer)
+			_, err = p.writeInt(*&cmd.writeBuffer, cmd.writeTempRecordsNum, cmd.writeDataRecordsNum)
 			if err == nil {
 				p.counters.txBytes += uint64(len(*&cmd.writeBuffer))
 			} else {
@@ -494,7 +510,7 @@ func (p *FileExporter) cmdThread() {
 	}
 }
 
-func (p *FileExporter) writeInt(b []byte) (int, error) {
+func (p *FileExporter) writeInt(b []byte, tempRecordsNum uint32, dataRecordsNum uint32) (int, error) {
 	writeLen := len(b)
 
 	if writeLen > p.maxSize {
@@ -522,6 +538,8 @@ func (p *FileExporter) writeInt(b []byte) (int, error) {
 
 	n, err = p.file.Write(b)
 	p.size += n
+	p.tempRecordsNum += tempRecordsNum
+	p.dataRecordsNum += dataRecordsNum
 
 	return n, err
 }
@@ -618,19 +636,24 @@ func (p *FileExporter) rotateExistingFile() error {
 		}
 	}
 
-	newname := p.rotatedFileName(name)
-	if err := os.Rename(name, newname); err != nil {
+	newName := p.rotatedFileName(name)
+	if err := os.Rename(name, newName); err != nil {
 		return fmt.Errorf("Failed to rename file: %s", err)
 	}
 
 	if p.compress {
-		if err := compressFile(newname, newname+compressSuffix); err != nil {
+		if err := compressFile(newName, newName+compressSuffix); err != nil {
 			return fmt.Errorf("Failed to compress rotated file: %s", err)
 		}
-		newname = newname + compressSuffix
+		newName = newName + compressSuffix
 	}
 
-	p.notifyObservers(FileExporterEvent{filePath: newname, id: EvFileCreated})
+	event := new(FileExporterEvent)
+	event.id = EvFileCreated
+	event.filePath = newName
+	event.tempRecordsNum = p.tempRecordsNum
+	event.dataRecordsNum = p.dataRecordsNum
+	p.notifyObservers(*event)
 
 	return nil
 }
@@ -658,6 +681,9 @@ func (p *FileExporter) openNew() error {
 
 	p.file = f
 	p.size = 0
+	p.tempRecordsNum = 0
+	p.dataRecordsNum = 0
+
 	p.creationTime = currentTime()
 	p.index++
 
@@ -695,7 +721,7 @@ func removeFromslice(observerList []*FileExporterObserver, observerToRemove *Fil
 }
 
 func (p *FileExporter) notifyObservers(event FileExporterEvent) {
-	log.Info("notifyObservers ", event.id, event.filePath)
+	log.Info("notifyObservers \n", event)
 
 	switch event.id {
 	case EvFileCreated:
