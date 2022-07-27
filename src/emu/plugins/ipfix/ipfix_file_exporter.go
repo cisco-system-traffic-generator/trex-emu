@@ -15,12 +15,12 @@ import (
 )
 
 type FileExporterParams struct {
-	Name        string        `json:"name"`
-	MaxSize     int           `json:"max_size"`
-	MaxInterval time.Duration `json:"max_interval"`
-	Compress    bool          `json:"compress"`
-	Dir         string        `json:"dir"`
-	MaxFiles    int           `json:"max_files"`
+	Name        string   `json:"name"`
+	MaxSize     int      `json:"max_size"`
+	MaxInterval Duration `json:"max_interval"`
+	Compress    bool     `json:"compress"`
+	Dir         string   `json:"dir"`
+	MaxFiles    int      `json:"max_files"`
 }
 
 type FileExporterStats struct {
@@ -171,7 +171,7 @@ func NewFileExporter(client *PluginIPFixClient, params *FileExporterParams) (*Fi
 
 	p.name = params.Name
 	p.maxSize = params.MaxSize
-	p.maxInterval = params.MaxInterval
+	p.maxInterval = params.MaxInterval.Duration
 	p.compress = params.Compress
 	p.maxFiles = params.MaxFiles
 	p.dir = params.Dir
@@ -180,11 +180,6 @@ func NewFileExporter(client *PluginIPFixClient, params *FileExporterParams) (*Fi
 	// If MaxSize is not provided assume no size limit
 	if params.MaxSize == 0 {
 		p.maxSize = math.MaxInt
-	}
-
-	// Minimum aggregation time is one second
-	if p.maxInterval < time.Second && p.maxInterval != 0 {
-		p.maxInterval = time.Second
 	}
 
 	p.namePrefix, p.nameExt = prefixAndExt(p.name)

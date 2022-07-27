@@ -16,15 +16,15 @@ import (
 )
 
 type HttpExporterParams struct {
-	Name             string        `json:"name"`
-	Url              string        `json:"url"`
-	TlsCertFile      string        `json:"tls_cert_file"`
-	TlsKeyFile       string        `json:"tls_key_file"`
-	Dir              string        `json:"dir"`
-	MaxSize          int           `json:"max_size"`
-	MaxInterval      time.Duration `json:"max_interval"`
-	Compress         bool          `json:"compress"`
-	MaxFiles         int           `json:"max_files"`
+	Name             string   `json:"name"`
+	Url              string   `json:"url"`
+	TlsCertFile      string   `json:"tls_cert_file"`
+	TlsKeyFile       string   `json:"tls_key_file"`
+	Dir              string   `json:"dir"`
+	MaxSize          int      `json:"max_size"`
+	MaxInterval      Duration `json:"max_interval"`
+	Compress         bool     `json:"compress"`
+	MaxFiles         int      `json:"max_files"`
 	removeDirOnClose bool
 }
 

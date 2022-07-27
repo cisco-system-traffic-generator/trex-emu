@@ -14,12 +14,12 @@ import (
 )
 
 const (
-	defaultFileExporterName           = "fnf_agg.ipfix"
-	defaultFileExporterMaxSize        = 1048576
-	defaultFileExporterMaxIntervalSec = 60
-	defaultFileExporterCompress       = true
-	defaultFileExporterDir            = ""
-	defaultFileExporterMaxFiles       = 100
+	defaultFileExporterName        = "fnf_agg.ipfix"
+	defaultFileExporterMaxSize     = 1048576
+	defaultFileExporterMaxInterval = 60 * time.Second
+	defaultFileExporterCompress    = true
+	defaultFileExporterDir         = ""
+	defaultFileExporterMaxFiles    = 100
 )
 
 var (
@@ -92,7 +92,7 @@ func createFileExporter(client *PluginIPFixClient, dstUrl *url.URL, initJson *fa
 	params := &FileExporterParams{
 		Name:        defaultFileExporterName,
 		MaxSize:     defaultFileExporterMaxSize,
-		MaxInterval: defaultFileExporterMaxIntervalSec,
+		MaxInterval: Duration{Duration: defaultFileExporterMaxInterval},
 		Compress:    defaultFileExporterCompress,
 		Dir:         defaultFileExporterDir,
 		MaxFiles:    defaultFileExporterMaxFiles,
@@ -109,9 +109,6 @@ func createFileExporter(client *PluginIPFixClient, dstUrl *url.URL, initJson *fa
 			return nil, err
 		}
 	}
-
-	// Convert from seconds to ns (time.Duration) as expected by FileExporter module
-	params.MaxInterval = params.MaxInterval * time.Second
 
 	// Create unique directory per EMU client in the user's dir
 	params.Dir = getClientDirExporterName(params.Dir, params.Name, client.Client)
@@ -132,7 +129,7 @@ func createHttpExporter(client *PluginIPFixClient, dstUrl *url.URL, initJson *fa
 	params := &HttpExporterParams{
 		Name:        defaultFileExporterName,
 		MaxSize:     defaultFileExporterMaxSize,
-		MaxInterval: defaultFileExporterMaxIntervalSec,
+		MaxInterval: Duration{Duration: defaultFileExporterMaxInterval},
 		Compress:    defaultFileExporterCompress,
 		Dir:         defaultFileExporterDir,
 		MaxFiles:    defaultFileExporterMaxFiles,
@@ -146,9 +143,6 @@ func createHttpExporter(client *PluginIPFixClient, dstUrl *url.URL, initJson *fa
 			return nil, err
 		}
 	}
-
-	// Convert from seconds to ns (time.Duration) as expected by IPFixHttpExporter module
-	params.MaxInterval = params.MaxInterval * time.Second
 
 	// Create unique directory per EMU client in the user given dir
 	params.Dir = getClientDirExporterName(params.Dir, params.Name, client.Client)
