@@ -60,6 +60,7 @@ func (o *MDnsTestBase) Run(t *testing.T, compare bool) {
 
 	var tctx *core.CThreadCtx
 	tctx, _ = createSimulationEnv(&simrx, o)
+	defer tctx.Delete()
 
 	if o.cb != nil {
 		o.cb(tctx, o)
@@ -70,7 +71,6 @@ func (o *MDnsTestBase) Run(t *testing.T, compare bool) {
 	}
 	tctx.Veth.SetDebug(m, os.Stdout, o.capture)
 	tctx.MainLoopSim(o.duration)
-	defer tctx.Delete()
 
 	var key core.CTunnelKey
 	key.Set(&core.CTunnelData{Vport: 1})

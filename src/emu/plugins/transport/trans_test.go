@@ -124,6 +124,7 @@ func testReadOffset(tobuf []byte) {
 
 func TestPluginTrans1(t *testing.T) {
 	tctx := core.NewThreadCtx(0, 4510, false, nil)
+	defer tctx.Delete()
 	s := newTxSocket(tctx, 32*1024)
 	s.sanityCheck()
 	fmt.Printf("%v \n", s)
@@ -199,6 +200,7 @@ func compareReadBufBasic(s *txSocketQueue, cnt int, size int) {
 
 func TestPluginTrans2(t *testing.T) {
 	tctx := core.NewThreadCtx(0, 4510, false, nil)
+	defer tctx.Delete()
 	s := newTxSocket(tctx, 32*1024)
 	iter := 10
 	cnt := 0
@@ -235,6 +237,7 @@ func TestPluginTrans2(t *testing.T) {
 		}
 		fmt.Printf("%v \n", s)
 	}
+
 	//for {
 
 	//}
@@ -732,6 +735,7 @@ func TestPluginTransFt2(t *testing.T) {
 		},
 	}
 	sim := newTransportSim(&a.param)
+	defer sim.tctx.Delete()
 	src.init(sim.client.ctx)
 
 	for i := 0; i < 10; i++ {

@@ -239,14 +239,14 @@ func NewThreadCtxProxy() *CThreadCtx {
 	return o
 }
 
-func NewThreadCtx(Id uint32, serverPort uint16, simulation bool, simRx *VethIFSim) *CThreadCtx {
+func NewThreadCtx(Id uint32, rpcPort uint16, simulation bool, simRx *VethIFSim) *CThreadCtx {
 	o := new(CThreadCtx)
 	o.timerctx = NewTimerCtx(simulation)
 	o.portMap = make(MapPortT)
 	o.Simulation = simulation
 	o.mapNs = make(MapNsT)
 	o.MPool.Init(mBUFS_CACHE)
-	o.rpc.NewZmqRpc(serverPort)
+	o.rpc.NewZmqRpc(rpcPort)
 	o.rpc.SetCtx(o) /* back pointer to interface this */
 	o.nsHead.SetSelf()
 	o.PluginCtx = NewPluginCtx(nil, nil, o, PLUGIN_LEVEL_THREAD)

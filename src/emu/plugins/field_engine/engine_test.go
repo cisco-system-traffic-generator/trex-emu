@@ -154,23 +154,23 @@ func validateRandomInt64(b []byte, eng *IntEngine, t *testing.T) {
 }
 
 // createEngineManager
-func createEngineManager(t *testing.T) *FieldEngineManager {
+func createEngineManager(t *testing.T) (*FieldEngineManager, *core.CThreadCtx) {
 	var simrx core.VethIFSim
-	tctx := core.NewThreadCtx(0, 4510, true, &simrx)
-	defer tctx.Delete()
+	tctx := core.NewThreadCtx(0, 0, true, &simrx)
 	param := fastjson.RawMessage([]byte(`[]`))
 	feMgr := NewEngineManager(tctx, &param)
 	if feMgr.counters.invalidJson != 0 || feMgr.counters.failedBuildingEngine != 0 {
 		t.Errorf("Error while generating engine manager.\n")
 		t.FailNow()
 	}
-	return feMgr
+	return feMgr, tctx
 }
 
 // TestUIntEngineBasic
 func TestUIntEngineBasic(t *testing.T) {
 
-	feMgr := createEngineManager(t)
+	feMgr, tctx := createEngineManager(t)
+	defer tctx.Delete()
 
 	baseParams := BaseNumericEngineParams{
 		Offset: 2,
@@ -212,7 +212,8 @@ func TestUIntEngineBasic(t *testing.T) {
 // TestUIntEngineNegative
 func TestUIntEngineNegative(t *testing.T) {
 
-	feMgr := createEngineManager(t)
+	feMgr, tctx := createEngineManager(t)
+	defer tctx.Delete()
 
 	baseParams := BaseNumericEngineParams{
 		Offset: 2,
@@ -343,7 +344,8 @@ func TestUIntEngineNegative(t *testing.T) {
 // TestUInt16EngineInc
 func TestUInt16EngineInc(t *testing.T) {
 
-	feMgr := createEngineManager(t)
+	feMgr, tctx := createEngineManager(t)
+	defer tctx.Delete()
 
 	baseParams := BaseNumericEngineParams{
 		Offset: 0,
@@ -443,7 +445,8 @@ func TestUInt16EngineInc(t *testing.T) {
 // TestUInt16EngineDec
 func TestUInt16EngineDec(t *testing.T) {
 
-	feMgr := createEngineManager(t)
+	feMgr, tctx := createEngineManager(t)
+	defer tctx.Delete()
 
 	baseParams := BaseNumericEngineParams{
 		Offset: 0,
@@ -548,7 +551,8 @@ func TestUInt16EngineDec(t *testing.T) {
 // TestUInt16EngineRand
 func TestUInt16EngineRand(t *testing.T) {
 
-	feMgr := createEngineManager(t)
+	feMgr, tctx := createEngineManager(t)
+	defer tctx.Delete()
 
 	baseParams := BaseNumericEngineParams{
 		Offset: 0,
@@ -681,7 +685,8 @@ func TestUInt16EngineRand(t *testing.T) {
 // TestUInt32EngineInc
 func TestUInt32Engine(t *testing.T) {
 
-	feMgr := createEngineManager(t)
+	feMgr, tctx := createEngineManager(t)
+	defer tctx.Delete()
 
 	baseParams := BaseNumericEngineParams{
 		Offset: 0,
@@ -801,7 +806,8 @@ func TestUInt32Engine(t *testing.T) {
 // TestUInt64Engine
 func TestUInt64Engine(t *testing.T) {
 
-	feMgr := createEngineManager(t)
+	feMgr, tctx := createEngineManager(t)
+	defer tctx.Delete()
 
 	baseParams := BaseNumericEngineParams{
 		Offset: 0,
@@ -887,7 +893,8 @@ func TestUInt64Engine(t *testing.T) {
 // TestUInt8Engine
 func TestUInt8Engine(t *testing.T) {
 
-	feMgr := createEngineManager(t)
+	feMgr, tctx := createEngineManager(t)
+	defer tctx.Delete()
 
 	baseParams := BaseNumericEngineParams{
 		Offset: 0,
@@ -1056,7 +1063,8 @@ func TestUInt8Engine(t *testing.T) {
 
 //TestIntEngines
 func TestIntEngines(t *testing.T) {
-	feMgr := createEngineManager(t)
+	feMgr, tctx := createEngineManager(t)
+	defer tctx.Delete()
 
 	baseParams := BaseNumericEngineParams{
 		Offset: 0,
@@ -1301,7 +1309,8 @@ func TestIntEngines(t *testing.T) {
 
 //TestFloatEngines
 func TestFloatEngines(t *testing.T) {
-	feMgr := createEngineManager(t)
+	feMgr, tctx := createEngineManager(t)
+	defer tctx.Delete()
 
 	params := FloatEngineParams{
 		Size:   4,
@@ -1354,7 +1363,8 @@ func TestFloatEngines(t *testing.T) {
 
 //TestIntEnginesNegative
 func TestIntEnginesNegative(t *testing.T) {
-	feMgr := createEngineManager(t)
+	feMgr, tctx := createEngineManager(t)
+	defer tctx.Delete()
 
 	baseParams := BaseNumericEngineParams{
 		Offset: 2,
@@ -1416,7 +1426,8 @@ func TestIntEnginesNegative(t *testing.T) {
 // TestHistogramUInt32Engine
 func TestHistogramUInt32Engine(t *testing.T) {
 
-	feMgr := createEngineManager(t)
+	feMgr, tctx := createEngineManager(t)
+	defer tctx.Delete()
 
 	// simple binary non uniform
 	entries := []HistogramEntry{&HistogramUInt32Entry{V: 1, Prob: 1}, &HistogramUInt32Entry{V: 10, Prob: 3}}
@@ -1522,7 +1533,8 @@ func TestHistogramUInt32Engine(t *testing.T) {
 // TestHistogramInt32Engine
 func TestHistogramInt32Engine(t *testing.T) {
 
-	feMgr := createEngineManager(t)
+	feMgr, tctx := createEngineManager(t)
+	defer tctx.Delete()
 
 	// simple binary non uniform
 	entries := []HistogramEntry{&HistogramInt32Entry{V: -1, Prob: 1}, &HistogramUInt32Entry{V: 1, Prob: 1}}
@@ -1606,7 +1618,8 @@ func TestHistogramInt32Engine(t *testing.T) {
 // TestHistogramUInt32RangeEngine
 func TestHistogramUInt32RangeEngine(t *testing.T) {
 
-	feMgr := createEngineManager(t)
+	feMgr, tctx := createEngineManager(t)
+	defer tctx.Delete()
 
 	// generate number between 0-100 with 0.5 prob and 101-200 with 0.5 prob
 	entries := []HistogramEntry{&HistogramUInt32RangeEntry{Min: 0, Max: 100, Prob: 1}, &HistogramUInt32RangeEntry{Min: 101, Max: 200, Prob: 1}}
@@ -1735,7 +1748,8 @@ func TestHistogramUInt32RangeEngine(t *testing.T) {
 // TestHistogramInt32RangeEngine
 func TestHistogramInt32RangeEngine(t *testing.T) {
 
-	feMgr := createEngineManager(t)
+	feMgr, tctx := createEngineManager(t)
+	defer tctx.Delete()
 
 	// generate number between 0-100 with 0.5 prob and 101-200 with 0.5 prob
 	entries := []HistogramEntry{&HistogramInt32RangeEntry{Min: -5, Max: 5, Prob: 1, domainLength: 11}, &HistogramInt32RangeEntry{Min: -25, Max: -20, Prob: 1, domainLength: 6}}
@@ -1773,7 +1787,8 @@ func TestHistogramInt32RangeEngine(t *testing.T) {
 // TestHistogramUInt32ListEngine
 func TestHistogramUInt32ListEngine(t *testing.T) {
 
-	feMgr := createEngineManager(t)
+	feMgr, tctx := createEngineManager(t)
+	defer tctx.Delete()
 
 	// even digit vs odd digit uniform
 	entries := []HistogramEntry{&HistogramUInt32ListEntry{List: []uint32{1, 3, 5, 7, 9}, Prob: 1}, &HistogramUInt32ListEntry{List: []uint32{0, 2, 4, 6, 8}, Prob: 1}}
@@ -1838,7 +1853,8 @@ func TestHistogramUInt32ListEngine(t *testing.T) {
 // TestHistogramInt32ListEngine
 func TestHistogramInt32ListEngine(t *testing.T) {
 
-	feMgr := createEngineManager(t)
+	feMgr, tctx := createEngineManager(t)
+	defer tctx.Delete()
 
 	// even digit vs odd digit uniform
 	entries := []HistogramEntry{&HistogramInt32ListEntry{List: []int32{-5, -3, -1, 1, 3, 5}, Prob: 1}, &HistogramInt32ListEntry{List: []int32{-6, -4, -2, 2, 4, 6}, Prob: 1}}
@@ -1880,7 +1896,8 @@ func TestHistogramInt32ListEngine(t *testing.T) {
 // TestUIntListEngineNegative
 func TestUIntListEngineNegative(t *testing.T) {
 
-	feMgr := createEngineManager(t)
+	feMgr, tctx := createEngineManager(t)
+	defer tctx.Delete()
 
 	baseParams := BaseListEngineParams{
 		Offset: 2,
@@ -2011,7 +2028,8 @@ func TestUIntListEngineNegative(t *testing.T) {
 // TestUIntListEngine
 func TestUIntListEngine(t *testing.T) {
 
-	feMgr := createEngineManager(t)
+	feMgr, tctx := createEngineManager(t)
+	defer tctx.Delete()
 
 	baseParams := BaseListEngineParams{
 		Offset:    0,
@@ -2172,7 +2190,8 @@ func TestUIntListEngine(t *testing.T) {
 
 // TestUIntListEngineRand
 func TestUIntListEngineRand(t *testing.T) {
-	feMgr := createEngineManager(t)
+	feMgr, tctx := createEngineManager(t)
+	defer tctx.Delete()
 
 	baseParams := BaseListEngineParams{
 		Offset:    0,
@@ -2276,7 +2295,8 @@ func validateGeneratedString(b []byte, expected [][]byte, eng *StringListEngine,
 // TestIntListEngineNegative
 func TestIntListEngineNegative(t *testing.T) {
 
-	feMgr := createEngineManager(t)
+	feMgr, tctx := createEngineManager(t)
+	defer tctx.Delete()
 
 	baseParams := BaseListEngineParams{
 		Offset: 2,
@@ -2386,7 +2406,8 @@ func TestIntListEngineNegative(t *testing.T) {
 // TestIntListEngine
 func TestIntListEngine(t *testing.T) {
 
-	feMgr := createEngineManager(t)
+	feMgr, tctx := createEngineManager(t)
+	defer tctx.Delete()
 
 	baseParams := BaseListEngineParams{
 		Offset:    0,
@@ -2462,7 +2483,8 @@ func TestIntListEngine(t *testing.T) {
 // TestFloatListEngine
 func TestFloatListEngine(t *testing.T) {
 
-	feMgr := createEngineManager(t)
+	feMgr, tctx := createEngineManager(t)
+	defer tctx.Delete()
 
 	baseParams := BaseListEngineParams{
 		Offset:    0,
@@ -2511,7 +2533,8 @@ func TestFloatListEngine(t *testing.T) {
 // TestStringListNegative
 func TestStringListNegative(t *testing.T) {
 
-	feMgr := createEngineManager(t)
+	feMgr, tctx := createEngineManager(t)
+	defer tctx.Delete()
 
 	// too long string
 	baseParams := BaseListEngineParams{
@@ -2625,7 +2648,8 @@ func TestStringListNegative(t *testing.T) {
 // TestStringList
 func TestStringList(t *testing.T) {
 
-	feMgr := createEngineManager(t)
+	feMgr, tctx := createEngineManager(t)
+	defer tctx.Delete()
 	b := make([]byte, 50)
 
 	// simple increase
@@ -2711,7 +2735,8 @@ func TestStringList(t *testing.T) {
 // TestStringListRand
 func TestStringListRand(t *testing.T) {
 
-	feMgr := createEngineManager(t)
+	feMgr, tctx := createEngineManager(t)
+	defer tctx.Delete()
 	b := make([]byte, 4)
 
 	// short answers
@@ -2766,7 +2791,8 @@ func TestStringListRand(t *testing.T) {
 // TestTimeEngineNegative
 func TestTimeEngineNegative(t *testing.T) {
 
-	feMgr := createEngineManager(t)
+	feMgr, tctx := createEngineManager(t)
+	defer tctx.Delete()
 
 	// invalid size
 	params := TimeStartEngineParams{
@@ -2894,7 +2920,8 @@ func TestTimeEngineNegative(t *testing.T) {
 
 // TestTimeEngine
 func TestTimeEngine(t *testing.T) {
-	feMgr := createEngineManager(t)
+	feMgr, tctx_1 := createEngineManager(t)
+	defer tctx_1.Delete()
 	b := make([]byte, 8)
 
 	paramsStart := TimeStartEngineParams{
@@ -2948,7 +2975,9 @@ func TestTimeEngine(t *testing.T) {
 		}
 	}
 
-	feMgr = createEngineManager(t)
+	feMgr, tctx_2 := createEngineManager(t)
+	defer tctx_2.Delete()
+
 	b = make([]byte, 16)
 
 	paramsStart = TimeStartEngineParams{
@@ -3005,7 +3034,8 @@ func TestTimeEngine(t *testing.T) {
 
 // TestHistogramURL
 func TestHistogramURL(t *testing.T) {
-	feMgr := createEngineManager(t)
+	feMgr, tctx := createEngineManager(t)
+	defer tctx.Delete()
 
 	entries := []HistogramEntry{
 		// only scheme + host
@@ -3204,7 +3234,8 @@ func TestHistogramURL(t *testing.T) {
 }
 
 func genStringHistogramEngine(t *testing.T, pad bool, factor int, p1, p2 uint32) map[string]int {
-	feMgr := createEngineManager(t)
+	feMgr, tctx := createEngineManager(t)
+	defer tctx.Delete()
 
 	entries := []HistogramStringEntry{
 		HistogramStringEntry{

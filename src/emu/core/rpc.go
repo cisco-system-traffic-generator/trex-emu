@@ -60,7 +60,11 @@ func (o *CZmqJsonRPC2) NewZmqRpc(serverPort uint16) {
 	o.socket = socket
 	o.serverPort = serverPort
 	bindStr := fmt.Sprintf("tcp://*:%d", o.serverPort)
-	socket.Bind(bindStr)
+	err = socket.Bind(bindStr)
+	if err != nil {
+		errStr := fmt.Sprintf("Failed to create ZMQ RPC server - %v", err.Error())
+		log.Fatalln(errStr)
+	}
 
 	mr := jsonrpc.NewMethodRepository()
 	o.mr = mr
@@ -103,6 +107,7 @@ func (o *CZmqJsonRPC2) StartRxThread() {
 // Delete  this is an help
 func (o *CZmqJsonRPC2) Delete() {
 	o.socket.Close()
+	o.ctx.Term()
 }
 
 // HandleReqToChan input buffer return resonse to chan

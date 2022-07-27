@@ -38,7 +38,6 @@ type DhcpTestBase struct {
 type IgmpTestCb func(tctx *core.CThreadCtx, test *DhcpTestBase) int
 
 func (o *DhcpTestBase) Run(t *testing.T) {
-
 	var simVeth VethIgmpSim
 	simVeth.DropAll = o.dropAll
 	var simrx core.VethIFSim
@@ -330,6 +329,8 @@ func TestPluginDhcp2(t *testing.T) {
 	// generate a offer packet
 	return
 	tctx := core.NewThreadCtx(0, 4510, false, nil)
+	defer tctx.Delete()
+
 	m := tctx.MPool.Alloc(1500)
 	m.Append(GenerateOfferPacket(7, net.IPv4(16, 0, 0, 1), net.IPv4(16, 0, 0, 2), int(layers.DHCPMsgTypeOffer), false))
 	m.DumpK12(0, os.Stdout)

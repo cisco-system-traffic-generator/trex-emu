@@ -34,6 +34,7 @@ func arpSupported(ps *ParserPacketState) int {
 
 func TestParserDot1Q_PPP(t *testing.T) {
 	tctx := NewThreadCtx(0, 4510, false, nil)
+	defer tctx.Delete()
 	var parser Parser
 	parser.Init(tctx)
 	m1 := tctx.MPool.Alloc(128)
@@ -75,6 +76,7 @@ func TestParserDot1Q_PPP(t *testing.T) {
 
 func TestParser_PPP(t *testing.T) {
 	tctx := NewThreadCtx(0, 4510, false, nil)
+	defer tctx.Delete()
 	var parser Parser
 	parser.Init(tctx)
 	m1 := tctx.MPool.Alloc(128)
@@ -111,6 +113,7 @@ func TestParser_PPP(t *testing.T) {
 
 func TestParserArp(t *testing.T) {
 	tctx := NewThreadCtx(0, 4510, false, nil)
+	defer tctx.Delete()
 	var parser Parser
 	parser.tctx = tctx
 	parser.arp = arpSupported
@@ -165,11 +168,11 @@ func TestParserArp(t *testing.T) {
 	} else {
 		t.Log("OK")
 	}
-
 }
 
 func TestParserArp1(t *testing.T) {
 	tctx := NewThreadCtx(0, 4510, false, nil)
+	defer tctx.Delete()
 	var parser Parser
 	parser.tctx = tctx
 	parser.arp = arpSupported
@@ -232,6 +235,7 @@ func TestParserArp1(t *testing.T) {
 
 func TestParserIcmp(t *testing.T) {
 	tctx := NewThreadCtx(0, 4510, false, nil)
+	defer tctx.Delete()
 	var parser Parser
 	parser.tctx = tctx
 	parser.icmp = arpSupported
@@ -300,6 +304,7 @@ func TestParserIcmp(t *testing.T) {
 
 func TestParserDhcp1(t *testing.T) {
 	tctx := NewThreadCtx(0, 4510, false, nil)
+	defer tctx.Delete()
 	var parser Parser
 	parser.tctx = tctx
 	parser.dhcp = arpSupported
@@ -384,6 +389,7 @@ func TestParserDhcp1(t *testing.T) {
 
 func TestParserDhcpInvalidCs(t *testing.T) {
 	tctx := NewThreadCtx(0, 4510, false, nil)
+	defer tctx.Delete()
 	var parser Parser
 	parser.tctx = tctx
 	parser.dhcp = arpSupported
@@ -445,7 +451,6 @@ func TestParserDhcpInvalidCs(t *testing.T) {
 	if parser.stats.errIPv4cs != 1 {
 		t.Fatalf(" ipv4 checksum should be wrong ")
 	}
-
 }
 
 func Icmpv6Supported(ps *ParserPacketState) int {
@@ -469,6 +474,7 @@ func TestParserIpv6Option(t *testing.T) {
 		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 		0x02, 0x7d, 0x00, 0x00}
 	tctx := NewThreadCtx(0, 4510, false, nil)
+	defer tctx.Delete()
 	var parser Parser
 	parser.tctx = tctx
 	parser.icmpv6 = Icmpv6Supported
@@ -478,5 +484,4 @@ func TestParserIpv6Option(t *testing.T) {
 	m1.Append(packet)
 	arp = 0
 	parser.ParsePacket(m1)
-
 }

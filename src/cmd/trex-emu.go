@@ -64,7 +64,7 @@ func RegisterPlugins(tctx *core.CThreadCtx) {
 }
 
 type MainArgs struct {
-	port        *int    // RPC port. Port to which the client connects to
+	rpcPort     *int    // RPC port. Port to which the client connects to
 	vethPort    *int    // Veth Port for EMU. Port to which TRex Server connects to.
 	dummyVeth   *bool   // Run Emu on dummy veth mode.
 	zmqServer   *string // IPv4 for the zmqServer. Defaults to local.
@@ -104,7 +104,7 @@ func parseMainArgs() *MainArgs {
 	var args MainArgs
 	parser := argparse.NewParser("Emu Server", "Emu server emulates clients and namespaces")
 
-	args.port = parser.Int("p", "rpc port", &argparse.Options{Default: 4510, Help: "RPC Port for server"})
+	args.rpcPort = parser.Int("p", "rpc port", &argparse.Options{Default: 4510, Help: "RPC Port for server"})
 	args.vethPort = parser.Int("l", "veth zmq port", &argparse.Options{Default: 4511, Help: "Veth Port for server"})
 	args.dummyVeth = parser.Flag("d", "dummy-veth", &argparse.Options{Default: false, Help: "Run server with a dummy veth, all packets to rx will be dropped"})
 	args.zmqServer = parser.String("S", "zmq-server", &argparse.Options{Default: "127.0.0.1", Help: "ZMQ server IP"})
@@ -136,11 +136,11 @@ func RunCoreZmq(args *MainArgs) {
 		os.Exit(0)
 	}
 
-	port := uint16(*args.port)
+	rpcPort := uint16(*args.rpcPort)
 	if *args.emuTCPoZMQ {
-		fmt.Printf("Run ZMQ server on [RPC:%d, RX: TCP:%d, TX: TCP:%d]\n", port, *args.vethPort, *args.vethPort+1)
+		fmt.Printf("Run ZMQ server on [RPC:%d, RX: TCP:%d, TX: TCP:%d]\n", rpcPort, *args.vethPort, *args.vethPort+1)
 	} else {
-		fmt.Printf("Run ZMQ server on [RPC:%d, RX: IPC, TX:IPC]\n", port)
+		fmt.Printf("Run ZMQ server on [RPC:%d, RX: IPC, TX:IPC]\n", rpcPort)
 	}
 
 	rand.Seed(time.Now().UnixNano())
@@ -152,7 +152,7 @@ func RunCoreZmq(args *MainArgs) {
 		simrx = &simVeth
 	}
 
-	tctx := core.NewThreadCtx(0, port, dummyVeth, &simrx)
+	tctx := core.NewThreadCtx(0, rpcPort, dummyVeth, &simrx)
 	tctx.SetVerbose(*args.verbose)
 	tctx.SetKernelMode(*args.kernelMode)
 
