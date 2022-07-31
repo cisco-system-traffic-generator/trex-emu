@@ -869,7 +869,7 @@ func NewIPFixStatsDb(o *IPFixStats) *core.CCounterDb {
 	db.Add(&core.CCounterRec{
 		Counter:  &o.maxTempRecordsToSend,
 		Name:     "maxTempRecordsToSend",
-		Help:     "Max number of temp records to send.",
+		Help:     "Max num of temp records to send (0 - no limit).",
 		Unit:     "records",
 		DumpZero: false,
 		Info:     core.ScINFO})
@@ -877,7 +877,7 @@ func NewIPFixStatsDb(o *IPFixStats) *core.CCounterDb {
 	db.Add(&core.CCounterRec{
 		Counter:  &o.maxDataRecordsToSend,
 		Name:     "maxDataRecordsToSend",
-		Help:     "Max number of data records to send.",
+		Help:     "Max num of data records to send (0 - no limit).",
 		Unit:     "records",
 		DumpZero: false,
 		Info:     core.ScINFO})

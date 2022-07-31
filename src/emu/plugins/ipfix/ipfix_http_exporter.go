@@ -25,6 +25,7 @@ type HttpExporterParams struct {
 	MaxInterval      Duration `json:"max_interval"`
 	Compress         bool     `json:"compress"`
 	MaxFiles         int      `json:"max_files"`
+	MaxPosts         uint64   `json:"max_posts"` // Max number of posts to send (0 - no limit)
 	removeDirOnClose bool
 }
 
@@ -45,12 +46,15 @@ type HttpExporterStats struct {
 	bytesUploaded          uint64 // Total number of bytes uploaded successfully
 	tempRecordsUploaded    uint64 // Total number of template records uploaded successfully
 	dataRecordsUploaded    uint64 // Total number of data records uploaded successfully
+	maxPosts               uint64 // Max number of posts to send (0 - no limit)
+	maxPostsExceeded       uint64 // Number of times post was blocked since maxPosts limit reached
 }
 
 type HttpExporter struct {
 	url                    url.URL
 	tlsCertFile            string
 	tlsKeyFile             string
+	maxPosts               uint64
 	httpRespTimeout        time.Duration
 	removeDirOnClose       bool
 	init                   bool
@@ -67,6 +71,7 @@ type HttpExporter struct {
 	currFileToSend         string
 	currFileTempRecordsNum uint32
 	currFileDataRecordsNum uint32
+	currPostsNum           uint64 // Number of posts attempts made until now
 	fileInfoDb             []*HttpExporterFileInfo
 	currFileInfo           *HttpExporterFileInfo
 }
@@ -181,6 +186,8 @@ func NewHttpExporter(client *PluginIPFixClient, params *HttpExporterParams) (*Ht
 	p.tlsKeyFile = params.TlsKeyFile
 	p.removeDirOnClose = params.removeDirOnClose
 	p.httpRespTimeout = defaultHttpRespTimeout
+	p.maxPosts = params.MaxPosts
+	p.counters.maxPosts = p.maxPosts
 
 	err = p.createHttpClient()
 	if err != nil {
@@ -210,6 +217,7 @@ func NewHttpExporter(client *PluginIPFixClient, params *HttpExporterParams) (*Ht
 		"\n\tmaxInterval - ", p.fileExporter.GetMaxInterval(),
 		"\n\tcompress - ", p.fileExporter.GetCompress(),
 		"\n\tmaxFiles - ", p.fileExporter.GetMaxFiles(),
+		"\n\tmax_posts - ", p.maxPosts,
 		"\n\tremoveDirOnClose - ", p.removeDirOnClose)
 
 	return p, nil
@@ -325,7 +333,7 @@ func (p *HttpExporter) newHttpExporterCountersDb() {
 	p.countersDb.Add(&core.CCounterRec{
 		Counter:  &p.counters.bytesUploaded,
 		Name:     "bytesUploaded",
-		Help:     "Total number of bytes uploaded successfully",
+		Help:     "Total num of bytes uploaded successfully",
 		Unit:     "bytes",
 		DumpZero: false,
 		Info:     core.ScINFO})
@@ -333,7 +341,7 @@ func (p *HttpExporter) newHttpExporterCountersDb() {
 	p.countersDb.Add(&core.CCounterRec{
 		Counter:  &p.counters.tempRecordsUploaded,
 		Name:     "tempRecordsUploaded",
-		Help:     "Total number of template records uploaded successfully",
+		Help:     "Total num of template records uploaded successfully",
 		Unit:     "records",
 		DumpZero: false,
 		Info:     core.ScINFO})
@@ -341,8 +349,24 @@ func (p *HttpExporter) newHttpExporterCountersDb() {
 	p.countersDb.Add(&core.CCounterRec{
 		Counter:  &p.counters.dataRecordsUploaded,
 		Name:     "dataRecordsUploaded",
-		Help:     "Total number of data records uploaded successfully",
+		Help:     "Total num of data records uploaded successfully",
 		Unit:     "records",
+		DumpZero: false,
+		Info:     core.ScINFO})
+
+	p.countersDb.Add(&core.CCounterRec{
+		Counter:  &p.counters.maxPosts,
+		Name:     "maxPosts",
+		Help:     "Max num of HTTP posts (0 - no limit)",
+		Unit:     "ops",
+		DumpZero: false,
+		Info:     core.ScINFO})
+
+	p.countersDb.Add(&core.CCounterRec{
+		Counter:  &p.counters.maxPostsExceeded,
+		Name:     "maxPostsExceeded",
+		Help:     "Num of max posts exceeded",
+		Unit:     "ops",
 		DumpZero: false,
 		Info:     core.ScINFO})
 }
@@ -571,6 +595,7 @@ func (p *HttpExporter) preSendFile(filePath string, tempRecordsNum uint32, dataR
 	p.currFileToSend = filePath
 	p.currFileTempRecordsNum = tempRecordsNum
 	p.currFileDataRecordsNum = dataRecordsNum
+	p.currPostsNum++
 	p.beginFileInfo(filePath)
 }
 
@@ -587,6 +612,12 @@ func (p *HttpExporter) sendFile(filePath string, tempRecordsNum uint32, dataReco
 	log.Info("Trying to send file: ",
 		"\n\tfile name:", filePath,
 		"\n\tdestination URL:", p.url.String())
+
+	if p.maxPosts != 0 && p.currPostsNum >= p.maxPosts {
+		p.counters.maxPostsExceeded++
+		os.Remove(filePath)
+		return nil
+	}
 
 	p.preSendFile(filePath, tempRecordsNum, dataRecordsNum)
 	defer p.postSendFile()
@@ -618,7 +649,6 @@ func (p *HttpExporter) sendFile(filePath string, tempRecordsNum uint32, dataReco
 	case 2 /* 2xx */ :
 		p.counters.filesExported++
 		p.counters.httpStatus2xx++
-
 	case 3 /* 3xx */ :
 		p.counters.filesExportFailed++
 		p.counters.httpStatus3xx++

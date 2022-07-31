@@ -326,8 +326,8 @@ func (p *FileExporter) newFileExporterCountersDb() {
 
 	p.countersDb.Add(&core.CCounterRec{
 		Counter:  &p.counters.fileRotates,
-		Name:     "filesRotates",
-		Help:     "Num of files rotates",
+		Name:     "fileRotates",
+		Help:     "Num of file rotates",
 		Unit:     "ops",
 		DumpZero: false,
 		Info:     core.ScINFO})
