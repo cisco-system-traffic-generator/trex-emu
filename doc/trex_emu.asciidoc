@@ -3309,6 +3309,19 @@ after the plugin is loaded and transmitting. Let us take a look at an init JSON:
     "netflow_version": 10,
     "dst": "48.0.0.0:4739",
     "domain_id": 7777,
+    "max_template_records": 0,
+    "max_data_records": 0,
+    "file_export": {
+           "name": "fnf_agg.ipfix",
+           "dir": "",
+           "max_size": 1048576,
+           "max_interval": "60s",
+           "max_files": 100,
+           "max_posts": 0,
+           "compress": true,
+           "tls_cert_file": "",
+           "tls_key_file": ""
+    },
     "generators": [
         {
             "name": "mix1",
@@ -3464,8 +3477,11 @@ after the plugin is loaded and transmitting. Let us take a look at an init JSON:
 }
 ----
 * `netflow_version`: Might be 9 or 10, notice version 9 doesn't support variable length fields or per enterprise fields. Defaults to 10.
-* `dst`: The destination address. It should be a string of format host:port. For example, "127.0.0.1:8080" or "[2001:db8::1]:4739".
+* `dst`: The destination URL. The scheme of the URL is used to determine the exporter type - emu-udp, udp, file, http, or https. If no scheme is specified, emu-udp exporter will be used and the expected string should be of the format host:port. For example, "127.0.0.1:8080" or "[2001:db8::1]:4739". Please refer to 'IPFix Exporters' section below for more information.
 * `domain_id`: The observation domain ID as defined in IPFix. If not provided, it will be randomly generated.
+* `max_template_records`: An *optional* parameter to limit the number of template records exported by the IPFix plugin after it is loaded. The default value is zero which means no limit is imposed.
+* `max_data_records`: An *optional* parameter to limit the number of data records exported by the IPFix plugin after it is loaded. The default value is zero which means no limit is imposed.
+* `file_export`: An *optional* JSON object used to configure the file exporters. Please refer to the 'IPFix exporters' section below for more information.
 * `generators`: A list of generators. Each generator defines a Template and operations on that template, like for example the data packets rate. Each generator contains:
 ** `name`: Name of the generator. This field is required.
 ** `auto_start`: If true will automatically start sending IPFix packets upon creation.
@@ -3483,6 +3499,88 @@ after the plugin is loaded and transmitting. Let us take a look at an init JSON:
 *** `data`: List of bytes of size length. This will be the initial data in data packets and can be modified by the engines.
 ** `engines`: List of engines as described in the previous sections. This field is not mandatory in case we don't want to modify any data. However it is important that the name of each engine should be a field name, and the offset
 is relative to the beginning of that field.
+
+==== IPFix Exporters
+The IPFix plugin supports several ways to send the generated template and data records to the collector, namely - *exporters*. Exporters are defined and configured per client as part of its initialization JSON. The type of exporter to use and destination URL are specified by the "dst" field in the init JSON as explained below.
+
+[NOTE]
+=====================================================================
+In order to use the kernel-level exporters (udp, file, http, and https) - the emu-server must run in kernel mode as follows:
+[source, bash]
+----
+bin$ ./trex-emu -k
+----
+or
+[source, bash]
+----
+bin$ ./trex-emu --kernel-mode
+----
+=====================================================================
+
+The following exporter types are supported:
+
+* `emu-udp`:
+In this case flow records are sent using the TREX-EMU UDP transport where the UDP packets are generated in the application layer. The IPfix records are aggregated up to MTU size and sent to the specified IP:PORT destination. There are two ways to define it using the "dst" field:
+** `“host:port”` – host:port URL without scheme will use EMU-UDP exporter.
+Examples: "10.56.216.158:8080" or "[2001:db8::1]:4739".
+** `"emu-udp://host:port"` – you can also specify the scheme explicitly.
+Example: “emu-udp://10.56.216.158:8080”
+
+* `udp`:
+Flow records are sent using GoLang UDP sockets library utilizing the OS kernel. Records are aggregated up to MTU size and sent to the specified IP:PORT destination. 
+"dst" field should be specified as follows - `"udp://host:port"`.
+Example: “udp://10.56.216.158:8080”
+
+* `file`:
+Flow records are stored in files in a user-defined directory. The generated records are aggregated in a single file up to a max size and for max interval duration. Once the file aggregation reaches either of these limits, it will be ‘rotated’ – closed and compressed with a unique name in the same directory.
+There is also an option to limit the max number of files created in the directory. Once the maximum number of files is reached - old (rotated) files may be deleted. "dst" field should be specified as follows - `“file://dir/name”`.
+Example: “file:///auto/avc-devtest/tmp/obarash/trex-emu/fnf_agg.ipfix”.
+File URL will use the file exporter with the given dir/name path. 
+dir/name can be also specified explicitly in the `file_export` object.
+
+* `http/https`:
+This exporter is based on the file exporter to temporarily aggregate flow records in files.
+Once a file is rotated, a POST HTTP or HTTPS post request will be created to the user-defined URL.
+The temporary file will be deleted after the porst request transaction is completed (either with success or failure).
+"dst" field should be specified as follows - `“http://host:port/path”`.
+Example: “http://10.56.216.158:8080/api/ipfixfilecollector/exalt-tenant/site9999/device10/post_file”.
+Rotated files will be sent to destination URL using HTTP/HTTPS.
+
+The `file_export` optional object in the JSON may be used to configure the file exporters (file, http, or https). Also, all fields of `file_export` are optional. If a given field is not specified, its default value will be used.
+[source, json]
+.file_export example
+----
+    "file_export": {
+           "name": "fnf_agg.ipfix",
+           "dir": "/scratch/myproject",
+           "max_size": 1048576,
+           "max_interval": "15s",
+           "max_files": 100,
+           "max_posts": 0,
+           "compress": true,
+           "tls_cert_file": "",
+           "tls_key_file": ""
+    },
+----
+* `name` (default: fnf_agg.ipfix): The filename to write flow records to. 
+Name structure is “base.ext”. In the example base is ‘fnf_agg’ and ext is ‘ipfix’.
+The name of rotated files is of the form – `<base>_<index>.<start-timestamp>-<end-timestamp>.<ext>.gz`
+Example: fnf_agg_1.20220603084739-20220603084839.ipfix.gz
+* `dir` (default: empty string):  The path in which export files are created. If empty string (the default), will use the OS temp directory (/tmp).
+The exporter of each client will have a separate unique folder under dir path with the following name – `<base>_<mac>.<ext>`
+Example: fnf_agg_000000700003.ipfix. As an example, suppose the user’s directory is ‘/scratch/myproject’, name is ‘fnf_agg.ipfix’ and we have 2 clients - 01:01:01:01:01:01 and 02:02:02:02:02:02.
+Files will be created in two separate folders - 
+`/scratch/myproject/fnf_agg_010101010101.ipfix/fnf_agg_1.20220603084739-20220603084839.ipfix.gz` and `/scratch/myproject/fnf_agg_020202020202.ipfix/fnf_agg_1.20220603084739-20220603084839.ipfix.gz`
+* `max_size` (default: 1048576): The maximum size in bytes of the export file before it gets rotated. Once the file gets to this size it will be immediately rotated. Value of zero means no limit on the size. 
+* `max_interval` (default: '60s'): The maximum time duration in seconds where IPFix records can be aggregated to a file before it is rotated. The parameter's value type can be:
+** Integer - Holding the time duration in nanoseconds.
+** String - The time duration is represented as a Go time.Duration string type.
+In the example max_interval is "15s" and so a file will be exported every 15 seconds (unless it reached max_size faster).
+* `max_files` (default: 100): The maximum number of old rotated files to retain. Value of zero means to retain all rotated files.
+* `max_posts` (default: 0): For HTTP/HTTPs - limit the maximum number of posts requests to send. Once the exporter reached this limit no further posts will be created.
+* `compress` (default: true): Determines if the rotated files should be compressed using gzip.
+* `tls_cert_file` (default: “”): The location of the certificate file for HTTPS.
+* `tls_key_file` (default: “”): The location of the private key file for HTTPS.
 
 ==== Netflow example
 
@@ -3606,7 +3704,54 @@ The caps contained multiple Netflow Domain Identifiers but the test simulates on
 trex>emu_load_profile -f emu/avc_ipfix.py -t --domain_id 1024
 ----
 
-Other parameters such as the Netflow destination address/port can also be changed through the tunables.
+Other parameters, such as the Netflow destination address/port or URL can also be changed through the tunables.
+
+The list of available tunable parameters can be shown using `--help`:
+
+[source,bash]
+----
+emu>emu_load_profile -f emu/avc_ipfix.py -t --help
+usage: trex_console.py [-h] [--mac MAC] [--4 IPV4] [--dg DG] [--dst-4 DST_4]
+                       [--dst-port DST_PORT] [--dst-url DST_URL]
+                       [--domain-id DOMAIN_ID]
+
+Argparser for AVC IPFix
+
+optional arguments:
+  -h, --help            show this help message and exit
+  --mac MAC             Mac address of the client (default: 00:00:00:70:00:03)
+  --4 IPV4              IPv4 address of the client (default: 1.1.1.3)
+  --dg DG               Default Gateway address of the clients. (default:
+                        1.1.1.1)
+  --dst-4 DST_4         Ipv4 address of collector (default: 10.56.29.228)
+  --dst-port DST_PORT   Destination port (default: 2055)
+  --dst-url DST_URL     Destination URL for HTTP/HTTPS exporter (default:
+                        None)
+  --domain-id DOMAIN_ID
+                        Domain ID. Registered domain IDs are {6, 256, 512,
+                        768, 1024} (default: 256)
+4.13 [ms]
+----
+
+
+For example, you can set the destination URL using the `--dst-url` tunable parameter.
+The following example shows how to create an `avc_ipfix.py` profile using HTTP exporter.
+
+[source,bash]
+----
+emu>emu_load_profile -f emu/avc_ipfix.py -t --dst-url http://127.0.0.1:18088/api/ipfixfilecollector/exalt-tenant/site9999/device10/post_file
+Converting file to profile                                   [SUCCESS]
+Converting profile took: 16.66 [ms]
+Removing old emu profile                                     [SUCCESS]
+
+Sending emu profile
+[SUCCESS]
+
+Sending profile took: 23.76 [ms]
+42.69 [ms]
+----
+
+
 
 ==== Netflow/IPFix Console API
 
@@ -3616,6 +3761,7 @@ Last in this section we explore the Netflow/IPFix console API. We have the follo
 ----
 emu_ipfix_disable_gen -        Disable an IPFix generator.
 emu_ipfix_enable_gen -         Enable an IPFix generator.
+emu_ipfix_get_exp_info -       Get IPFix exporter information.
 emu_ipfix_get_gen_info -       Get IPFix generators information.
 emu_ipfix_set_data_rate -      Set IPFix generator data rate.
 emu_ipfix_set_template_rate -  Set IPFix generator template rate.
@@ -3699,6 +3845,119 @@ invalidScopeCount*       | 0
 9.75 [ms]
 ----
 
+The command `emu_ipfix_get_exp_info` shows information specific to the exporter.
+To demonstrate this, let us load the IPFix plugin with an HTTP exporter as follows:
+[source, bash]
+----
+emu>emu_load_profile -f emu/avc_ipfix.py -t --dst-url http://127.0.0.1:18088/api/ipfixfilecollector/exalt-tenant/site9999/device10/post_file
+Converting file to profile                                   [SUCCESS]
+Converting profile took: 16.66 [ms]
+Removing old emu profile                                     [SUCCESS]
+
+Sending emu profile
+[SUCCESS]
+
+Sending profile took: 23.76 [ms]
+42.69 [ms]
+----
+
+You can now use `emu_ipfix_get_exp_info` to show info about the most recently exported files by the EMU client.
+
+image::images/emu_ipfix_get_exp_info.png[title="emu_ipfix_get_exp_info output",align="left",width={p_width}, link="images/emu_ipfix_get_exp_info.png"]
+
+For each file export attemp it shows:
+
+* `Name`: The name of the file.
+* `Time`: The local time of when the export was done.
+* `Status`: Was the file exported successfully? A success means that we got a positive reply from the collector (HTTP 200 OK). A failure to export can be caused either by a tranport error or HTTP error.
+* `Trans Status`: The transport status - if 'failed' it means that no connection coule be established with the collector's HTTP server.
+* `HTTP Status`: The HTTP status code as received from the collector.
+* `HTTP Response Message`: A textual representation of the HTTP status code.
+* `Bytes Uploaded`: The number of bytes uploaded to the collector by the file in case of success, or zero otherwise.
+* `Temp Records Uploaded`: The number of template records uploaded to the collector by the file in case of success, or zero otherwise.
+* `Data Records Uploaded`: The number of data records uploaded to the collector by the file in case of success, or zero otherwise.
+
+You can also use `emu_ipfix_show_counters` to get the exporter's counters on top of the general plugin counters. In the example below you can see counters for both HTTP and FILE exporters since the HTTP exporter enables and implicitly runs on top of a FILE exporter.
+
+[source, bash]
+----
+emu>emu_ipfix_show_counters -p 0 --mac 00:00:00:70:00:03 --zero
+Ipfix Http Exporter Counters
+
+         name          |  value
+-----------------------+---------
+writes                 | 13635
+writesFailed           | 0
+txBytes                | 14601600 
+filesExported          | 21
+filesExportFailed      | 5
+filesExportFailedRetry | 0
+filesExportRetry       | 0
+failedToCreateRequest  | 0
+failedToSendRequest    | 5
+httpStatus2xx          | 21
+httpStatus3xx          | 0
+httpStatus4xx          | 0
+httpStatus5xx          | 0
+bytesUploaded          | 3160725
+tempRecordsUploaded    | 107
+dataRecordsUploaded    | 107110
+maxPosts               | 0
+maxPostsExceeded       | 0
+
+Ipfix File Exporter Counters
+
+         name          |  value
+-----------------------+---------
+writes                 | 13635
+writesFailed           | 0
+txBytes                | 14601600
+filesExported          | 0
+filesExportFailed      | 0
+cmdChanEvLowWatermark  | 0
+cmdChanEvHighWatermark | 0
+evFileCreated          | 26
+evFileRemoved          | 0
+cmdWrite               | 13635
+cmdTimerTick           | 26
+cmdRotate              | 26
+maxFilesExceeded       | 0
+fileRotates            | 26
+fileRotatesFailed      | 0
+
+Ipfix Counters
+
+                 name                  | value
+---------------------------------------+-------
+pktTempSent                            | 135
+pktDataSent                            | 13500
+recordsTempSent                        | 135
+recordsDataSent                        | 135000
+maxTempRecordsToSend                   | 0
+maxDataRecordsToSend                   | 0
+templatePktLongerThanMTU               | 0
+recordsMtuMissErr*                     | 0
+dataIncorrectLength*                   | 0
+failedCreatingExporter*                | 0
+failedCreatingExporterWrongKernelMode* | 0
+exporterWriteError*                    | 0
+genPausedSkipWrite                     | 0
+invalidJson*                           | 0
+failedCreatingGen*                     | 0
+invalidDst*                            | 0
+enterpriseFieldv9*                     | 0
+variableLengthFieldv9*                 | 0
+variableLengthNoEngine*                | 0
+badOrNoInitJson*                       | 0
+duplicateGenName*                      | 0
+duplicateTemplateID*                   | 0
+invalidTemplateID*                     | 0
+failedBuildingEngineMgr*               | 0
+invalidEngineName*                     | 0
+invalidScopeCount*                     | 0
+
+8.26 [ms]
+----
 
 === Tutorial: Appsim 
 

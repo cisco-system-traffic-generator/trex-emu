@@ -16,11 +16,11 @@ import (
 
 type FileExporterParams struct {
 	Name        string   `json:"name"`
+	Dir         string   `json:"dir"`
 	MaxSize     int      `json:"max_size"`
 	MaxInterval Duration `json:"max_interval"`
-	Compress    bool     `json:"compress"`
-	Dir         string   `json:"dir"`
 	MaxFiles    int      `json:"max_files"`
+	Compress    bool     `json:"compress"`
 }
 
 type FileExporterStats struct {
