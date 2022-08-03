@@ -800,7 +800,8 @@ func (o *PluginDnsNs) SendQuery(mac *core.MACKey, domain string) bool {
 		o.stats.autoPlayQueries++ // one more auto play query sent
 	}
 	// If the query amount is not reached, we can restart the timer.
-	return o.stats.autoPlayQueries != o.autoPlayParams.QueryAmount
+	infiniteQueries := (o.autoPlayParams.QueryAmount == 0)
+	return o.stats.autoPlayQueries < o.autoPlayParams.QueryAmount || infiniteQueries
 }
 
 // OnRemove when removing Dns namespace plugin.

@@ -482,6 +482,7 @@ type DnsNsAutoPlay struct {
 	maxClient       uint64                  // Maximal client MAC as an uint64
 	currentClient   uint64                  // The current MAC as an uint64
 	ticks           uint32                  // Number of ticks between two consecutive program entries
+	numPktsPerEvent uint32                  // Num packets to send each even
 	currentHostname uint16                  // The current hostname
 }
 
@@ -498,9 +499,9 @@ func NewDnsNsAutoPlay(plugin DnsAutoPlayPluginIF, timerw *core.TimerCtx, autoPla
 	}
 
 	duration := time.Duration(float32(time.Second) / o.params.Rate)
-	o.ticks = o.timerw.DurationToTicks(duration) // Calculate ticks
-	o.timer.SetCB(o, 0, 0)                       // Set callback for timer
-	o.timerw.StartTicks(&o.timer, o.ticks)       // Start timer
+	o.ticks, o.numPktsPerEvent = o.timerw.DurationToTicksBurst(duration) // Calculate ticks
+	o.timer.SetCB(o, 0, 0)                                               // Set callback for timer
+	o.timerw.StartTicks(&o.timer, o.ticks)                               // Start timer
 	return o
 }
 
@@ -583,11 +584,16 @@ func (o *DnsNsAutoPlay) incHostname() (hostname string) {
 // OnEvent is called by the timer each time a new query needs to be send.
 func (o *DnsNsAutoPlay) OnEvent(a, b interface{}) {
 
-	mac := o.incClient()        // Get the next client
-	hostname := o.incHostname() // Get the next hostname
+	var restartTimer bool
+	for i := 0; i < int(o.numPktsPerEvent); i++ {
+		mac := o.incClient()        // Get the next client
+		hostname := o.incHostname() // Get the next hostname
 
-	restart := o.plugin.SendQuery(mac, hostname) // Send Query and see if we need to restart timer.
-	if restart {
+		restart := o.plugin.SendQuery(mac, hostname) // Send Query and see if we need to restart timer.
+		restartTimer = (restartTimer || restart)
+	}
+
+	if restartTimer {
 		o.timerw.StartTicks(&o.timer, o.ticks) // Restart timer
 	}
 }
