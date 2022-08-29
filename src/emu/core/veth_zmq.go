@@ -23,11 +23,12 @@ uint16 pkt_size
 
 import (
 	"encoding/binary"
-	zmq "external/pebbe/zmq4"
 	"fmt"
 	"io"
 	"os"
 	"time"
+
+	zmq "github.com/pebbe/zmq4"
 )
 
 const (

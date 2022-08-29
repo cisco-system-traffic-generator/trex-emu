@@ -7,10 +7,11 @@ package core
 
 import (
 	"external/osamingo/jsonrpc"
-	zmq "external/pebbe/zmq4"
 	"fmt"
 	"log"
 	"time"
+
+	zmq "github.com/pebbe/zmq4"
 )
 
 var method_repo []cRpcMethodRec = make([]cRpcMethodRec, 0)
