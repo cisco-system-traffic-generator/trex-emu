@@ -33,9 +33,9 @@ type UdpExporterInfoJson struct {
 const (
 	udpExporterType                 = "udp"
 	udpExporterCountersDbName       = "IPFIX udp exporter"
-	udpExporterChanCapacity         = 200
-	udpExporterChanLowWatermarkThr  = 40
-	udpExporterChanHighWatermarkThr = 160
+	udpExporterChanCapacity         = 1024
+	udpExporterChanLowWatermarkThr  = 1
+	udpExporterChanHighWatermarkThr = 1023
 )
 
 func NewUdpExporter(client *PluginIPFixClient, hostport string) (*UdpExporter, error) {

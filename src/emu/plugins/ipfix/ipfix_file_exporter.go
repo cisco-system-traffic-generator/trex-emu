@@ -117,9 +117,9 @@ const (
 	rotatedFileTimeFormat            = "20060102150405" /* yyyyMMddHHmmss */
 	compressSuffix                   = ".gz"
 	fileFormatRegexStr               = `\d+\.(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})-(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2}).`
-	fileExporterChanCapacity         = 200
-	fileExporterChanLowWatermarkThr  = 40
-	fileExporterChanHighWatermarkThr = 160
+	fileExporterChanCapacity         = 1024
+	fileExporterChanLowWatermarkThr  = 1
+	fileExporterChanHighWatermarkThr = 1023
 )
 
 type fileExporterCmdId int
