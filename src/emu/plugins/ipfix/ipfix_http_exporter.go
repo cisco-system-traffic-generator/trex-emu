@@ -203,7 +203,7 @@ func NewHttpExporter(client *PluginIPFixClient, params *HttpExporterParams) (*Ht
 	p.retryTimer.Stop()
 
 	p.wg.Add(1)
-	go p.observerThread()
+	go p.cmdThread()
 
 	p.init = true
 
@@ -491,7 +491,7 @@ func (p *HttpExporter) handlefileExporterEv(event FileExporterEvent) {
 	}
 }
 
-func (p *HttpExporter) observerThread() {
+func (p *HttpExporter) cmdThread() {
 	defer p.wg.Done()
 	for {
 		switch p.retryWaitState {
@@ -500,7 +500,7 @@ func (p *HttpExporter) observerThread() {
 			case event := <-p.fileExporterEvQueue:
 				p.handlefileExporterEv(event)
 			case <-p.done:
-				log.Debug("Shutting down observer thread")
+				log.Debug("Shutting down HTTP exporter commands thread")
 				return
 			}
 		case true:
@@ -514,7 +514,7 @@ func (p *HttpExporter) observerThread() {
 					log.Debug("Failed to send file, error: ", err)
 				}
 			case <-p.done:
-				log.Debug("Shutting down observer thread")
+				log.Debug("Shutting down HTTP exporter commands thread")
 				return
 			}
 		}
@@ -524,7 +524,6 @@ func (p *HttpExporter) observerThread() {
 func (p *HttpExporter) startRetryTimer() {
 	p.retryTimer = time.NewTimer(defaultRetryTimeout)
 	p.retryTimer.Stop()
-
 }
 
 func (p *HttpExporter) createHttpClient() error {

@@ -41,8 +41,13 @@ type NonBlockingChan struct {
 	highWatermarkThr uint16
 	observer         nonBlockingChanObserver
 	highWatermark    bool
-	timer            CHTimerObj
-	timerCtx         *TimerCtx
+
+	// The timer is started in case of high-watermark event.
+	// It than polls the queue until it gets to the low-watermark level.
+	// Please note that in order for the event notifications to be done from the
+	// same thread, the timer should be created from the writer thread context (main thread).
+	timer    CHTimerObj
+	timerCtx *TimerCtx
 }
 
 const (
@@ -140,6 +145,10 @@ func (p *NonBlockingChan) Read(block bool) (interface{}, error, bool) {
 	}
 
 	return obj, nil, true
+}
+
+func (p *NonBlockingChan) GetC() <-chan interface{} {
+	return p.ch
 }
 
 func (p *NonBlockingChan) Close() {

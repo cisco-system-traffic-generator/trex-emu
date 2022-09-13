@@ -24,21 +24,21 @@ type FileExporterParams struct {
 }
 
 type FileExporterStats struct {
-	writes                 uint64
-	writesFailed           uint64
-	txBytes                uint64
-	filesExported          uint64
-	filesExportFailed      uint64
-	cmdChanEvLowWatermark  uint64
-	cmdChanEvHighWatermark uint64
-	evFileCreated          uint64
-	evFileRemoved          uint64
-	cmdWrite               uint64
-	cmdTimerTick           uint64
-	cmdRotate              uint64
-	maxFilesExceeded       uint64
-	fileRotates            uint64
-	fileRotatesFailed      uint64
+	writes                  uint64
+	writesFailed            uint64
+	txBytes                 uint64
+	filesExported           uint64
+	filesExportFailed       uint64
+	cmdChanEvLowWatermark   uint64
+	cmdChanEvHighWatermark  uint64
+	evFileCreated           uint64
+	evFileRemoved           uint64
+	cmdWrite                uint64
+	cmdRotate               uint64
+	maxIntervalTimerExpired uint64
+	maxFilesExceeded        uint64
+	fileRotates             uint64
+	fileRotatesFailed       uint64
 }
 
 type FileExporterEventId int
@@ -99,12 +99,13 @@ type FileExporter struct {
 	fileFormatRegexStr string
 	fileFormatRegex    *regexp.Regexp
 	cmdChan            *core.NonBlockingChan
+	done               chan bool
 	wg                 sync.WaitGroup
 	client             *PluginIPFixClient
-	timer              core.CHTimerObj
-	timerCtx           *core.TimerCtx
 	counters           FileExporterStats
 	countersDb         *core.CCounterDb
+	timerCtx           *core.TimerCtx
+	maxIntervalTimer   *time.Timer
 }
 
 type FileExporterInfoJson struct {
@@ -127,7 +128,6 @@ type fileExporterCmdId int
 const (
 	cmdWrite fileExporterCmdId = iota
 	cmdRotate
-	cmdTimerTick
 )
 
 func (s fileExporterCmdId) String() string {
@@ -136,8 +136,6 @@ func (s fileExporterCmdId) String() string {
 		return "cmdWrite"
 	case cmdRotate:
 		return "cmdRotate"
-	case cmdTimerTick:
-		return "cmdTimerTick"
 	}
 	return "unknown"
 }
@@ -184,11 +182,11 @@ func NewFileExporter(client *PluginIPFixClient, params *FileExporterParams) (*Fi
 
 	p.namePrefix, p.nameExt = prefixAndExt(p.name)
 	p.fileFormatRegexStr = fileFormatRegexStr
-
 	p.fileFormatRegex = regexp.MustCompile(p.fileFormatRegexStr)
-
 	p.timerCtx = client.Tctx.GetTimerCtx()
-	p.timer.SetCB(p, 0, 0)
+	p.done = make(chan bool)
+
+	p.newMaxIntervalTimer()
 
 	p.cmdChan, err = core.NewNonBlockingChan(
 		fileExporterChanCapacity,
@@ -301,17 +299,17 @@ func (p *FileExporter) newFileExporterCountersDb() {
 		Info:     core.ScINFO})
 
 	p.countersDb.Add(&core.CCounterRec{
-		Counter:  &p.counters.cmdTimerTick,
-		Name:     "cmdTimerTick",
-		Help:     "Num of command channel timer tick events",
+		Counter:  &p.counters.cmdRotate,
+		Name:     "cmdRotate",
+		Help:     "Num of command channel rotate events",
 		Unit:     "ops",
 		DumpZero: false,
 		Info:     core.ScINFO})
 
 	p.countersDb.Add(&core.CCounterRec{
-		Counter:  &p.counters.cmdRotate,
-		Name:     "cmdRotate",
-		Help:     "Num of command rotate events",
+		Counter:  &p.counters.maxIntervalTimerExpired,
+		Name:     "maxIntervalTimerExpired",
+		Help:     "Num of max interval timer expired events",
 		Unit:     "ops",
 		DumpZero: false,
 		Info:     core.ScINFO})
@@ -460,47 +458,39 @@ func (p *FileExporter) Notify(event core.NonBlockingChanEvent) {
 	}
 }
 
-func (p *FileExporter) OnEvent(a, b interface{}) {
-	p.timerCtx.Stop(&p.timer)
-
-	var cmd *fileExporterCmd
-	cmd = new(fileExporterCmd)
-	cmd.id = cmdTimerTick
-
-	err := p.cmdChan.Write(cmd, false)
-	if err != nil {
-		return
-	}
-}
-
 func (p *FileExporter) cmdThread() {
 	defer p.wg.Done()
-	for {
-		obj, err, more := p.cmdChan.Read(true)
-		if err != nil || !more {
-			return
-		}
+	var err error
 
-		cmd := obj.(*fileExporterCmd)
-		switch cmd.id {
-		case cmdWrite:
-			p.counters.cmdWrite++
-			_, err = p.writeInt(*&cmd.writeBuffer, cmd.writeTempRecordsNum, cmd.writeDataRecordsNum)
-			if err == nil {
-				p.counters.txBytes += uint64(len(*&cmd.writeBuffer))
-			} else {
-				p.counters.writesFailed++
-			}
-		case cmdTimerTick:
-			p.counters.cmdTimerTick++
-			p.Rotate()
-		case cmdRotate:
-			p.counters.cmdRotate++
-			if err := p.rotateInt(); err != nil {
-				p.counters.fileRotatesFailed++
+	for {
+		select {
+		case obj, more := <-p.cmdChan.GetC():
+			if !more {
 				return
 			}
-		default:
+
+			cmd := obj.(*fileExporterCmd)
+			switch cmd.id {
+			case cmdWrite:
+				p.counters.cmdWrite++
+				_, err = p.writeInt(*&cmd.writeBuffer, cmd.writeTempRecordsNum, cmd.writeDataRecordsNum)
+				if err == nil {
+					p.counters.txBytes += uint64(len(*&cmd.writeBuffer))
+				} else {
+					p.counters.writesFailed++
+				}
+			case cmdRotate:
+				p.counters.cmdRotate++
+				if err := p.rotateInt(); err != nil {
+					return
+				}
+			}
+		case <-p.maxIntervalTimer.C:
+			p.counters.maxIntervalTimerExpired++
+			p.Rotate()
+		case <-p.done:
+			log.Debug("Shutting down File exporter commands thread")
+			return
 		}
 	}
 }
@@ -542,10 +532,12 @@ func (p *FileExporter) writeInt(b []byte, tempRecordsNum uint32, dataRecordsNum 
 func (p *FileExporter) rotateInt() error {
 	p.counters.fileRotates++
 	if err := p.fileClose(); err != nil {
+		p.counters.fileRotatesFailed++
 		return err
 	}
 
 	if err := p.openNew(); err != nil {
+		p.counters.fileRotatesFailed++
 		return err
 	}
 
@@ -553,9 +545,7 @@ func (p *FileExporter) rotateInt() error {
 }
 
 func (p *FileExporter) fileClose() error {
-	if p.timer.IsRunning() {
-		p.timerCtx.Stop(&p.timer)
-	}
+	p.stopIntervalTimer()
 
 	if p.file == nil {
 		return nil
@@ -572,8 +562,10 @@ func (p *FileExporter) fileClose() error {
 }
 
 func (p *FileExporter) close() error {
-	p.cmdChan.Close()
+	p.done <- true
 	p.wg.Wait()
+	p.cmdChan.Close()
+	close(p.done)
 
 	err := p.fileClose()
 
@@ -682,13 +674,7 @@ func (p *FileExporter) openNew() error {
 	p.creationTime = currentTime()
 	p.index++
 
-	if p.maxInterval > 0 {
-		if p.timer.IsRunning() {
-			p.timerCtx.Stop(&p.timer)
-		}
-
-		p.timerCtx.Start(&p.timer, p.maxInterval)
-	}
+	p.startIntervalTimer()
 
 	return nil
 }
@@ -753,4 +739,23 @@ func (p *FileExporter) rotatedFileName(name string) string {
 		p.namePrefix, p.index, creation_timestamp, current_timestamp, p.nameExt))
 
 	return rotatedFileName
+}
+
+func (p *FileExporter) newMaxIntervalTimer() {
+	if p.maxIntervalTimer == nil && p.maxInterval > 0 {
+		p.maxIntervalTimer = time.NewTimer(p.maxInterval)
+		p.maxIntervalTimer.Stop()
+	}
+}
+
+func (p *FileExporter) startIntervalTimer() {
+	if p.maxIntervalTimer != nil && p.maxInterval > 0 {
+		p.maxIntervalTimer.Reset(p.maxInterval)
+	}
+}
+
+func (p *FileExporter) stopIntervalTimer() {
+	if p.maxIntervalTimer != nil {
+		p.maxIntervalTimer.Stop()
+	}
 }
