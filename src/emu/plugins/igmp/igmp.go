@@ -1070,6 +1070,9 @@ func (o *PluginIgmpNs) HandleRxIgmpCmn(isGenQuery bool, igmpAddr uint32) int {
 		if cnt > 0 {
 			maxIds := o.getMaxIPv4Ids()
 			maxRespMsec := o.maxresp * 100
+			if maxRespMsec == 0 {
+				maxRespMsec = 1
+			}
 
 			timerticks, pktsPerTick, breachMaxRate := calcTimerInfo(cnt, uint32(maxIds),
 				maxRespMsec,
