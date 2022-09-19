@@ -121,7 +121,37 @@ type (
 		Mask  []string `json:"mask"`  // get only specific counters blocks if it is empty get all
 		Clear bool     `json:"clear"` // clear all counters
 	}
+
+	ApiResourceMonitorGetHandler   struct{}
+	ApiResourceMonitorResetHandler struct{}
 )
+
+func (h ApiResourceMonitorGetHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
+	var p ApiCntParams
+	tctx := ctx.(*CThreadCtx)
+	err := tctx.GetResourceMonitor().Update(false)
+	if err != nil {
+		return nil, &jsonrpc.Error{
+			Code:    jsonrpc.ErrorCodeInvalidRequest,
+			Message: err.Error(),
+		}
+	}
+
+	return tctx.GetResourceMonitor().GetCountersDbVec().GeneralCounters(err, tctx, params, &p)
+}
+
+func (h ApiResourceMonitorResetHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
+	tctx := ctx.(*CThreadCtx)
+	err := tctx.GetResourceMonitor().Update(true)
+	if err != nil {
+		return nil, &jsonrpc.Error{
+			Code:    jsonrpc.ErrorCodeInvalidRequest,
+			Message: err.Error(),
+		}
+	}
+
+	return nil, nil
+}
 
 // ping
 func (h ApiPingHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
@@ -568,6 +598,9 @@ func init() {
 	RegisterCB("ctx_set_def_plugins", ApiNsSetDefPlugHandler{}, false)
 	RegisterCB("ctx_get_def_plugins", ApiNsGetDefPlugHandler{}, false)
 	RegisterCB("ctx_cnt", ApiCntHandler{}, false) // get counters
+
+	RegisterCB("ctx_resource_monitor_get", ApiResourceMonitorGetHandler{}, false)
+	RegisterCB("ctx_resource_monitor_reset", ApiResourceMonitorResetHandler{}, false)
 
 	RegisterCB("ctx_client_add", ApiClientAddHandler{}, false)
 	RegisterCB("ctx_client_remove", ApiClientRemoveHandler{}, false)

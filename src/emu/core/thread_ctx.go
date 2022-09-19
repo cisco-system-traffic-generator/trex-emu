@@ -220,6 +220,7 @@ type CThreadCtx struct {
 	markForShutdown bool                  // device should shutdown, timer completed
 	verbose         bool
 	kernelMode      bool
+	resourceMonitor *ResourceMonitor
 }
 
 func NewThreadCtxProxy() *CThreadCtx {
@@ -267,6 +268,13 @@ func NewThreadCtx(Id uint32, rpcPort uint16, simulation bool, simRx *VethIFSim) 
 
 	// shutdown timer
 	o.shutdownTimer.SetCB(&o.shutdownTimerCb, o, 0) // set callback
+
+	resMon := new(ResourceMonitor)
+	err := resMon.Init()
+	if err != nil {
+		panic(fmt.Sprintf("could not init resource monitor: %s", err.Error()))
+	}
+	o.resourceMonitor = resMon
 
 	/* counters */
 	o.cdbv = NewCCounterDbVec("ctx")
@@ -896,4 +904,8 @@ func (o *CThreadCtx) GetVerbose() bool {
 
 func (o *CThreadCtx) GetKernelMode() bool {
 	return o.kernelMode
+}
+
+func (o *CThreadCtx) GetResourceMonitor() *ResourceMonitor {
+	return o.resourceMonitor
 }
