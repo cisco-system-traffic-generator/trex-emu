@@ -5,12 +5,15 @@ import (
 	"emu/plugins/transport"
 	"errors"
 	"fmt"
+	"strconv"
 )
 
 type EmuUdpExporterStats struct {
-	writes       uint64
-	writesFailed uint64
-	txBytes      uint64
+	apiWrites       uint64
+	apiWritesFailed uint64
+	txBytes         uint64
+	txTempRecords   uint64
+	txDataRecords   uint64
 }
 
 type EmuUdpExporter struct {
@@ -18,10 +21,12 @@ type EmuUdpExporter struct {
 	counters   EmuUdpExporterStats
 	countersDb *core.CCounterDb
 	init       bool
+	enabled    bool
 }
 
 type EmuUdpExporterInfoJson struct {
 	ExporterType string `json:"exporter_type"`
+	Enabled      string `json:"enabled"`
 }
 
 const (
@@ -50,6 +55,7 @@ func NewEmuUdpExporter(hostport string, c *core.CClient, cb transport.ISocketCb)
 	p.newEmuUdpExporterCountersDb()
 
 	p.socket = socket
+	p.enabled = true
 	p.init = true
 
 	log.Info("\nIPFIX EMU-UDP exporter created with the following parameters: ",
@@ -62,17 +68,17 @@ func (p *EmuUdpExporter) newEmuUdpExporterCountersDb() {
 	p.countersDb = core.NewCCounterDb(emuUdpExporterCountersDbName)
 
 	p.countersDb.Add(&core.CCounterRec{
-		Counter:  &p.counters.writes,
-		Name:     "writes",
-		Help:     "Num of writes",
+		Counter:  &p.counters.apiWrites,
+		Name:     "apiWrites",
+		Help:     "Num of API calls to write",
 		Unit:     "ops",
 		DumpZero: false,
 		Info:     core.ScINFO})
 
 	p.countersDb.Add(&core.CCounterRec{
-		Counter:  &p.counters.writesFailed,
-		Name:     "writesFailed",
-		Help:     "Num of failed writes",
+		Counter:  &p.counters.apiWritesFailed,
+		Name:     "apiWritesFailed",
+		Help:     "Num of failed API calls to write",
 		Unit:     "ops",
 		DumpZero: false,
 		Info:     core.ScINFO})
@@ -84,6 +90,22 @@ func (p *EmuUdpExporter) newEmuUdpExporterCountersDb() {
 		Unit:     "bytes",
 		DumpZero: false,
 		Info:     core.ScINFO})
+
+	p.countersDb.Add(&core.CCounterRec{
+		Counter:  &p.counters.txTempRecords,
+		Name:     "txTempRecords",
+		Help:     "Num of template records transmitted",
+		Unit:     "records",
+		DumpZero: false,
+		Info:     core.ScINFO})
+
+	p.countersDb.Add(&core.CCounterRec{
+		Counter:  &p.counters.txDataRecords,
+		Name:     "txDataRecords",
+		Help:     "Num of data records transmitted",
+		Unit:     "records",
+		DumpZero: false,
+		Info:     core.ScINFO})
 }
 
 func (p *EmuUdpExporter) Write(b []byte, tempRecordsNum uint32, dataRecordsNum uint32) (int, error) {
@@ -91,16 +113,21 @@ func (p *EmuUdpExporter) Write(b []byte, tempRecordsNum uint32, dataRecordsNum u
 		return 0, fmt.Errorf("Failed to write - file exporter object is uninitialized")
 	}
 
-	p.counters.writes++
+	if p.enabled == false {
+		return 0, nil
+	}
 
-	var serr transport.SocketErr
-	serr, _ = p.socket.Write(b)
+	p.counters.apiWrites++
+
+	serr, _ := p.socket.Write(b)
 	if serr != transport.SeOK {
-		p.counters.writesFailed++
+		p.counters.apiWritesFailed++
 		return 0, errors.New(string(serr))
 	}
 
 	p.counters.txBytes += uint64(len(b))
+	p.counters.txTempRecords += uint64(tempRecordsNum)
+	p.counters.txDataRecords += uint64(dataRecordsNum)
 
 	return len(b), nil
 }
@@ -117,6 +144,11 @@ func (p *EmuUdpExporter) Close() error {
 
 	p.init = false
 
+	return nil
+}
+
+func (p *EmuUdpExporter) Enable(enable bool) error {
+	p.enabled = enable
 	return nil
 }
 
@@ -146,6 +178,7 @@ func (p *EmuUdpExporter) GetInfoJson() interface{} {
 	var res EmuUdpExporterInfoJson
 
 	res.ExporterType = p.GetType()
+	res.Enabled = strconv.FormatBool(p.enabled)
 
 	return &res
 }

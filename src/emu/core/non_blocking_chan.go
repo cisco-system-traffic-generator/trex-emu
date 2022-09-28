@@ -36,11 +36,12 @@ type nonBlockingChanObserver interface {
 
 type NonBlockingChan struct {
 	ch               chan interface{}
-	capacity         uint16
-	lowWatermarkThr  uint16
-	highWatermarkThr uint16
+	capacity         uint
+	lowWatermarkThr  uint
+	highWatermarkThr uint
 	observer         nonBlockingChanObserver
 	highWatermark    bool
+	peakLen          int
 
 	// The timer is started in case of high-watermark event.
 	// It than polls the queue until it gets to the low-watermark level.
@@ -51,10 +52,10 @@ type NonBlockingChan struct {
 }
 
 const (
-	nonBlockingChanTimerInterval = time.Millisecond
+	nonBlockingChanTimerInterval = 100 * time.Millisecond
 )
 
-func NewNonBlockingChan(capacity, lowWatermarkThr, highWatermarkThr uint16, timerCtx *TimerCtx) (*NonBlockingChan, NonBlockingChanErr) {
+func NewNonBlockingChan(capacity, lowWatermarkThr, highWatermarkThr uint, timerCtx *TimerCtx) (*NonBlockingChan, NonBlockingChanErr) {
 	if lowWatermarkThr >= highWatermarkThr {
 		return nil, ErrInvalidParam
 	}
@@ -89,7 +90,7 @@ func (p *NonBlockingChan) OnEvent(a, b interface{}) {
 	if len(p.ch) < int(p.lowWatermarkThr) && p.highWatermark {
 		p.handleLowWatermark()
 	} else {
-		p.timerCtx.Start(&p.timer, time.Millisecond)
+		p.timerCtx.Start(&p.timer, nonBlockingChanTimerInterval)
 	}
 }
 
@@ -100,7 +101,7 @@ func (p *NonBlockingChan) handleHighWatermark() {
 		(p.observer).Notify(EvHighWatermark)
 	}
 
-	p.timerCtx.Start(&p.timer, time.Millisecond)
+	p.timerCtx.Start(&p.timer, nonBlockingChanTimerInterval)
 }
 
 func (p *NonBlockingChan) Write(obj interface{}, block bool) error {
@@ -116,7 +117,13 @@ func (p *NonBlockingChan) Write(obj interface{}, block bool) error {
 		p.ch <- obj
 	}
 
-	if len(p.ch) > int(p.highWatermarkThr) && !p.highWatermark {
+	len := len(p.ch)
+
+	if len >= p.peakLen {
+		p.peakLen = len
+	}
+
+	if len > int(p.highWatermarkThr) && !p.highWatermark {
 		p.handleHighWatermark()
 	}
 
@@ -161,4 +168,12 @@ func (p *NonBlockingChan) Close() {
 
 func (p *NonBlockingChan) RegisterObserver(o nonBlockingChanObserver) {
 	p.observer = o
+}
+
+func (p *NonBlockingChan) GetLen() int {
+	return len(p.ch)
+}
+
+func (p *NonBlockingChan) GetPeakLen() int {
+	return p.peakLen
 }

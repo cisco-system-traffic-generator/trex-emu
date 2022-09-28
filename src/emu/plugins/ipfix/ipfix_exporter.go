@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -30,6 +31,7 @@ var (
 type Exporter interface {
 	Write(b []byte, tempRecordsNum uint32, dataRecordsNum uint32) (n int, err error)
 	Close() error
+	Enable(enable bool) error
 	GetMaxSize() int
 	GetType() string
 	GetCountersDbVec() *core.CCounterDbVec
@@ -159,8 +161,10 @@ func createHttpExporter(client *PluginIPFixClient, dstUrl *url.URL, initJson *fa
 }
 
 func getClientDirExporterName(dir string, name string, client *core.CClient) string {
+	pid := ""
 	if dir == "" {
 		dir = os.TempDir()
+		pid = fmt.Sprintf("%s_", strconv.Itoa(os.Getpid()))
 	}
 
 	strippedMac := strings.ReplaceAll(client.Mac.String(), ":", "")
@@ -169,9 +173,9 @@ func getClientDirExporterName(dir string, name string, client *core.CClient) str
 	prefix := filename[:len(filename)-len(ext)]
 	var dirname string
 	if ext == "." {
-		dirname = fmt.Sprintf("%s_%s", prefix, strippedMac)
+		dirname = fmt.Sprintf("%s_%s%s", prefix, pid, strippedMac)
 	} else {
-		dirname = fmt.Sprintf("%s_%s%s", prefix, strippedMac, ext)
+		dirname = fmt.Sprintf("%s_%s%s%s", prefix, pid, strippedMac, ext)
 	}
 
 	res := fmt.Sprintf("%s/%s", dir, dirname)

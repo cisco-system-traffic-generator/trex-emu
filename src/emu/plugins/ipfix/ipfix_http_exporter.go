@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -30,10 +31,11 @@ type HttpExporterParams struct {
 }
 
 type HttpExporterStats struct {
-	writes                 uint64
-	writesFailed           uint64
-	txBytes                uint64
-	filesExported          uint64
+	apiWrites              uint64
+	apiWritesFailed        uint64
+	txTempRecords          uint64 // Total number of template records sent
+	txDataRecords          uint64 // Total number of data records sent
+	filesExport            uint64
 	filesExportFailed      uint64
 	filesExportFailedRetry uint64
 	filesExportRetry       uint64
@@ -57,6 +59,7 @@ type HttpExporter struct {
 	maxPosts               uint64
 	httpRespTimeout        time.Duration
 	removeDirOnClose       bool
+	enabled                bool
 	init                   bool
 	fileExporter           *FileExporter
 	fileExporterEvQueue    chan FileExporterEvent
@@ -113,6 +116,7 @@ func (p *HttpExporter) endFileInfo() {
 
 type HttpExporterInfo struct {
 	ExporterType string                 `json:"exporter_type"`
+	Enabled      string                 `json:"enabled"`
 	Files        []HttpExporterFileInfo `json:"files"`
 }
 
@@ -204,7 +208,7 @@ func NewHttpExporter(client *PluginIPFixClient, params *HttpExporterParams) (*Ht
 
 	p.wg.Add(1)
 	go p.cmdThread()
-
+	p.enabled = true
 	p.init = true
 
 	log.Info("\nIPFIX HTTP exporter created with the following parameters: ",
@@ -227,33 +231,41 @@ func (p *HttpExporter) newHttpExporterCountersDb() {
 	p.countersDb = core.NewCCounterDb(httpExporterCountersDbName)
 
 	p.countersDb.Add(&core.CCounterRec{
-		Counter:  &p.counters.writes,
-		Name:     "writes",
-		Help:     "Num of writes",
+		Counter:  &p.counters.apiWrites,
+		Name:     "apiWrites",
+		Help:     "Num of API calls to write",
 		Unit:     "ops",
 		DumpZero: false,
 		Info:     core.ScINFO})
 
 	p.countersDb.Add(&core.CCounterRec{
-		Counter:  &p.counters.writesFailed,
-		Name:     "writesFailed",
-		Help:     "Num of failed writes",
+		Counter:  &p.counters.apiWritesFailed,
+		Name:     "apiWritesFailed",
+		Help:     "Num of failed API calls to write",
 		Unit:     "ops",
 		DumpZero: false,
 		Info:     core.ScINFO})
 
 	p.countersDb.Add(&core.CCounterRec{
-		Counter:  &p.counters.txBytes,
-		Name:     "txBytes",
-		Help:     "Num of bytes transmitted",
-		Unit:     "bytes",
+		Counter:  &p.counters.txTempRecords,
+		Name:     "txTempRecords",
+		Help:     "Total num of template records transmitted",
+		Unit:     "records",
 		DumpZero: false,
 		Info:     core.ScINFO})
 
 	p.countersDb.Add(&core.CCounterRec{
-		Counter:  &p.counters.filesExported,
-		Name:     "filesExported",
-		Help:     "Num of files successfully exported",
+		Counter:  &p.counters.txDataRecords,
+		Name:     "txDataRecords",
+		Help:     "Total num of data records transmitted",
+		Unit:     "records",
+		DumpZero: false,
+		Info:     core.ScINFO})
+
+	p.countersDb.Add(&core.CCounterRec{
+		Counter:  &p.counters.filesExport,
+		Name:     "filesExport",
+		Help:     "Num of files export",
 		Unit:     "ops",
 		DumpZero: false,
 		Info:     core.ScINFO})
@@ -398,6 +410,7 @@ func (p *HttpExporter) GetInfoJson() interface{} {
 	var res HttpExporterInfo
 
 	res.ExporterType = p.GetType()
+	res.Enabled = strconv.FormatBool(p.enabled)
 
 	res.Files = make([]HttpExporterFileInfo, len(p.fileInfoDb))
 
@@ -417,16 +430,18 @@ func (p *HttpExporter) Write(b []byte, tempRecordsNum uint32, dataRecordsNum uin
 		return 0, fmt.Errorf("Failed to write - http exporter object is uninitialized")
 	}
 
+	if p.enabled == false {
+		return 0, nil
+	}
+
 	p.lock.Lock()
 	defer p.lock.Unlock()
 
-	p.counters.writes++
+	p.counters.apiWrites++
 
 	n, err := p.fileExporter.Write(b, tempRecordsNum, dataRecordsNum)
-	if err == nil {
-		p.counters.txBytes += uint64(len(b))
-	} else {
-		p.counters.writesFailed++
+	if err != nil {
+		p.counters.apiWritesFailed++
 	}
 
 	return n, err
@@ -466,6 +481,12 @@ func (p *HttpExporter) Close() error {
 	return err
 }
 
+func (p *HttpExporter) Enable(enable bool) error {
+	p.enabled = enable
+	p.fileExporter.Enable(enable)
+	return nil
+}
+
 func (p *HttpExporter) notify(event FileExporterEvent) {
 	select {
 	case p.fileExporterEvQueue <- event:
@@ -498,6 +519,10 @@ func (p *HttpExporter) cmdThread() {
 		case false:
 			select {
 			case event := <-p.fileExporterEvQueue:
+				if p.enabled == false {
+					break
+				}
+
 				p.handlefileExporterEv(event)
 			case <-p.done:
 				log.Debug("Shutting down HTTP exporter commands thread")
@@ -506,6 +531,10 @@ func (p *HttpExporter) cmdThread() {
 		case true:
 			select {
 			case <-p.retryTimer.C:
+				if p.enabled == false {
+					break
+				}
+
 				log.Debug("HTTP file upload retry timer expired")
 				p.retryWaitState = false
 				p.counters.filesExportRetry++
@@ -610,6 +639,8 @@ func (p *HttpExporter) sendFile(filePath string, tempRecordsNum uint32, dataReco
 
 	log.Info("Trying to send file: ",
 		"\n\tfile name:", filePath,
+		"\n\ttemp records num:", tempRecordsNum,
+		"\n\tdata records num:", dataRecordsNum,
 		"\n\tdestination URL:", p.url.String())
 
 	if p.maxPosts != 0 && p.currPostsNum >= p.maxPosts {
@@ -620,6 +651,10 @@ func (p *HttpExporter) sendFile(filePath string, tempRecordsNum uint32, dataReco
 
 	p.preSendFile(filePath, tempRecordsNum, dataRecordsNum)
 	defer p.postSendFile()
+
+	p.counters.filesExport++
+	p.counters.txTempRecords += uint64(tempRecordsNum)
+	p.counters.txDataRecords += uint64(dataRecordsNum)
 
 	req, err := p.createHttpPostRequest(&p.url, filePath)
 	if err != nil {
@@ -646,7 +681,6 @@ func (p *HttpExporter) sendFile(filePath string, tempRecordsNum uint32, dataReco
 
 	switch resp.StatusCode / 100 {
 	case 2 /* 2xx */ :
-		p.counters.filesExported++
 		p.counters.httpStatus2xx++
 	case 3 /* 3xx */ :
 		p.counters.filesExportFailed++

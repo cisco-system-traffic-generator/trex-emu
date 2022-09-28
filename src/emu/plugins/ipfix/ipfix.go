@@ -98,7 +98,7 @@ type IPFixGenParams struct {
 type IPFixGen struct {
 	name                   string                           // Name of this generator.
 	enabled                bool                             // Is generator exporting at the moment.
-	paused                 bool                             // Temporarily pause exporting to avoid blocking
+	paused                 bool                             // Temporarily pause generator to avoid blocking
 	templateRate           float32                          // Template rate in PPS.
 	dataRate               float32                          // Data rate in PPS.
 	templateID             uint16                           // Template ID.
@@ -255,6 +255,19 @@ func NewIPFixGen(ipfix *PluginIPFixClient, initJson *fastjson.RawMessage) (*IPFi
 
 func (o *IPFixGen) Pause(pause bool) {
 	o.paused = pause
+
+	if pause {
+		rate := o.dataRate
+		o.SetDataRate(0)
+		o.dataRate = rate
+
+		rate = o.templateRate
+		o.SetTemplateRate(0)
+		o.templateRate = rate
+	} else {
+		o.SetDataRate(o.dataRate)
+		o.SetTemplateRate(o.templateRate)
+	}
 }
 
 // OnCreate initializes fields of the IPFixGen.
@@ -422,9 +435,9 @@ func (o *IPFixGen) sendTemplatePkt() {
 
 	if o.paused {
 		o.ipfixPlug.stats.genPausedSkipWrite++
+	} else {
+		o.timerw.StartTicks(&o.templateTimer, o.templateTicks)
 	}
-
-	o.timerw.StartTicks(&o.templateTimer, o.templateTicks)
 }
 
 func (o *IPFixGen) isReachedMaxDataRecordsToSend() bool {
@@ -472,6 +485,7 @@ func (o *IPFixGen) sendDataPkt() {
 		for i := 0; i < int(o.dataPktsPerInterval); i++ {
 			if o.paused {
 				o.ipfixPlug.stats.genPausedSkipWrite++
+				restartTimer = false
 				break
 			}
 
@@ -750,9 +764,18 @@ func (o *IPFixGen) prepareDataPayload() (records uint32) {
 										RPC API for IPFixGen
 ======================================================================================================*/
 
+func (o *IPFixGen) Enable(enable bool) {
+	o.enabled = enable
+}
+
 // SetDataRate sets a new data rate through RPC.
 func (o *IPFixGen) SetDataRate(rate float32) {
 	o.dataRate = rate
+
+	if o.paused {
+		return
+	}
+
 	duration := time.Duration(float32(time.Second) / o.dataRate)
 	o.dataTicks, o.dataPktsPerInterval = o.timerw.DurationToTicksBurst(duration)
 
@@ -766,6 +789,11 @@ func (o *IPFixGen) SetDataRate(rate float32) {
 // SetTemplateRate sets a new template rate through RPC.
 func (o *IPFixGen) SetTemplateRate(rate float32) {
 	o.templateRate = rate
+
+	if o.paused {
+		return
+	}
+
 	o.templateTicks = o.timerw.DurationToTicks(time.Duration(float32(time.Second) / o.templateRate))
 
 	// Restart the timer.
@@ -1216,6 +1244,14 @@ func (o *PluginIPFixClient) Pause(pause bool) {
 	}
 }
 
+func (o *PluginIPFixClient) Enable(enable bool) {
+	for _, gen := range o.generators {
+		gen.Enable(enable)
+	}
+
+	o.exporter.Enable(enable)
+}
+
 // OnCreate is called upon creating a new IPFix client.
 func (o *PluginIPFixClient) OnCreate() {
 
@@ -1370,6 +1406,16 @@ type GenInfo struct {
 type (
 	ApiIpfixClientCntHandler struct{}
 
+	ApiIpfixClientSetStateHandler struct{}
+	ApiIpfixClientSetStateParams  struct {
+		Enable *bool `json:"enable"`
+	}
+
+	ApiIpfixClientGetGensInfoHandler struct{}
+	ApiIpfixClientGetGensInfoResult  struct {
+		GensInfos map[string]GenInfo `json:"generators_info"`
+	}
+
 	ApiIpfixClientSetGenStateHandler struct{}
 	ApiIpfixClientSetGenStateParams  struct {
 		GenName      string  `json:"gen_name"`
@@ -1377,12 +1423,6 @@ type (
 		Rate         float32 `json:"rate"`
 		TemplateRate float32 `json:"template_rate"`
 	}
-
-	ApiIpfixClientGetGensInfoHandler struct{}
-	ApiIpfixClientGetGensInfoResult  struct {
-		GensInfos map[string]GenInfo `json:"generators_info"`
-	}
-	ApiIpfixClientGetGenNamesHandler struct{}
 
 	ApiIpfixClientGetExpInfoHandler struct{}
 )
@@ -1417,6 +1457,33 @@ func (h ApiIpfixClientCntHandler) ServeJSONRPC(ctx interface{}, params *fastjson
 	return c.cdbv.GeneralCounters(err, tctx, params, &p)
 }
 
+func (h ApiIpfixClientSetStateHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
+	var p ApiIpfixClientSetStateParams
+
+	c, err := getClientPlugin(ctx, params)
+	if err != nil {
+		return nil, &jsonrpc.Error{
+			Code:    jsonrpc.ErrorCodeInvalidRequest,
+			Message: err.Error(),
+		}
+	}
+
+	tctx := ctx.(*core.CThreadCtx)
+	err = tctx.UnmarshalValidate(*params, &p)
+	if err != nil {
+		return nil, &jsonrpc.Error{
+			Code:    jsonrpc.ErrorCodeInvalidRequest,
+			Message: err.Error(),
+		}
+	}
+
+	if p.Enable != nil {
+		c.Enable(*p.Enable)
+	}
+
+	return nil, nil
+}
+
 // ApiIpfixClientSetGenStateHandler can set a generator to running or not and change its data rate.
 func (h ApiIpfixClientSetGenStateHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
 	var p ApiIpfixClientSetGenStateParams
@@ -1447,7 +1514,7 @@ func (h ApiIpfixClientSetGenStateHandler) ServeJSONRPC(ctx interface{}, params *
 	}
 
 	if p.Enable != nil {
-		gen.enabled = *p.Enable
+		gen.Enable(*p.Enable)
 	}
 	if p.Rate > 0 {
 		gen.SetDataRate(p.Rate)
@@ -1517,8 +1584,9 @@ func init() {
 	*/
 
 	core.RegisterCB("ipfix_c_cnt", ApiIpfixClientCntHandler{}, false) // get counters / meta
-	core.RegisterCB("ipfix_c_set_gen_state", ApiIpfixClientSetGenStateHandler{}, false)
+	core.RegisterCB("ipfix_c_set_state", ApiIpfixClientSetStateHandler{}, false)
 	core.RegisterCB("ipfix_c_get_gens_info", ApiIpfixClientGetGensInfoHandler{}, false)
+	core.RegisterCB("ipfix_c_set_gen_state", ApiIpfixClientSetGenStateHandler{}, false)
 	core.RegisterCB("ipfix_c_get_exp_info", ApiIpfixClientGetExpInfoHandler{}, false)
 }
 

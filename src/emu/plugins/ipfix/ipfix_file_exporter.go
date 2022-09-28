@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -24,21 +25,28 @@ type FileExporterParams struct {
 }
 
 type FileExporterStats struct {
-	writes                  uint64
-	writesFailed            uint64
+	apiWrites               uint64
+	apiWritesFailed         uint64
+	apiRotates              uint64
+	apiRotatesFailed        uint64
+	txWrites                uint64
+	txWritesFailed          uint64
 	txBytes                 uint64
-	filesExported           uint64
-	filesExportFailed       uint64
-	cmdChanEvLowWatermark   uint64
-	cmdChanEvHighWatermark  uint64
-	evFileCreated           uint64
-	evFileRemoved           uint64
+	txTempRecords           uint64
+	txDataRecords           uint64
 	cmdWrite                uint64
 	cmdRotate               uint64
-	maxIntervalTimerExpired uint64
-	maxFilesExceeded        uint64
+	cmdChanEvLowWatermark   uint64
+	cmdChanEvHighWatermark  uint64
+	cmdChanLen              uint64
+	cmdChanPeakLen          uint64
 	fileRotates             uint64
 	fileRotatesFailed       uint64
+	maxIntervalTimerExpired uint64
+	maxFilesExceeded        uint64
+	maxSizeExceeded         uint64
+	evFileCreated           uint64
+	evFileRemoved           uint64
 }
 
 type FileExporterEventId int
@@ -61,6 +69,7 @@ func (s FileExporterEventId) String() string {
 type FileExporterEvent struct {
 	id             FileExporterEventId
 	filePath       string
+	fileSize       int
 	tempRecordsNum uint32
 	dataRecordsNum uint32
 }
@@ -69,9 +78,10 @@ func (s FileExporterEvent) String() string {
 	str := fmt.Sprintf("FileExporterEvent: \n"+
 		"  id = %s \n"+
 		"  filePath = %s \n"+
+		"  fileSize = %d \n"+
 		"  tempRecordsNum = %d \n"+
 		"  dataRecordsNum = %d \n",
-		s.id, s.filePath, s.tempRecordsNum, s.dataRecordsNum)
+		s.id, s.filePath, s.fileSize, s.tempRecordsNum, s.dataRecordsNum)
 	return str
 }
 
@@ -88,11 +98,12 @@ type FileExporter struct {
 	compress           bool
 	dir                string
 	maxFiles           int
+	enabled            bool
 	init               bool
 	file               *os.File
 	creationTime       time.Time
 	index              uint64 // Running index for created files
-	size               int    // Size of current file
+	fileSize           int    // Size of current file
 	tempRecordsNum     uint32 // Number of template records in current file
 	dataRecordsNum     uint32 // Number of data records in current file
 	observerList       []*FileExporterObserver
@@ -110,6 +121,7 @@ type FileExporter struct {
 
 type FileExporterInfoJson struct {
 	ExporterType string `json:"exporter_type"`
+	Enabled      string `json:"enabled"`
 }
 
 const (
@@ -118,9 +130,9 @@ const (
 	rotatedFileTimeFormat            = "20060102150405" /* yyyyMMddHHmmss */
 	compressSuffix                   = ".gz"
 	fileFormatRegexStr               = `\d+\.(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})-(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2}).`
-	fileExporterChanCapacity         = 1024
-	fileExporterChanLowWatermarkThr  = 1
-	fileExporterChanHighWatermarkThr = 1023
+	fileExporterChanCapacity         = 10000
+	fileExporterChanLowWatermarkThr  = 2000
+	fileExporterChanHighWatermarkThr = 8000
 )
 
 type fileExporterCmdId int
@@ -201,7 +213,7 @@ func NewFileExporter(client *PluginIPFixClient, params *FileExporterParams) (*Fi
 
 	p.wg.Add(1)
 	go p.cmdThread()
-
+	p.enabled = true
 	p.init = true
 
 	log.Info("\nIPFIX FILE exporter created with the following parameters: ",
@@ -219,17 +231,49 @@ func (p *FileExporter) newFileExporterCountersDb() {
 	p.countersDb = core.NewCCounterDb(fileExporterCountersDbName)
 
 	p.countersDb.Add(&core.CCounterRec{
-		Counter:  &p.counters.writes,
-		Name:     "writes",
-		Help:     "Num of writes",
+		Counter:  &p.counters.apiWrites,
+		Name:     "apiWrites",
+		Help:     "Num of API calls to write",
 		Unit:     "ops",
 		DumpZero: false,
 		Info:     core.ScINFO})
 
 	p.countersDb.Add(&core.CCounterRec{
-		Counter:  &p.counters.writesFailed,
-		Name:     "writesFailed",
-		Help:     "Num of failed writes",
+		Counter:  &p.counters.apiWritesFailed,
+		Name:     "apiWritesFailed",
+		Help:     "Num of failed API calls to write",
+		Unit:     "ops",
+		DumpZero: false,
+		Info:     core.ScINFO})
+
+	p.countersDb.Add(&core.CCounterRec{
+		Counter:  &p.counters.apiRotates,
+		Name:     "apiRotates",
+		Help:     "Num of API calls to rotate",
+		Unit:     "ops",
+		DumpZero: false,
+		Info:     core.ScINFO})
+
+	p.countersDb.Add(&core.CCounterRec{
+		Counter:  &p.counters.apiRotatesFailed,
+		Name:     "apiRotatesFailed",
+		Help:     "Num of failed API calls to rotate",
+		Unit:     "ops",
+		DumpZero: false,
+		Info:     core.ScINFO})
+
+	p.countersDb.Add(&core.CCounterRec{
+		Counter:  &p.counters.txWrites,
+		Name:     "txWrites",
+		Help:     "Num of files writes",
+		Unit:     "ops",
+		DumpZero: false,
+		Info:     core.ScINFO})
+
+	p.countersDb.Add(&core.CCounterRec{
+		Counter:  &p.counters.txWritesFailed,
+		Name:     "txWritesFailed",
+		Help:     "Num of failed files writes failed",
 		Unit:     "ops",
 		DumpZero: false,
 		Info:     core.ScINFO})
@@ -243,17 +287,33 @@ func (p *FileExporter) newFileExporterCountersDb() {
 		Info:     core.ScINFO})
 
 	p.countersDb.Add(&core.CCounterRec{
-		Counter:  &p.counters.filesExported,
-		Name:     "filesExported",
-		Help:     "Num of exported files",
+		Counter:  &p.counters.txTempRecords,
+		Name:     "txTempRecords",
+		Help:     "Num of template records transmitted",
+		Unit:     "records",
+		DumpZero: false,
+		Info:     core.ScINFO})
+
+	p.countersDb.Add(&core.CCounterRec{
+		Counter:  &p.counters.txDataRecords,
+		Name:     "txDataRecords",
+		Help:     "Num of data records transmitted",
+		Unit:     "records",
+		DumpZero: false,
+		Info:     core.ScINFO})
+
+	p.countersDb.Add(&core.CCounterRec{
+		Counter:  &p.counters.cmdWrite,
+		Name:     "cmdWrite",
+		Help:     "Num of command channel write events",
 		Unit:     "ops",
 		DumpZero: false,
 		Info:     core.ScINFO})
 
 	p.countersDb.Add(&core.CCounterRec{
-		Counter:  &p.counters.filesExportFailed,
-		Name:     "filesExportFailed",
-		Help:     "Num of failed file exports",
+		Counter:  &p.counters.cmdRotate,
+		Name:     "cmdRotate",
+		Help:     "Num of command channel rotate events",
 		Unit:     "ops",
 		DumpZero: false,
 		Info:     core.ScINFO})
@@ -275,49 +335,17 @@ func (p *FileExporter) newFileExporterCountersDb() {
 		Info:     core.ScINFO})
 
 	p.countersDb.Add(&core.CCounterRec{
-		Counter:  &p.counters.evFileCreated,
-		Name:     "evFileCreated",
-		Help:     "Num of file created events",
+		Counter:  &p.counters.cmdChanLen,
+		Name:     "cmdChanLen",
+		Help:     "Command channel current length",
 		Unit:     "ops",
 		DumpZero: false,
 		Info:     core.ScINFO})
 
 	p.countersDb.Add(&core.CCounterRec{
-		Counter:  &p.counters.evFileRemoved,
-		Name:     "evFileRemoved",
-		Help:     "Num of file removed events",
-		Unit:     "ops",
-		DumpZero: false,
-		Info:     core.ScINFO})
-
-	p.countersDb.Add(&core.CCounterRec{
-		Counter:  &p.counters.cmdWrite,
-		Name:     "cmdWrite",
-		Help:     "Num of command channel write events",
-		Unit:     "ops",
-		DumpZero: false,
-		Info:     core.ScINFO})
-
-	p.countersDb.Add(&core.CCounterRec{
-		Counter:  &p.counters.cmdRotate,
-		Name:     "cmdRotate",
-		Help:     "Num of command channel rotate events",
-		Unit:     "ops",
-		DumpZero: false,
-		Info:     core.ScINFO})
-
-	p.countersDb.Add(&core.CCounterRec{
-		Counter:  &p.counters.maxIntervalTimerExpired,
-		Name:     "maxIntervalTimerExpired",
-		Help:     "Num of max interval timer expired events",
-		Unit:     "ops",
-		DumpZero: false,
-		Info:     core.ScINFO})
-
-	p.countersDb.Add(&core.CCounterRec{
-		Counter:  &p.counters.maxFilesExceeded,
-		Name:     "maxFilesExceeded",
-		Help:     "Num of max files exceeded",
+		Counter:  &p.counters.cmdChanPeakLen,
+		Name:     "cmdChanPeakLen",
+		Help:     "Command channel peak length",
 		Unit:     "ops",
 		DumpZero: false,
 		Info:     core.ScINFO})
@@ -333,7 +361,47 @@ func (p *FileExporter) newFileExporterCountersDb() {
 	p.countersDb.Add(&core.CCounterRec{
 		Counter:  &p.counters.fileRotatesFailed,
 		Name:     "fileRotatesFailed",
-		Help:     "Num of failed failed file rotation",
+		Help:     "Num of failed file rotates",
+		Unit:     "ops",
+		DumpZero: false,
+		Info:     core.ScINFO})
+
+	p.countersDb.Add(&core.CCounterRec{
+		Counter:  &p.counters.maxIntervalTimerExpired,
+		Name:     "maxIntervalTimerExpired",
+		Help:     "Num of max interval timer expired",
+		Unit:     "ops",
+		DumpZero: false,
+		Info:     core.ScINFO})
+
+	p.countersDb.Add(&core.CCounterRec{
+		Counter:  &p.counters.maxFilesExceeded,
+		Name:     "maxFilesExceeded",
+		Help:     "Num of max files exceeded",
+		Unit:     "ops",
+		DumpZero: false,
+		Info:     core.ScINFO})
+
+	p.countersDb.Add(&core.CCounterRec{
+		Counter:  &p.counters.maxSizeExceeded,
+		Name:     "maxSizeExceeded",
+		Help:     "Num of max size exceeded",
+		Unit:     "ops",
+		DumpZero: false,
+		Info:     core.ScINFO})
+
+	p.countersDb.Add(&core.CCounterRec{
+		Counter:  &p.counters.evFileCreated,
+		Name:     "evFileCreated",
+		Help:     "Num of file created event notifications",
+		Unit:     "ops",
+		DumpZero: false,
+		Info:     core.ScINFO})
+
+	p.countersDb.Add(&core.CCounterRec{
+		Counter:  &p.counters.evFileRemoved,
+		Name:     "evFileRemoved",
+		Help:     "Num of file removed event notifications",
 		Unit:     "ops",
 		DumpZero: false,
 		Info:     core.ScINFO})
@@ -381,6 +449,7 @@ func (p *FileExporter) GetInfoJson() interface{} {
 	var res FileExporterInfoJson
 
 	res.ExporterType = p.GetType()
+	res.Enabled = strconv.FormatBool(p.enabled)
 
 	return &res
 }
@@ -390,6 +459,12 @@ func (p *FileExporter) Write(b []byte, tempRecordsNum uint32, dataRecordsNum uin
 		return 0, errors.New("Failed to write - file exporter object is uninitialized")
 	}
 
+	if p.enabled == false {
+		return 0, nil
+	}
+
+	p.counters.apiWrites++
+
 	var cmd *fileExporterCmd
 	cmd = new(fileExporterCmd)
 	cmd.id = cmdWrite
@@ -397,12 +472,14 @@ func (p *FileExporter) Write(b []byte, tempRecordsNum uint32, dataRecordsNum uin
 	cmd.writeTempRecordsNum = tempRecordsNum
 	cmd.writeDataRecordsNum = dataRecordsNum
 
-	p.counters.writes++
-
 	err := p.cmdChan.Write(cmd, false)
 	if err != nil {
+		p.counters.apiWritesFailed++
 		return 0, err
 	}
+
+	p.counters.cmdChanLen = uint64(p.cmdChan.GetLen())
+	p.counters.cmdChanPeakLen = uint64(p.cmdChan.GetPeakLen())
 
 	return len(b), nil
 }
@@ -415,10 +492,21 @@ func (p *FileExporter) Close() error {
 	return p.close()
 }
 
+func (p *FileExporter) Enable(enable bool) error {
+	p.enabled = enable
+	return nil
+}
+
 func (p *FileExporter) Rotate() error {
 	if p.init == false {
 		return nil
 	}
+
+	if p.enabled == false {
+		return nil
+	}
+
+	p.counters.apiRotates++
 
 	var cmd *fileExporterCmd
 	cmd = new(fileExporterCmd)
@@ -426,6 +514,7 @@ func (p *FileExporter) Rotate() error {
 
 	err := p.cmdChan.Write(cmd, false)
 	if err != nil {
+		p.counters.apiRotatesFailed++
 		return err
 	}
 
@@ -451,8 +540,10 @@ func (p *FileExporter) UnregisterObserver(o FileExporterObserver) {
 func (p *FileExporter) Notify(event core.NonBlockingChanEvent) {
 	switch event {
 	case core.EvLowWatermark:
+		p.counters.cmdChanEvLowWatermark++
 		p.client.Pause(false)
 	case core.EvHighWatermark:
+		p.counters.cmdChanEvHighWatermark++
 		p.client.Pause(true)
 	default:
 	}
@@ -473,20 +564,37 @@ func (p *FileExporter) cmdThread() {
 			switch cmd.id {
 			case cmdWrite:
 				p.counters.cmdWrite++
+				p.counters.cmdChanLen = uint64(p.cmdChan.GetLen())
+
+				if p.enabled == false {
+					break
+				}
+
+				p.counters.txWrites++
+
 				_, err = p.writeInt(*&cmd.writeBuffer, cmd.writeTempRecordsNum, cmd.writeDataRecordsNum)
-				if err == nil {
-					p.counters.txBytes += uint64(len(*&cmd.writeBuffer))
-				} else {
-					p.counters.writesFailed++
+				if err != nil {
+					p.counters.txWritesFailed++
 				}
 			case cmdRotate:
 				p.counters.cmdRotate++
+				p.counters.cmdChanLen = uint64(p.cmdChan.GetLen())
+
+				if p.enabled == false {
+					break
+				}
+
 				if err := p.rotateInt(); err != nil {
 					return
 				}
 			}
 		case <-p.maxIntervalTimer.C:
 			p.counters.maxIntervalTimerExpired++
+
+			if p.enabled == false {
+				break
+			}
+
 			p.Rotate()
 		case <-p.done:
 			log.Debug("Shutting down File exporter commands thread")
@@ -515,22 +623,32 @@ func (p *FileExporter) writeInt(b []byte, tempRecordsNum uint32, dataRecordsNum 
 		}
 	}
 
-	if p.size+writeLen > p.maxSize {
+	if p.fileSize+writeLen > p.maxSize {
+		p.counters.maxSizeExceeded++
 		if err := p.rotateInt(); err != nil {
 			return 0, err
 		}
 	}
 
 	n, err = p.file.Write(b)
-	p.size += n
+	if err != nil {
+		return 0, err
+	}
+
+	p.fileSize += n
 	p.tempRecordsNum += tempRecordsNum
 	p.dataRecordsNum += dataRecordsNum
+
+	p.counters.txBytes += uint64(n)
+	p.counters.txTempRecords += uint64(tempRecordsNum)
+	p.counters.txDataRecords += uint64(dataRecordsNum)
 
 	return n, err
 }
 
 func (p *FileExporter) rotateInt() error {
 	p.counters.fileRotates++
+
 	if err := p.fileClose(); err != nil {
 		p.counters.fileRotatesFailed++
 		return err
@@ -638,6 +756,7 @@ func (p *FileExporter) rotateExistingFile() error {
 	event := new(FileExporterEvent)
 	event.id = EvFileCreated
 	event.filePath = newName
+	event.fileSize = p.fileSize
 	event.tempRecordsNum = p.tempRecordsNum
 	event.dataRecordsNum = p.dataRecordsNum
 	p.notifyObservers(*event)
@@ -667,7 +786,7 @@ func (p *FileExporter) openNew() error {
 	}
 
 	p.file = f
-	p.size = 0
+	p.fileSize = 0
 	p.tempRecordsNum = 0
 	p.dataRecordsNum = 0
 
