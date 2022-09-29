@@ -1,6 +1,7 @@
 package ipfix
 
 import (
+	"bufio"
 	"emu/core"
 	"errors"
 	"fmt"
@@ -101,6 +102,7 @@ type FileExporter struct {
 	enabled            bool
 	init               bool
 	file               *os.File
+	fileWriter         *bufio.Writer
 	creationTime       time.Time
 	index              uint64 // Running index for created files
 	fileSize           int    // Size of current file
@@ -595,7 +597,9 @@ func (p *FileExporter) cmdThread() {
 				break
 			}
 
-			p.Rotate()
+			if err := p.rotateInt(); err != nil {
+				return
+			}
 		case <-p.done:
 			log.Debug("Shutting down File exporter commands thread")
 			return
@@ -630,7 +634,7 @@ func (p *FileExporter) writeInt(b []byte, tempRecordsNum uint32, dataRecordsNum 
 		}
 	}
 
-	n, err = p.file.Write(b)
+	n, err = p.fileWriter.Write(b)
 	if err != nil {
 		return 0, err
 	}
@@ -669,6 +673,7 @@ func (p *FileExporter) fileClose() error {
 		return nil
 	}
 
+	p.fileWriter.Flush()
 	err := p.file.Close()
 	p.file = nil
 
@@ -785,6 +790,11 @@ func (p *FileExporter) openNew() error {
 		return fmt.Errorf("Failed to open new file: %s", err)
 	}
 
+	if p.fileWriter != nil {
+		p.fileWriter.Reset(f)
+	} else {
+		p.fileWriter = bufio.NewWriter(f)
+	}
 	p.file = f
 	p.fileSize = 0
 	p.tempRecordsNum = 0
