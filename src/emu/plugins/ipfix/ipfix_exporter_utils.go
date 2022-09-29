@@ -62,7 +62,7 @@ func compressFile(src_file_path, dst_file_path string) (err error) {
 		return fmt.Errorf("failed to chown compressed log file: %v", err)
 	}
 
-	gz := gzip.NewWriter(gzf)
+	gz, _ := gzip.NewWriterLevel(gzf, gzip.BestSpeed)
 
 	defer func() {
 		if err != nil {
