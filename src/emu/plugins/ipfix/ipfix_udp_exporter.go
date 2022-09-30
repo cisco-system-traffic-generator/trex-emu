@@ -43,6 +43,7 @@ type UdpExporterInfoJson struct {
 const (
 	udpExporterType                 = "udp"
 	udpExporterCountersDbName       = "IPFIX udp exporter"
+	udpExporterMtu                  = 1500
 	udpExporterChanCapacity         = 2000
 	udpExporterChanLowWatermarkThr  = 400
 	udpExporterChanHighWatermarkThr = 1600
@@ -310,7 +311,7 @@ func (p *UdpExporter) GetMaxSize() int {
 		return 0
 	}
 
-	return 1500
+	return udpExporterMtu
 }
 
 func (p *UdpExporter) GetType() string {

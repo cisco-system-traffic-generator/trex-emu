@@ -108,6 +108,7 @@ type IPFixGen struct {
 	optionsTemplate        bool                             // Is Options Template or Data Template
 	scopeCount             uint16                           // Scope Count for Option Templates, the number of fields that are scoped.
 	availableRecordPayload int                              // Available bytes for record payloads.
+	maxPacketSize          int                              // Maximum packet size
 	dataTicks              uint32                           // Ticks between 2 consequent Data Set packets.
 	dataPktsPerInterval    uint32                           // How many data packets to send each interval
 	templateTicks          uint32                           // Ticks between 2 consequent Template Set packets.
@@ -305,14 +306,21 @@ func (o *IPFixGen) OnEvent(a, b interface{}) {
 	}
 }
 
+func (o *IPFixGen) getMaxPacketSize() int {
+	maxPacketSize := o.ipfixPlug.exporter.GetMaxSize()
+
+	// IPFIX packet length field is uint16
+	if maxPacketSize > math.MaxUint16 {
+		maxPacketSize = math.MaxUint16
+	}
+
+	return maxPacketSize
+}
+
 // OnResolve is called when the client successfully resolves the mac address of the default gateway
 // and we can create a socket.
 func (o *IPFixGen) OnResolve() bool {
-	ok := o.prepareTemplatePayload()
-	if !ok {
-		return false
-	}
-	// Preparing the data payload is not needed as SendPkt prepares it by itself. This packet changes every iteration.
+	o.maxPacketSize = o.getMaxPacketSize()
 
 	o.calcAvailableRecordPayload()
 	var maxRecords uint32
@@ -332,6 +340,12 @@ func (o *IPFixGen) OnResolve() bool {
 		o.recordsNumToSent = o.recordsNum
 	}
 
+	ok := o.prepareTemplatePayload()
+	if !ok {
+		return false
+	}
+	// Preparing the data payload is not needed as SendPkt prepares it by itself. This packet changes every iteration.
+
 	// Attempt to send the first packets in order.
 	o.sendTemplatePkt() // template packet
 	o.sendDataPkt()     // data packet
@@ -344,7 +358,7 @@ func (o *IPFixGen) calcAvailableRecordPayload() {
 	if o.ipfixPlug.ver == 9 {
 		ipfixHeaderLen = layers.IpfixHeaderLenVer9
 	}
-	o.availableRecordPayload = o.ipfixPlug.exporter.GetMaxSize() - (ipfixHeaderLen + 4) // set header length is 4
+	o.availableRecordPayload = o.maxPacketSize - (ipfixHeaderLen + 4) // set header length is 4
 }
 
 // calcShortestRecord calculates the length of the shortest possible record in case of variable length.
@@ -605,7 +619,7 @@ func (o *IPFixGen) prepareTemplatePayload() bool {
 			Sets:      sets,
 		},
 	)
-	if len(ipFixHeader) > o.ipfixPlug.exporter.GetMaxSize() {
+	if len(ipFixHeader) > o.maxPacketSize {
 		o.ipfixPlug.stats.templatePktLongerThanMTU++
 		return false
 	}
