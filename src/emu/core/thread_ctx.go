@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 	"math/rand"
 	"os"
+	"runtime"
 	"testing"
 	"time"
 
@@ -254,7 +255,7 @@ func NewThreadCtx(Id uint32, rpcPort uint16, simulation bool, simRx *VethIFSim) 
 	o.DefNsPlugs = nil
 	o.validate = validator.New()
 	o.parser.Init(o)
-	if simulation {
+	if simRx != nil {
 		var simv VethIFSimulator
 		simv.Create(o)
 		if simRx == nil && simulation {
@@ -390,12 +391,13 @@ func (o *CThreadCtx) HandleMainTimerTicks() {
 }
 
 func (o *CThreadCtx) MainLoop() {
+	runtime.LockOSThread()
 
 	for {
 		select {
 		case req := <-o.rpc.GetC():
 			o.rpc.HandleReqToChan(req) // RPC commands
-		case <-o.C():
+		case <-o.timerctx.GetC():
 			o.timerctx.HandleTicks()
 		case msg := <-o.Veth.GetC(): // batch of rx packets
 			o.Veth.OnRxStream(msg)
@@ -735,10 +737,6 @@ func (o *CThreadCtx) Shutdown(time time.Duration) {
 
 func (o *CThreadCtx) StartRxThread() {
 	o.rpc.StartRxThread()
-}
-
-func (o *CThreadCtx) C() <-chan time.Time {
-	return o.timerctx.Timer.C
 }
 
 func (o *CThreadCtx) HasNs(key *CTunnelKey) bool {

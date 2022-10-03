@@ -16,17 +16,19 @@ import (
 
 /* ticks */
 const (
-	eTIMER_TICK                = 10 * time.Millisecond
-	eTIMER_TICK_SIM            = 100 * time.Millisecond
-	eTIMERW_SECOND_LEVEL_BURST = 32
+	eTIMER_TICK                       = 10 * time.Millisecond
+	eTIMER_TICK_SIM                   = 100 * time.Millisecond
+	eTIMERW_SECOND_LEVEL_BURST        = 32
+	timerCtxBufferedTimerChanCapacity = 8
 )
 
 type TimerCtx struct {
-	Timer        *time.Timer   // the timer
-	TickDuration time.Duration // the duration of the tick
-	timerw       *CNATimerWheel
-	Ticks        uint64
-	Cdb          *CCounterDb
+	bufferedTimer     *time.Timer
+	bufferedTimerChan chan time.Time
+	TickDuration      time.Duration // the duration of the tick
+	timerw            *CNATimerWheel
+	Ticks             uint64
+	Cdb               *CCounterDb
 }
 
 // NewTimerCtx create a context
@@ -36,15 +38,14 @@ func NewTimerCtx(simulation bool) *TimerCtx {
 	var rc RCtw
 	if simulation {
 		o.TickDuration = eTIMER_TICK_SIM
-		o.Timer = time.NewTimer(o.TickDuration)
+		o.bufferedTimer = time.NewTimer(o.TickDuration)
 		timerw, rc = NewTimerWEx(128, 16, 2)
-
 	} else {
 		o.TickDuration = eTIMER_TICK
-		o.Timer = time.NewTimer(o.TickDuration)
+		o.bufferedTimer = time.NewTimer(o.TickDuration)
 		timerw, rc = NewTimerWEx(1024, 16, 3)
-
 	}
+
 	if rc != RC_HTW_OK {
 		panic("can't init timew")
 	}
@@ -65,7 +66,21 @@ func NewTimerCtx(simulation bool) *TimerCtx {
 		DumpZero: false,
 		Info:     ScINFO})
 
+	o.bufferedTimerChan = make(chan time.Time, timerCtxBufferedTimerChanCapacity)
+	go o.timerThread()
+
 	return o
+}
+
+func (o *TimerCtx) timerThread() {
+	var t time.Time
+	for {
+		select {
+		case t = <-o.bufferedTimer.C:
+			o.bufferedTimer.Reset(o.TickDuration)
+			o.bufferedTimerChan <- t
+		}
+	}
 }
 
 func (o *TimerCtx) ActiveTimers() uint64 {
@@ -107,11 +122,14 @@ func (o *TimerCtx) Start(tmr *CHTimerObj, duration time.Duration) {
 	o.timerw.Start(tmr, ticks)
 }
 
+func (o *TimerCtx) GetC() <-chan time.Time {
+	return o.bufferedTimerChan
+}
+
 // HandleTicks should be called only by main loop
 func (o *TimerCtx) HandleTicks() {
 	o.Ticks++
 	o.timerw.OnTick(eTIMERW_SECOND_LEVEL_BURST)
-	o.Timer.Reset(o.TickDuration)
 }
 
 /*

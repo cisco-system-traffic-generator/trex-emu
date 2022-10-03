@@ -129,6 +129,7 @@ func RunCoreZmq(args *MainArgs) {
 
 	var zmqVeth core.VethIFZmq
 	var dummyVeth bool
+	var simulation bool
 	var simrx core.VethIFSim
 
 	if *args.version {
@@ -145,14 +146,15 @@ func RunCoreZmq(args *MainArgs) {
 
 	rand.Seed(time.Now().UnixNano())
 
-	dummyVeth = *args.dummyVeth || *args.kernelMode
+	simulation = *args.dummyVeth
+	dummyVeth = simulation || *args.kernelMode
 
 	if dummyVeth {
 		var simVeth core.VethSink
 		simrx = &simVeth
 	}
 
-	tctx := core.NewThreadCtx(0, rpcPort, dummyVeth, &simrx)
+	tctx := core.NewThreadCtx(0, rpcPort, simulation, &simrx)
 	tctx.SetVerbose(*args.verbose)
 	tctx.SetKernelMode(*args.kernelMode)
 
