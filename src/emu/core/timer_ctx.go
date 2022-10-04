@@ -16,40 +16,55 @@ import (
 
 /* ticks */
 const (
-	eTIMER_TICK                       = 10 * time.Millisecond
-	eTIMER_TICK_SIM                   = 100 * time.Millisecond
-	eTIMERW_SECOND_LEVEL_BURST        = 32
-	timerCtxBufferedTimerChanCapacity = 8
+	eTIMER_TICK                = 10 * time.Millisecond
+	eTIMER_TICK_SIM            = 100 * time.Millisecond
+	eTIMERW_SECOND_LEVEL_BURST = 32
+	bufferedTimerCapacity      = 50
+	simBufferedTimerCapacity   = 5
 )
 
 type TimerCtx struct {
-	bufferedTimer     *time.Timer
-	bufferedTimerChan chan time.Time
-	TickDuration      time.Duration // the duration of the tick
-	timerw            *CNATimerWheel
-	Ticks             uint64
-	Cdb               *CCounterDb
+	timer        *BufferedTimer
+	TickDuration time.Duration // the duration of the tick
+	timerw       *CNATimerWheel
+	Ticks        uint64
+	Cdb          *CCounterDb
 }
 
 // NewTimerCtx create a context
 func NewTimerCtx(simulation bool) *TimerCtx {
-	o := new(TimerCtx)
 	var timerw *CNATimerWheel
 	var rc RCtw
+	var timerWheelSize uint32
+	var timerWheelLevel1Div uint32
+	var timerWheelLevels uint8
+	var timerCap int
+
+	o := new(TimerCtx)
+
 	if simulation {
 		o.TickDuration = eTIMER_TICK_SIM
-		o.bufferedTimer = time.NewTimer(o.TickDuration)
-		timerw, rc = NewTimerWEx(128, 16, 2)
+		timerCap = simBufferedTimerCapacity
+		timerWheelSize = 128
+		timerWheelLevel1Div = 16
+		timerWheelLevels = 2
 	} else {
 		o.TickDuration = eTIMER_TICK
-		o.bufferedTimer = time.NewTimer(o.TickDuration)
-		timerw, rc = NewTimerWEx(1024, 16, 3)
+		timerCap = bufferedTimerCapacity
+		timerWheelSize = 1024
+		timerWheelLevel1Div = 16
+		timerWheelLevels = 3
 	}
 
+	o.timer, _ = NewBufferedTimer(o.TickDuration, timerCap)
+
+	timerw, rc = NewTimerWEx(timerWheelSize, timerWheelLevel1Div, timerWheelLevels)
 	if rc != RC_HTW_OK {
 		panic("can't init timew")
 	}
+
 	o.timerw = timerw
+
 	o.Cdb = NewCCounterDb("timerw")
 	o.Cdb.Add(&CCounterRec{
 		Counter:  &o.timerw.totalEvents,
@@ -66,21 +81,7 @@ func NewTimerCtx(simulation bool) *TimerCtx {
 		DumpZero: false,
 		Info:     ScINFO})
 
-	o.bufferedTimerChan = make(chan time.Time, timerCtxBufferedTimerChanCapacity)
-	go o.timerThread()
-
 	return o
-}
-
-func (o *TimerCtx) timerThread() {
-	var t time.Time
-	for {
-		select {
-		case t = <-o.bufferedTimer.C:
-			o.bufferedTimer.Reset(o.TickDuration)
-			o.bufferedTimerChan <- t
-		}
-	}
 }
 
 func (o *TimerCtx) ActiveTimers() uint64 {
@@ -123,7 +124,7 @@ func (o *TimerCtx) Start(tmr *CHTimerObj, duration time.Duration) {
 }
 
 func (o *TimerCtx) GetC() <-chan time.Time {
-	return o.bufferedTimerChan
+	return o.timer.GetC()
 }
 
 // HandleTicks should be called only by main loop
@@ -157,5 +158,4 @@ func (o *TimerCtx) DurationToTicksBurst(duration time.Duration) (ticks, burstSiz
 	   In cases like 3 msec but the granularity is 10 msec, we would send 9 packets, so it can take longer.
 	   In cases like 6 msec but the granulatiry is 10 msec, we would sent 12 packets so it can overflow */
 	return 1, uint32(math.Round(float64(o.TickDuration) / float64(duration)))
-
 }
