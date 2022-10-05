@@ -222,6 +222,7 @@ type CThreadCtx struct {
 	verbose         bool
 	kernelMode      bool
 	resourceMonitor *ResourceMonitor
+	lockMainThread  bool
 }
 
 func NewThreadCtxProxy() *CThreadCtx {
@@ -258,9 +259,6 @@ func NewThreadCtx(Id uint32, rpcPort uint16, simulation bool, simRx *VethIFSim) 
 	if simRx != nil {
 		var simv VethIFSimulator
 		simv.Create(o)
-		if simRx == nil && simulation {
-			panic(" ERROR in case of simulation mode VethIFSim should be provided ")
-		}
 		simv.Sim = *simRx
 		o.Veth = &simv
 	}
@@ -295,6 +293,10 @@ func (o *CThreadCtx) SetVerbose(verbose bool) {
 
 func (o *CThreadCtx) SetKernelMode(kernelMode bool) {
 	o.kernelMode = kernelMode
+}
+
+func (o *CThreadCtx) SetLockMainThread(lockMainThread bool) {
+	o.lockMainThread = lockMainThread
 }
 
 func (o *CThreadCtx) SetZmqVeth(veth VethIF) {
@@ -391,7 +393,10 @@ func (o *CThreadCtx) HandleMainTimerTicks() {
 }
 
 func (o *CThreadCtx) MainLoop() {
-	runtime.LockOSThread()
+	if o.lockMainThread {
+		runtime.LockOSThread()
+		defer runtime.UnlockOSThread()
+	}
 
 	for {
 		select {

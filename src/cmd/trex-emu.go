@@ -13,6 +13,7 @@ import (
 	"log"
 	"math/rand"
 	"os"
+	"runtime"
 	"time"
 
 	"github.com/akamensky/argparse"
@@ -64,18 +65,21 @@ func RegisterPlugins(tctx *core.CThreadCtx) {
 }
 
 type MainArgs struct {
-	rpcPort     *int    // RPC port. Port to which the client connects to
-	vethPort    *int    // Veth Port for EMU. Port to which TRex Server connects to.
-	dummyVeth   *bool   // Run Emu on dummy veth mode.
-	zmqServer   *string // IPv4 for the zmqServer. Defaults to local.
-	capture     *bool   // capture traffic, rpc, counters and dump them in a json file
-	captureJson *string // filename for the capture
-	monitor     *bool   // monitor traffic in K12 mode and dump in pcapFile
-	monitorFile *string // filename for the monitored traffic to be dumped
-	verbose     *bool   // verbose mode, will print details
-	version     *bool   // print version of EMU and exit
-	emuTCPoZMQ  *bool   // use TCP over ZMQ instead of the classic IPC to connect with TRex.
-	kernelMode  *bool   // Run Emu in kernel mode
+	rpcPort        *int    // RPC port. Port to which the client connects to
+	vethPort       *int    // Veth Port for EMU. Port to which TRex Server connects to.
+	dummyVeth      *bool   // Run Emu on dummy veth mode.
+	zmqServer      *string // IPv4 for the zmqServer. Defaults to local.
+	capture        *bool   // capture traffic, rpc, counters and dump them in a json file
+	captureJson    *string // filename for the capture
+	monitor        *bool   // monitor traffic in K12 mode and dump in pcapFile
+	monitorFile    *string // filename for the monitored traffic to be dumped
+	verbose        *bool   // verbose mode, will print details
+	version        *bool   // print version of EMU and exit
+	emuTCPoZMQ     *bool   // use TCP over ZMQ instead of the classic IPC to connect with TRex.
+	kernelMode     *bool   // Run Emu in kernel mode
+	simulation     *bool
+	lockMainThread *bool
+	maxCores       *int
 }
 
 func printVersion() {
@@ -116,6 +120,9 @@ func parseMainArgs() *MainArgs {
 	args.version = parser.Flag("V", "version", &argparse.Options{Default: false, Help: "Show TRex-Emu version"})
 	args.emuTCPoZMQ = parser.Flag("", "emu-zmq-tcp", &argparse.Options{Default: false, Help: "Run TCP over ZMQ. Default is IPC"})
 	args.kernelMode = parser.Flag("k", "kernel-mode", &argparse.Options{Default: false, Help: "Run server in kernel mode"})
+	args.simulation = parser.Flag("s", "simulation", &argparse.Options{Default: false, Help: "Run server in simulation mode"})
+	args.lockMainThread = parser.Flag("", "lock-main-thread", &argparse.Options{Default: false, Help: "Run the main-thread in a dedicated OS thread"})
+	args.maxCores = parser.Int("", "max-cores", &argparse.Options{Default: 0, Help: "Set the max number of CPUs that can be executing simultaneously (GOMAXPROCS)"})
 
 	err := parser.Parse(os.Args)
 	if err != nil {
@@ -126,7 +133,6 @@ func parseMainArgs() *MainArgs {
 }
 
 func RunCoreZmq(args *MainArgs) {
-
 	var zmqVeth core.VethIFZmq
 	var dummyVeth bool
 	var simulation bool
@@ -135,6 +141,10 @@ func RunCoreZmq(args *MainArgs) {
 	if *args.version {
 		printVersion()
 		os.Exit(0)
+	}
+
+	if *args.maxCores > 0 {
+		runtime.GOMAXPROCS(*args.maxCores)
 	}
 
 	rpcPort := uint16(*args.rpcPort)
@@ -146,8 +156,8 @@ func RunCoreZmq(args *MainArgs) {
 
 	rand.Seed(time.Now().UnixNano())
 
-	simulation = *args.dummyVeth
-	dummyVeth = simulation || *args.kernelMode
+	simulation = *args.simulation
+	dummyVeth = *args.dummyVeth || *args.kernelMode
 
 	if dummyVeth {
 		var simVeth core.VethSink
@@ -157,6 +167,7 @@ func RunCoreZmq(args *MainArgs) {
 	tctx := core.NewThreadCtx(0, rpcPort, simulation, &simrx)
 	tctx.SetVerbose(*args.verbose)
 	tctx.SetKernelMode(*args.kernelMode)
+	tctx.SetLockMainThread(*args.lockMainThread)
 
 	if !dummyVeth {
 		zmqVeth.Create(tctx, uint16(*args.vethPort), *args.zmqServer, *args.emuTCPoZMQ, false)
