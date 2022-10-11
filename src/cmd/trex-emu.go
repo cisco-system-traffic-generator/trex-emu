@@ -9,11 +9,13 @@ package main
 import (
 	"emu/core"
 	"emu/version"
+	"errors"
 	"fmt"
 	"log"
 	"math/rand"
 	"os"
 	"runtime"
+	"syscall"
 	"time"
 
 	"github.com/akamensky/argparse"
@@ -132,16 +134,64 @@ func parseMainArgs() *MainArgs {
 	return &args
 }
 
+const (
+	// OS maximum number of open file descriptors allowed
+	ResourceLimitNofile = 32768
+)
+
+// Try increasing the maximum number of open file descriptors allowed.
+func SetOsMaxFilesLimit() error {
+	var rLimit syscall.Rlimit
+	var err error
+
+	err = syscall.Getrlimit(syscall.RLIMIT_NOFILE, &rLimit)
+	if err != nil {
+		return err
+	}
+
+	if rLimit.Cur >= ResourceLimitNofile {
+		return nil
+	}
+
+	if rLimit.Max >= ResourceLimitNofile {
+		// No need for root permissions
+		rLimit.Cur = ResourceLimitNofile
+	} else {
+		// Root permissions are needed
+		rLimit.Max = ResourceLimitNofile
+		rLimit.Cur = ResourceLimitNofile
+	}
+
+	err = syscall.Setrlimit(syscall.RLIMIT_NOFILE, &rLimit)
+	if err != nil {
+		return err
+	}
+
+	syscall.Getrlimit(syscall.RLIMIT_NOFILE, &rLimit)
+	if err != nil {
+		return err
+	}
+
+	if rLimit.Cur != ResourceLimitNofile {
+		return errors.New("Failed to set RLIMIT_NOFILE")
+	}
+
+	return nil
+}
+
 func RunCoreZmq(args *MainArgs) {
 	var zmqVeth core.VethIFZmq
 	var dummyVeth bool
 	var simulation bool
 	var simrx core.VethIFSim
+	var err error
 
 	if *args.version {
 		printVersion()
 		os.Exit(0)
 	}
+
+	SetOsMaxFilesLimit()
 
 	if *args.maxCores > 0 {
 		runtime.GOMAXPROCS(*args.maxCores)
@@ -179,7 +229,6 @@ func RunCoreZmq(args *MainArgs) {
 
 	tctx.SetRpcParams(*args.verbose, *args.capture)
 	var monitorFile *os.File
-	var err error
 	if *args.monitorFile == "stdout" {
 		monitorFile = os.Stdout
 	} else {
