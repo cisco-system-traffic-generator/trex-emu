@@ -64,7 +64,6 @@ type HttpExporter struct {
 	fileExporter           *FileExporter
 	fileExporterEvQueue    chan FileExporterEvent
 	retryTimer             *time.Timer
-	lock                   sync.Mutex
 	done                   chan bool
 	wg                     sync.WaitGroup
 	httpClient             *http.Client
@@ -434,9 +433,6 @@ func (p *HttpExporter) Write(b []byte, tempRecordsNum uint32, dataRecordsNum uin
 		return 0, nil
 	}
 
-	p.lock.Lock()
-	defer p.lock.Unlock()
-
 	p.counters.apiWrites++
 
 	n, err := p.fileExporter.Write(b, tempRecordsNum, dataRecordsNum)
@@ -451,9 +447,6 @@ func (p *HttpExporter) Close() error {
 	if p.init == false {
 		return nil
 	}
-
-	p.lock.Lock()
-	defer p.lock.Unlock()
 
 	p.retryTimer.Stop()
 
