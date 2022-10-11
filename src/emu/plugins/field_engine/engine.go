@@ -279,7 +279,7 @@ func (o *UIntEngine) RandValue() {
 	// Generates a uint64 with uniform distribution.
 	// Converts the generated value to a value in the domain by adding the modulus of domainLength
 	// to the minimal value.
-	genValue := o.mgr.randGen.Uint64()
+	genValue := rand.Uint64()
 	o.currValue = o.MinValue + (genValue % o.domainLen)
 }
 
@@ -437,7 +437,7 @@ func (o *IntEngine) DecValue() {
 
 // RandValue generates a random value in the domain [min, max]
 func (o *IntEngine) RandValue() {
-	genValue := o.mgr.randGen.Uint64()
+	genValue := rand.Uint64()
 	// Converting the value to int64 will give a random int64.
 	o.currValue = o.MinValue + int64((genValue % o.domainLen))
 }
@@ -498,7 +498,7 @@ func (o *FloatEngine) Update(b []byte) (int, error) {
 	if len(b) < int(o.Size) {
 		return -1, fmt.Errorf("Size of provided buffer too small, want %v, have %v.", o.Size, len(b))
 	}
-	factor := o.mgr.randGen.Float64()
+	factor := rand.Float64()
 	genValue := (o.Min) + (o.Max-o.Min)*factor
 	if o.Size == 4 {
 		binary.BigEndian.PutUint32(b, math.Float32bits(float32(genValue)))
@@ -600,7 +600,7 @@ func (o *BaseListEngine) DecValue() {
 
 // RandValue generates a new index in the list.
 func (o *BaseListEngine) RandValue() {
-	o.currIndex = o.mgr.randGen.Intn(o.listLength)
+	o.currIndex = rand.Intn(o.listLength)
 }
 
 // PerformOp performs the operation, either it is rand, inc or dec.
@@ -1977,7 +1977,7 @@ func (o *TimeStartEngine) getNewFlowStartValue() (value uint64) {
 	} else {
 		// Generates a uint64 with uniform distribution.
 		// Converts the generated value to a value in the domain [min-max]. This way we get an ipg.
-		genValue := o.mgr.randGen.Uint64()
+		genValue := rand.Uint64()
 		ipg := o.par.InterPacketGapMin + (genValue % (o.par.InterPacketGapMax - o.par.InterPacketGapMin + 1))
 		// Assumes the TimeEnd engine has updated the previous flow end.
 		value = o.previousFlowEnd + ipg
@@ -2110,7 +2110,7 @@ func (o *TimeEndEngine) getFlowEndValue() (value uint64) {
 
 	// Generates a uint64 with uniform distribution.
 	// Converts the generated value to a value in the domain [min-max]. This way we get an ipg.
-	genValue := o.mgr.randGen.Uint64()
+	genValue := rand.Uint64()
 	duration := o.par.DurationMin + (genValue % (o.par.DurationMax - o.par.DurationMin + 1))
 	// Assumes the TimeEnd engine has updated the previous flow end.
 	value = o.currentFlowStart + duration

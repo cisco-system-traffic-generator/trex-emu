@@ -9,8 +9,6 @@ import (
 	"emu/core"
 	"external/osamingo/jsonrpc"
 	"fmt"
-	"math/rand"
-	"time"
 
 	"github.com/intel-go/fastjson"
 )
@@ -159,7 +157,6 @@ type FieldEngineManager struct {
 	cdb      *core.CCounterDb         // Counter Database for Field Engine Counters
 	cdbv     *core.CCounterDbVec      // Database Vector
 	tctx     *core.CThreadCtx         // thread context
-	randGen  *rand.Rand
 }
 
 // NewEngineManager creates and returns a new engine manager. The manager will always be non nil,
@@ -171,7 +168,6 @@ func NewEngineManager(ctx interface{}, data *fastjson.RawMessage) *FieldEngineMa
 	o.counters = new(FieldEngineCounters)
 	o.cdb = NewFECountersDb(o.counters)
 	o.cdbv = core.NewCCounterDbVec("field_engine_counters")
-	o.randGen = rand.New(rand.NewSource(time.Now().UnixNano()))
 
 	// unmarshal the requests
 	err := fastjson.Unmarshal(*data, &o.requests)
