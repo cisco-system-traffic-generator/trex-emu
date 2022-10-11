@@ -292,6 +292,18 @@ func (o *IPFixGen) OnRemove() {
 
 // OnEvent sends a new packet every time it is called. It can be a template packet or a data packet.
 func (o *IPFixGen) OnEvent(a, b interface{}) {
+	if o.ipfixPlug.enabled == false {
+		return
+	}
+
+	if o.ipfixPlug.maxTime > 0 {
+		enabledDuration := time.Since(o.ipfixPlug.enabledTime)
+		if enabledDuration >= o.ipfixPlug.maxTime {
+			o.ipfixPlug.Enable(false)
+			return
+		}
+	}
+
 	var isTemplate bool
 	switch v := a.(type) {
 	case bool:
@@ -346,9 +358,6 @@ func (o *IPFixGen) OnResolve() bool {
 	}
 	// Preparing the data payload is not needed as SendPkt prepares it by itself. This packet changes every iteration.
 
-	// Attempt to send the first packets in order.
-	o.sendTemplatePkt() // template packet
-	o.sendDataPkt()     // data packet
 	return true
 }
 
@@ -1093,13 +1102,15 @@ func NewIPFixStatsDb(o *IPFixStats) *core.CCounterDb {
 
 // IPFixClientParams defines the json structure for Ipfix plugin.
 type IPFixClientParams struct {
-	Ver                  uint16                 `json:"netflow_version"`              // NetFlow version 9 or 10
-	Dst                  string                 `json:"dst" validate:"required"`      // Destination Address. Combination of Host:Port.
-	DomainID             uint32                 `json:"domain_id"`                    // Observation Domain ID
-	MaxDataRecordsToSend uint64                 `json:"max_data_records_to_send"`     // Max number of data records to send (0 - no limit)
-	MaxTempRecordsToSend uint64                 `json:"max_template_records_to_send"` // Max number of template records to send (0 - no limit)
-	FileExport           *fastjson.RawMessage   `json:"file_export"`
-	Generators           []*fastjson.RawMessage `json:"generators" validate:"required"` // Ipfix Generators (Template or Data)
+	Ver            uint16                 `json:"netflow_version"`                // NetFlow version 9 or 10
+	Dst            string                 `json:"dst" validate:"required"`        // Destination Address. Combination of Host:Port.
+	DomainID       uint32                 `json:"domain_id"`                      // Observation Domain ID
+	MaxDataRecords uint64                 `json:"max_data_records"`               // Max number of data records to send (0 - no limit)
+	MaxTempRecords uint64                 `json:"max_template_records"`           // Max number of template records to send (0 - no limit)
+	MaxTime        Duration               `json:"max_time"`                       // Max time to export records (0 - no limit)
+	AutoStart      bool                   `json:"auto_start"`                     // Start exporting this client when plugin is loaded (default: true)
+	FileExport     *fastjson.RawMessage   `json:"file_export"`                    // File export parameters
+	Generators     []*fastjson.RawMessage `json:"generators" validate:"required"` // Ipfix Generators (Template or Data)
 }
 
 // IPFixTimerCallback is an empty struct used as a callback for the timer which resolves the UnixTime.
@@ -1118,6 +1129,9 @@ type PluginIPFixClient struct {
 	sysUpTime       uint32               // System Up Time (Only in Ver 9) in resolution of milliseconds.
 	unixTimeNow     int64                // Unix Time Now for Unix Time in Header, should be on resolution of seconds.
 	domainID        uint32               // Observation Domain ID
+	autoStart       bool                 // Start exporting this client when plugin is loaded (default: true)
+	maxTime         time.Duration        // Maximum time to export
+	enabledTime     time.Time            // Time when client was enabled
 	flowSeqNum      uint32               // Flow sequence number must be common for all IPFix Gen.
 	dgMacResolved   bool                 // Is the default gateway MAC address resolved?
 	timerw          *core.TimerCtx       // Timer Wheel
@@ -1131,7 +1145,7 @@ type PluginIPFixClient struct {
 	templateIDSet   map[uint16]bool      // Set of Template IDs.
 	exporter        Exporter             // Factory class to create and store exporters based on the given dst URL
 	init            bool                 // Is client initialization succeeded
-	stop            bool
+	enabled         bool
 }
 
 var ipfixEvents = []string{core.MSG_DG_MAC_RESOLVED}
@@ -1192,7 +1206,7 @@ func NewIPFixClient(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
 	o.OnCreate()
 
 	// Parse the Init JSON.
-	init := IPFixClientParams{Ver: DefaultIPFixVersion, DomainID: o.domainID}
+	init := IPFixClientParams{Ver: DefaultIPFixVersion, DomainID: o.domainID, AutoStart: true}
 	err := o.Tctx.UnmarshalValidate(initJson, &init)
 	if err != nil {
 		o.stats.badOrNoInitJson++
@@ -1212,9 +1226,11 @@ func NewIPFixClient(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
 	o.dstUrl = *dstUrl
 	o.isIpv6 = isIpv6
 	o.domainID = init.DomainID
+	o.autoStart = init.AutoStart
+	o.maxTime = init.MaxTime.Duration
 
-	o.stats.maxDataRecordsToSend = init.MaxDataRecordsToSend
-	o.stats.maxTempRecordsToSend = init.MaxTempRecordsToSend
+	o.stats.maxDataRecordsToSend = init.MaxDataRecords
+	o.stats.maxTempRecordsToSend = init.MaxTempRecords
 
 	if len(init.Generators) > 0 {
 		o.generatorsMap = make(map[string]*IPFixGen, len(init.Generators))
@@ -1259,11 +1275,21 @@ func (o *PluginIPFixClient) Pause(pause bool) {
 }
 
 func (o *PluginIPFixClient) Enable(enable bool) {
-	for _, gen := range o.generators {
-		gen.Enable(enable)
-	}
+	if o.enabled == false && enable == true {
+		o.enabledTime = time.Now()
+		o.enabled = enable
+		o.exporter.Enable(enable)
 
-	o.exporter.Enable(enable)
+		for _, gen := range o.generators {
+			gen.sendTemplatePkt()
+			gen.sendDataPkt()
+		}
+		return
+	} else if o.enabled == true && enable == false {
+		o.enabled = enable
+		o.exporter.Enable(enable)
+		return
+	}
 }
 
 // OnCreate is called upon creating a new IPFix client.
@@ -1307,6 +1333,10 @@ func (o *PluginIPFixClient) OnResolve() {
 	for i := range o.generators {
 		// Created generators can now proceed.
 		o.generators[i].OnResolve()
+	}
+
+	if o.autoStart {
+		o.Enable(true)
 	}
 }
 
