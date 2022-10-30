@@ -200,6 +200,9 @@ func (o *PluginCtx) addPlugin(pl string, initJson []byte) error {
 	p := o.getRegLevel(&v)
 
 	nobj := p.NewPlugin(o, initJson)
+	if nobj == nil {
+		return nil
+	}
 
 	_, ok = o.mapPlugins[pl]
 	if ok {

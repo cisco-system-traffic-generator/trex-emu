@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/user"
 	"path/filepath"
 	"syscall"
 	"time"
@@ -112,6 +113,14 @@ func getFileSize(filePath string) (int64, error) {
 	file.Close()
 
 	return fi.Size(), nil
+}
+
+func isRoot() bool {
+	currentUser, err := user.Current()
+	if err != nil {
+		log.Fatalf("[isRoot] Unable to get current user: %s", err)
+	}
+	return currentUser.Username == "root"
 }
 
 type Duration struct {

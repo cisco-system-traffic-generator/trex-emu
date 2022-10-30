@@ -9,6 +9,15 @@ import (
 	"sync"
 )
 
+type UdpExporterParams struct {
+	hostport string
+	// If false the source IP address of the UDP connection will be the host's address as set by the OS.
+	// If true, the source IP address will be set to be the EMU client's IPv4 address, if it exist.
+	// Default value is 'false'.
+	// The non-default mode requires EMU server to run as root. Otherwise, IPFIX plugin creation will fail.
+	UseEmuClientIpAddr bool `json:"use_emu_client_ip_addr"`
+}
+
 type UdpExporterCounters struct {
 	apiWrites                uint64
 	apiWritesFailed          uint64
@@ -23,16 +32,16 @@ type UdpExporterCounters struct {
 	writeChanLen             uint64
 	writeChanPeakLen         uint64
 }
-
 type UdpExporter struct {
-	conn       net.Conn
-	init       bool
-	enabled    bool
-	writeChan  *core.NonBlockingChan
-	wg         sync.WaitGroup
-	client     *PluginIPFixClient
-	counters   UdpExporterCounters
-	countersDb *core.CCounterDb
+	useEmuClientIpAddr bool
+	conn               WriteOnlyUdpConn
+	init               bool
+	enabled            bool
+	writeChan          *core.NonBlockingChan
+	wg                 sync.WaitGroup
+	client             *PluginIPFixClient
+	counters           UdpExporterCounters
+	countersDb         *core.CCounterDb
 }
 
 type UdpExporterInfoJson struct {
@@ -55,12 +64,49 @@ type udpExporterWriteInfo struct {
 	dataRecordsNum uint32
 }
 
-func NewUdpExporter(client *PluginIPFixClient, hostport string) (*UdpExporter, error) {
+func NewUdpExporter(client *PluginIPFixClient, params *UdpExporterParams) (*UdpExporter, error) {
 	if client == nil {
 		return nil, errors.New("Client param is nil")
 	}
 
+	if params == nil {
+		return nil, errors.New("Params is nil")
+	}
+
+	if len(params.hostport) == 0 {
+		return nil, errors.New("Empty hostport params")
+	}
+
 	var err error
+	var srcUdpAddr *net.UDPAddr
+	var dstUdpAddr *net.UDPAddr
+
+	if dstIp, dstPort, err := net.SplitHostPort(params.hostport); err == nil {
+		port, _ := strconv.Atoi(dstPort)
+		dstUdpAddr = &net.UDPAddr{
+			IP:   net.ParseIP(dstIp),
+			Port: port,
+		}
+	} else {
+		return nil, errors.New("Invalid hostport params")
+	}
+
+	if params.UseEmuClientIpAddr {
+		if client.PluginBase.Client.Ipv4.IsZero() {
+			return nil, errors.New("Client must have a non-zero ipv4 in UseEmuClientIpAddr mode")
+		}
+
+		if !isRoot() {
+			return nil, errors.New("Emu must run as root in UseEmuClientIpAddr mode")
+		}
+
+		srcUdpAddr = &net.UDPAddr{
+			IP:   client.PluginBase.Client.Ipv4.ToIP(),
+			Port: 0, /* zero means that a suitable src port will be selected by the system */
+		}
+	} else {
+		srcUdpAddr = nil
+	}
 
 	p := new(UdpExporter)
 
@@ -69,6 +115,7 @@ func NewUdpExporter(client *PluginIPFixClient, hostport string) (*UdpExporter, e
 		return nil, ErrExporterWrongKernelMode
 	}
 
+	p.useEmuClientIpAddr = params.UseEmuClientIpAddr
 	p.client = client
 
 	p.newUdpExporterCountersDb()
@@ -84,10 +131,13 @@ func NewUdpExporter(client *PluginIPFixClient, hostport string) (*UdpExporter, e
 
 	p.writeChan.RegisterObserver(p)
 
-	conn, err := net.Dial("udp", hostport)
+	var conn WriteOnlyUdpConn
+
+	conn, err = WriteOnlyUdpConnDial(srcUdpAddr, *dstUdpAddr)
 	if err != nil {
 		return nil, errors.New("Failed to create UDP socket")
 	}
+
 	p.conn = conn
 
 	p.wg.Add(1)
@@ -96,7 +146,8 @@ func NewUdpExporter(client *PluginIPFixClient, hostport string) (*UdpExporter, e
 	p.init = true
 
 	log.Info("\nIPFIX UDP exporter created with the following parameters: ",
-		"\n\thostport - ", hostport)
+		"\n\thostport - ", params.hostport,
+		"\n\tuse_emu_client_ip_addr - ", params.UseEmuClientIpAddr)
 
 	return p, nil
 }

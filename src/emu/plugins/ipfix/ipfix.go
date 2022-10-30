@@ -1201,8 +1201,7 @@ func parseDstField(dstField string) (*url.URL, bool, error) {
 // (exporting processes).
 func NewIPFixClient(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
 	o := new(PluginIPFixClient)
-	o.InitPluginBase(ctx, o)              // Init base object
-	o.RegisterEvents(ctx, ipfixEvents, o) // Register events, only if they exist
+	o.InitPluginBase(ctx, o) // Init base object
 	o.OnCreate()
 
 	// Parse the Init JSON.
@@ -1232,6 +1231,16 @@ func NewIPFixClient(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
 	o.stats.maxDataRecordsToSend = init.MaxDataRecords
 	o.stats.maxTempRecordsToSend = init.MaxTempRecords
 
+	// Create a corresponding new exporter based on dst url
+	o.exporter, err = CreateExporter(o, &o.dstUrl, init.FileExport)
+	if err != nil {
+		o.stats.failedCreatingExporter++
+		if err == ErrExporterWrongKernelMode {
+			o.stats.failedCreatingExporterWrongKernelMode++
+		}
+		return &o.PluginBase
+	}
+
 	if len(init.Generators) > 0 {
 		o.generatorsMap = make(map[string]*IPFixGen, len(init.Generators))
 		o.templateIDSet = make(map[uint16]bool, len(init.Generators))
@@ -1247,21 +1256,14 @@ func NewIPFixClient(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
 		}
 	}
 
-	// Create a corresponding new exporter based on dst url
-	o.exporter, err = CreateExporter(o, &o.dstUrl, init.FileExport)
-	if err != nil {
-		o.stats.failedCreatingExporter++
-		if err == ErrExporterWrongKernelMode {
-			o.stats.failedCreatingExporterWrongKernelMode++
-		}
-		return &o.PluginBase
-	}
+	o.cdbv.AddVec(o.exporter.GetCountersDbVec())
 
 	if o.exporter.GetKernelMode() {
+		o.RegisterEvents(ctx, []string{}, o)
 		o.OnResolve()
+	} else {
+		o.RegisterEvents(ctx, ipfixEvents, o)
 	}
-
-	o.cdbv.AddVec(o.exporter.GetCountersDbVec())
 
 	o.init = true
 
@@ -1278,16 +1280,21 @@ func (o *PluginIPFixClient) Enable(enable bool) {
 	if o.enabled == false && enable == true {
 		o.enabledTime = time.Now()
 		o.enabled = enable
-		o.exporter.Enable(enable)
+
+		if o.exporter != nil {
+			o.exporter.Enable(enable)
+		}
 
 		for _, gen := range o.generators {
 			gen.sendTemplatePkt()
 			gen.sendDataPkt()
 		}
-		return
 	} else if o.enabled == true && enable == false {
+		if o.exporter != nil {
+			o.exporter.Enable(enable)
+		}
+
 		o.enabled = enable
-		o.exporter.Enable(enable)
 		return
 	}
 }

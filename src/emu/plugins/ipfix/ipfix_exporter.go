@@ -23,6 +23,10 @@ const (
 	defaultFileExporterMaxFiles    = 100
 )
 
+const (
+	defaultUdpExporterUseEmuClientIpAddr = false
+)
+
 var (
 	ErrExporterWrongKernelMode error = errors.New("Failed to create exporter - wrong kernel mode")
 )
@@ -78,7 +82,19 @@ func createUdpExporter(client *PluginIPFixClient, dstUrl *url.URL, initJson *fas
 		return nil, errors.New("Invalid dst URL scheme used to create file exporter (should be udp)")
 	}
 
-	udpExporter, err := NewUdpExporter(client, dstUrl.Host)
+	params := &UdpExporterParams{
+		UseEmuClientIpAddr: defaultUdpExporterUseEmuClientIpAddr,
+		hostport:           dstUrl.Host,
+	}
+
+	if initJson != nil {
+		err := client.Tctx.UnmarshalValidate(*initJson, params)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	udpExporter, err := NewUdpExporter(client, params)
 	if err != nil {
 		return nil, err
 	}
