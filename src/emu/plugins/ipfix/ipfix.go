@@ -1113,7 +1113,7 @@ type IPFixClientParams struct {
 	MaxTempRecords uint64                 `json:"max_template_records"`           // Max number of template records to send (0 - no limit)
 	MaxTime        Duration               `json:"max_time"`                       // Max time to export records (0 - no limit)
 	AutoStart      bool                   `json:"auto_start"`                     // Start exporting this client when plugin is loaded (default: true)
-	FileExport     *fastjson.RawMessage   `json:"file_export"`                    // File export parameters
+	ExporterParams *fastjson.RawMessage   `json:"exporter_params"`                // Exporter parameters
 	Generators     []*fastjson.RawMessage `json:"generators" validate:"required"` // Ipfix Generators (Template or Data)
 }
 
@@ -1252,7 +1252,7 @@ func NewIPFixClient(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
 	o.stats.maxTempRecordsToSend = init.MaxTempRecords
 
 	// Create a corresponding new exporter based on dst url
-	o.exporter, err = CreateExporter(o, &o.dstUrl, init.FileExport)
+	o.exporter, err = CreateExporter(o, &o.dstUrl, init.ExporterParams)
 	if err != nil {
 		o.stats.failedCreatingExporter++
 		if err == ErrExporterWrongKernelMode {

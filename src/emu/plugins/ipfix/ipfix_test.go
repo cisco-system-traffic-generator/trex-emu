@@ -2519,7 +2519,7 @@ func TestPluginIPFix23(t *testing.T) {
 //		"netflow_version": 10,
 //		"dst": "file:///scratch/obarash/ipfixplugin/fnf_agg.ipfix",
 //		"domain_id": 7777,
-//		"file_export": {
+//		"exporter_params": {
 //			"max_size": 1048576,
 //			"max_interval": 62,
 //			"compress": true,

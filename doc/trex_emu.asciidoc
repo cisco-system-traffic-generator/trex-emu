@@ -3311,7 +3311,7 @@ after the plugin is loaded and transmitting. Let us take a look at an init JSON:
     "domain_id": 7777,
     "max_template_records": 0,
     "max_data_records": 0,
-    "file_export": {
+    "exporter_params": {
            "name": "fnf_agg.ipfix",
            "dir": "",
            "max_size": 1048576,
@@ -3481,7 +3481,7 @@ after the plugin is loaded and transmitting. Let us take a look at an init JSON:
 * `domain_id`: The observation domain ID as defined in IPFix. If not provided, it will be randomly generated.
 * `max_template_records`: An *optional* parameter to limit the number of template records exported by the IPFix plugin after it is loaded. The default value is zero which means no limit is imposed.
 * `max_data_records`: An *optional* parameter to limit the number of data records exported by the IPFix plugin after it is loaded. The default value is zero which means no limit is imposed.
-* `file_export`: An *optional* JSON object used to configure the file exporters. Please refer to the 'IPFix exporters' section below for more information.
+* `exporter_params`: An *optional* JSON object used to configure the exporter used by the client. Please refer to the 'IPFix exporters' section below for more information.
 * `generators`: A list of generators. Each generator defines a Template and operations on that template, like for example the data packets rate. Each generator contains:
 ** `name`: Name of the generator. This field is required.
 ** `auto_start`: If true will automatically start sending IPFix packets upon creation.
@@ -3536,7 +3536,7 @@ Flow records are stored in files in a user-defined directory. The generated reco
 There is also an option to limit the max number of files created in the directory. Once the maximum number of files is reached - old (rotated) files may be deleted. "dst" field should be specified as follows - `“file://dir/name”`.
 Example: “file:///auto/avc-devtest/tmp/obarash/trex-emu/fnf_agg.ipfix”.
 File URL will use the file exporter with the given dir/name path. 
-dir/name can be also specified explicitly in the `file_export` object.
+dir/name can be also specified explicitly in the `exporter_params` object.
 
 * `http/https`:
 This exporter is based on the file exporter to temporarily aggregate flow records in files.
@@ -3546,11 +3546,11 @@ The temporary file will be deleted after the porst request transaction is comple
 Example: “http://10.56.216.158:8080/api/ipfixfilecollector/exalt-tenant/site9999/device10/post_file”.
 Rotated files will be sent to destination URL using HTTP/HTTPS.
 
-The `file_export` optional object in the JSON may be used to configure the file exporters (file, http, or https). Also, all fields of `file_export` are optional. If a given field is not specified, its default value will be used.
+The `exporter_params` optional object in the JSON may be used to configure the exporters (udp, file, http, or https). Also, all fields of `exporter_params` are optional. If a given field is not specified, its default value will be used.
 [source, json]
-.file_export example
+.exporter_params example
 ----
-    "file_export": {
+    "exporter_params": {
            "name": "fnf_agg.ipfix",
            "dir": "/scratch/myproject",
            "max_size": 1048576,
