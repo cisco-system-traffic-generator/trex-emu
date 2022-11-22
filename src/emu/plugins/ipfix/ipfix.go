@@ -46,6 +46,9 @@ const (
 // Simulation states true if simulation mode is on, using a global variable due to multiple access.
 var Simulation bool
 
+// Package level init flag
+var Init bool
+
 // IPFixField represent a IPFixField field which is a TLV (Type-Length-Value(data)) structure.
 // This is used to parse the incoming JSON.
 type IPFixField struct {
@@ -181,6 +184,7 @@ func NewIPFixGen(ipfix *PluginIPFixClient, initJson *fastjson.RawMessage) (*IPFi
 	o.optionsTemplate = init.OptionsTemplate
 	o.scopeCount = init.ScopeCount
 	o.fields = init.Fields
+
 	// Create Engine Manager
 	if init.Engines != nil {
 		o.engineMgr = engines.NewEngineManager(o.ipfixPlug.Tctx, init.Engines)
@@ -1121,31 +1125,34 @@ type IPFixTimerCallback struct{}
 // PluginIPFixClient represents an IPFix client, someone that owns one or multiple exporting processes.
 // Each IPFixGen is an exporting process.
 type PluginIPFixClient struct {
-	core.PluginBase                      // Plugin Base
-	ver             uint16               // NetFlow version 9 or 10
-	dstUrl          url.URL              // Destination URL.
-	isIpv6          bool                 // Is destination address IPv6 or IPv4 address
-	sysStartTime    time.Time            // Start time of the system in order to calculate uptime.
-	sysUpTime       uint32               // System Up Time (Only in Ver 9) in resolution of milliseconds.
-	unixTimeNow     int64                // Unix Time Now for Unix Time in Header, should be on resolution of seconds.
-	domainID        uint32               // Observation Domain ID
-	autoStart       bool                 // Start exporting this client when plugin is loaded (default: true)
-	maxTime         time.Duration        // Maximum time to export
-	enabledTime     time.Time            // Time when client was enabled
-	flowSeqNum      uint32               // Flow sequence number must be common for all IPFix Gen.
-	dgMacResolved   bool                 // Is the default gateway MAC address resolved?
-	timerw          *core.TimerCtx       // Timer Wheel
-	timer           core.CHTimerObj      // Timer Object for calculating Unix time every tick
-	timerCb         IPFixTimerCallback   // Timer Callback object
-	stats           IPFixStats           // IPFix statistics
-	cdb             *core.CCounterDb     // Counters Database
-	cdbv            *core.CCounterDbVec  // Counters Database Vector
-	generators      []*IPFixGen          // List of Generators
-	generatorsMap   map[string]*IPFixGen // Generator Map for fast lookup with generator name.
-	templateIDSet   map[uint16]bool      // Set of Template IDs.
-	exporter        Exporter             // Factory class to create and store exporters based on the given dst URL
-	init            bool                 // Is client initialization succeeded
-	enabled         bool
+	core.PluginBase                               // Plugin Base
+	ver             uint16                        // NetFlow version 9 or 10
+	dstUrl          url.URL                       // Destination URL.
+	isIpv6          bool                          // Is destination address IPv6 or IPv4 address
+	sysStartTime    time.Time                     // Start time of the system in order to calculate uptime.
+	sysUpTime       uint32                        // System Up Time (Only in Ver 9) in resolution of milliseconds.
+	unixTimeNow     int64                         // Unix Time Now for Unix Time in Header, should be on resolution of seconds.
+	domainID        uint32                        // Observation Domain ID
+	autoStart       bool                          // Start exporting this client when plugin is loaded (default: true)
+	maxTime         time.Duration                 // Maximum time to export
+	enabledTime     time.Time                     // Time when client was enabled
+	flowSeqNum      uint32                        // Flow sequence number must be common for all IPFix Gen.
+	dgMacResolved   bool                          // Is the default gateway MAC address resolved?
+	timerw          *core.TimerCtx                // Timer Wheel
+	timer           core.CHTimerObj               // Timer Object for calculating Unix time every tick
+	timerCb         IPFixTimerCallback            // Timer Callback object
+	stats           IPFixStats                    // IPFix statistics
+	cdb             *core.CCounterDb              // Counters Database
+	cdbv            *core.CCounterDbVec           // Counters Database Vector
+	generators      []*IPFixGen                   // List of Generators
+	generatorsMap   map[string]*IPFixGen          // Generator Map for fast lookup with generator name.
+	templateIDSet   map[uint16]bool               // Set of Template IDs.
+	exporter        Exporter                      // Factory class to create and store exporters based on the given dst URL
+	init            bool                          // Is client initialization succeeded
+	enabled         bool                          // Flows generations is enabled for the client
+	IpfixNsPlugin   *IpfixNsPlugin                // Reference to the namespace IPFIX plugin if exists
+	autoTriggered   bool                          // Client was auto triggered by the namespace plugin
+	trgDeviceInfo   *DevicesAutoTriggerDeviceInfo // Auto triggered device info
 }
 
 var ipfixEvents = []string{core.MSG_DG_MAC_RESOLVED}
@@ -1203,6 +1210,19 @@ func NewIPFixClient(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
 	o := new(PluginIPFixClient)
 	o.InitPluginBase(ctx, o) // Init base object
 	o.OnCreate()
+
+	// Get NS plugin object, if exist
+	nsPlugin := o.Ns.PluginCtx.Get(IPFIX_PLUG)
+	if nsPlugin != nil {
+		o.IpfixNsPlugin = nsPlugin.Ext.(*IpfixNsPlugin)
+		dat := o.IpfixNsPlugin.devicesAutoTrigger
+		if dat != nil {
+			if di, err := dat.GetTriggeredDeviceInfo(ctx.Client); err == nil {
+				o.trgDeviceInfo = di
+				o.autoTriggered = true
+			}
+		}
+	}
 
 	// Parse the Init JSON.
 	init := IPFixClientParams{Ver: DefaultIPFixVersion, DomainID: o.domainID, AutoStart: true}
@@ -1422,20 +1442,125 @@ func (o *PluginIPFixClient) OnTxEvent(event transport.SocketEventType) {
 }
 
 /*======================================================================================================
+										    Ipfix NS
+======================================================================================================*/
+
+// IpfixNsParams defines the InitJson params for IPFIX namespaces
+type IpfixNsParams struct {
+	DevicesAutoTrigger *fastjson.RawMessage `json:"devices_auto_trigger"`
+}
+
+type IpfixNsStats struct {
+	invalidInitJson                  uint64
+	failedToCreateDevicesAutoTrigger uint64
+}
+
+// IpfixNsPlugin represents the IPFIX plugin in namespace level
+type IpfixNsPlugin struct {
+	core.PluginBase                        // Embedded plugin base
+	params             IpfixNsParams       // Namespace init JSON paramaters
+	stats              IpfixNsStats        // Namespace statistics
+	cdb                *core.CCounterDb    // IPFix counters DB
+	cdbv               *core.CCounterDbVec // IPFix counters DB vector
+	devicesAutoTrigger *DevicesAutoTrigger
+}
+
+// NewIpfixNsStatsDb creates a new counter database for IpfixNsStats.
+func NewIpfixNsStatsDb(p *IpfixNsStats) *core.CCounterDb {
+	db := core.NewCCounterDb(IPFIX_PLUG)
+
+	db.Add(&core.CCounterRec{
+		Counter:  &p.invalidInitJson,
+		Name:     "invalidInitJson",
+		Help:     "Error while decoding init Json",
+		Unit:     "ops",
+		DumpZero: false,
+		Info:     core.ScERROR})
+
+	db.Add(&core.CCounterRec{
+		Counter:  &p.failedToCreateDevicesAutoTrigger,
+		Name:     "failedToCreateDevicesAutoTrigger",
+		Help:     "Failed to create devices auto trigger",
+		Unit:     "ops",
+		DumpZero: false,
+		Info:     core.ScERROR})
+
+	return db
+}
+
+// NewIpfixNs creates a new IPFIX namespace plugin.
+func NewIpfixNs(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
+	// NS level IPFIX plugin is supported only in kernel mode
+	kernelMode := ctx.Tctx.GetKernelMode()
+	if !kernelMode {
+		log.Warning("Creating NS level IPFIX plugin failed - not kernel mode")
+		return nil
+	}
+
+	p := new(IpfixNsPlugin)
+	p.InitPluginBase(ctx, p)             // Init the base plugin
+	p.RegisterEvents(ctx, []string{}, p) // No events to register in namespace level
+	p.cdb = NewIpfixNsStatsDb(&p.stats)  // Create new stats database
+	p.cdbv = core.NewCCounterDbVec(IPFIX_PLUG)
+	p.cdbv.Add(p.cdb)
+
+	err := p.Tctx.UnmarshalValidate(initJson, &p.params)
+	if err != nil {
+		p.stats.invalidInitJson++
+		return &p.PluginBase
+	}
+
+	p.devicesAutoTrigger, err = NewDevicesAutoTrigger(p, p.params.DevicesAutoTrigger)
+	if err != nil {
+		p.stats.failedToCreateDevicesAutoTrigger++
+		return &p.PluginBase
+	}
+
+	p.cdbv.AddVec(p.devicesAutoTrigger.GetCountersDbVec())
+
+	log.Info("New IPFIX namespace plugin was created with init json: ")
+	log.Info(string(*p.params.DevicesAutoTrigger))
+
+	return &p.PluginBase
+}
+
+// OnRemove when removing IPFIX namespace plugin
+func (o *IpfixNsPlugin) OnRemove(ctx *core.PluginCtx) {
+	if o.devicesAutoTrigger != nil {
+		o.devicesAutoTrigger.Delete()
+		o.devicesAutoTrigger = nil
+	}
+}
+
+// OnEvent for events the namespace plugin is registered.
+func (o *IpfixNsPlugin) OnEvent(msg string, a, b interface{}) {}
+
+/*======================================================================================================
 											Generate Plugin
 ======================================================================================================*/
 type PluginIPFixCReg struct{}
 type PluginIPFixNsReg struct{}
 
-func (o PluginIPFixCReg) NewPlugin(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
-	Simulation = ctx.Tctx.Simulation // init simulation mode
+// Init IPFIX plugin module once when the first ns or client plugin is configured
+func initIpfixPlugin(ctx *core.PluginCtx) {
+	if Init {
+		return
+	}
+
+	Simulation = ctx.Tctx.Simulation
 	configureLogger(ctx.Tctx.GetVerbose())
+
+	Init = true
+}
+
+func (o PluginIPFixCReg) NewPlugin(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
+	initIpfixPlugin(ctx)
 	return NewIPFixClient(ctx, initJson)
 }
 
 func (o PluginIPFixNsReg) NewPlugin(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
-	// No Ns plugin for now.
-	return nil
+	initIpfixPlugin(ctx)
+	return NewIpfixNs(ctx, initJson)
 }
 
 /*======================================================================================================
@@ -1476,6 +1601,8 @@ type (
 	}
 
 	ApiIpfixClientGetExpInfoHandler struct{}
+
+	ApiIpfixNsCntHandler struct{} // Counter RPC Handler per Ns
 )
 
 // getClientPlugin gets the client plugin given the client parameters (Mac & Tunnel Key)
@@ -1491,6 +1618,20 @@ func getClientPlugin(ctx interface{}, params *fastjson.RawMessage) (*PluginIPFix
 	pClient := plug.Ext.(*PluginIPFixClient)
 
 	return pClient, nil
+}
+
+// getNsPlugin gets the namespace plugin given the namespace parameters (Tunnel Key)
+func getNsPlugin(ctx interface{}, params *fastjson.RawMessage) (*IpfixNsPlugin, error) {
+	tctx := ctx.(*core.CThreadCtx)
+
+	plug, err := tctx.GetNsPlugin(params, IPFIX_PLUG)
+
+	if err != nil {
+		return nil, err
+	}
+
+	mIpfixNs := plug.Ext.(*IpfixNsPlugin)
+	return mIpfixNs, nil
 }
 
 // ApiIpfixClientCntHandler gets the counters of the IPFix Client.
@@ -1611,6 +1752,20 @@ func (h ApiIpfixClientGetExpInfoHandler) ServeJSONRPC(ctx interface{}, params *f
 	return res, nil
 }
 
+// ApiIpfixNsCntHandler gets the counters of the Ipfix namespace.
+func (h ApiIpfixNsCntHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
+	var p core.ApiCntParams
+	tctx := ctx.(*core.CThreadCtx)
+	nsPlug, err := getNsPlugin(ctx, params)
+	if err != nil {
+		return nil, &jsonrpc.Error{
+			Code:    jsonrpc.ErrorCodeInvalidRequest,
+			Message: err.Error(),
+		}
+	}
+	return nsPlug.cdbv.GeneralCounters(err, tctx, params, &p)
+}
+
 func init() {
 
 	/* register of plugins callbacks for ns,c level  */
@@ -1634,11 +1789,13 @@ func init() {
 	  aa - misc
 	*/
 
-	core.RegisterCB("ipfix_c_cnt", ApiIpfixClientCntHandler{}, false) // get counters / meta
+	core.RegisterCB("ipfix_c_cnt", ApiIpfixClientCntHandler{}, false) // get counters / meta per client
 	core.RegisterCB("ipfix_c_set_state", ApiIpfixClientSetStateHandler{}, false)
 	core.RegisterCB("ipfix_c_get_gens_info", ApiIpfixClientGetGensInfoHandler{}, false)
 	core.RegisterCB("ipfix_c_set_gen_state", ApiIpfixClientSetGenStateHandler{}, false)
 	core.RegisterCB("ipfix_c_get_exp_info", ApiIpfixClientGetExpInfoHandler{}, false)
+
+	core.RegisterCB("ipfix_ns_cnt", ApiIpfixNsCntHandler{}, true) // get counters / meta per ns
 }
 
 func Register(ctx *core.CThreadCtx) {

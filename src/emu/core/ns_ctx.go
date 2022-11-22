@@ -85,6 +85,20 @@ func (key *MACKey) IsMulticast() bool {
 	return key[0]&0x01 != 0
 }
 
+func (key *MACKey) Uint64() uint64 {
+	res := uint64(key[0])<<40 | uint64(key[1])<<32 | uint64(key[2])<<24 |
+		uint64(key[3])<<16 | uint64(key[4])<<8 | uint64(key[5])
+	return res
+}
+
+func (key *MACKey) SetUint64(v uint64) {
+	for i := 0; i < 6; i++ {
+		byte := byte(v & 0xFF)
+		key[5-i] = byte
+		v >>= 8
+	}
+}
+
 type RpcCmdMac struct {
 	MACKey MACKey `json:"mac" validate:"required"`
 }

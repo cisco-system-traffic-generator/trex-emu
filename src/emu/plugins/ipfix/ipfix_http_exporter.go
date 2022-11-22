@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -192,6 +193,8 @@ func NewHttpExporter(client *PluginIPFixClient, params *HttpExporterParams) (*Ht
 	p.maxPosts = params.MaxPosts
 	p.counters.maxPosts = p.maxPosts
 
+	p.updateUrlPath(client)
+
 	err = p.createHttpClient()
 	if err != nil {
 		return nil, err
@@ -199,7 +202,7 @@ func NewHttpExporter(client *PluginIPFixClient, params *HttpExporterParams) (*Ht
 
 	p.fileExporter.RegisterObserver(p)
 
-	p.fileExporterEvQueue = make(chan FileExporterEvent, defaultEventsQueueMaxSize /* TBD */)
+	p.fileExporterEvQueue = make(chan FileExporterEvent, defaultEventsQueueMaxSize)
 	p.done = make(chan bool)
 
 	p.retryTimer = time.NewTimer(defaultRetryTimeout)
@@ -711,4 +714,25 @@ func (p *HttpExporter) sendFile(filePath string, tempRecordsNum uint32, dataReco
 	}
 
 	return nil
+}
+
+func (p *HttpExporter) updateUrlPath(client *PluginIPFixClient) {
+	var tenantId string
+	var deviceId string
+
+	// If host is 'localhost' replace it with '127.0.0.1' (in some cases using localhost will not work)
+	p.url.Host = strings.Replace(p.url.Host, "localhost", "127.0.0.1", 1)
+
+	// If client is auto-triggered, update the tenantId and deviceId in the URL:
+	//   Replace '$t' with tenantId
+	//   Replace '$d' with deviceId
+	if client.autoTriggered {
+		tenantId = strconv.FormatUint(uint64(client.trgDeviceInfo.tenantId), 10)
+		deviceId = strconv.FormatUint(uint64(client.trgDeviceInfo.deviceId), 10)
+	} else {
+		tenantId = "0"
+		deviceId = "0"
+	}
+	p.url.Path = strings.Replace(p.url.Path, "$t", tenantId, 1)
+	p.url.Path = strings.Replace(p.url.Path, "$d", deviceId, 1)
 }
