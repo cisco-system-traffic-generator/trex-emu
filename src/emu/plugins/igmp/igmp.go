@@ -458,7 +458,7 @@ type IgmpEntryJson struct {
 	S    *[]core.Ipv4Key `json:"sv,omitempty"`
 }
 
-//IgmpEntry includes one ipv4 mc addr
+// IgmpEntry includes one ipv4 mc addr
 type IgmpEntry struct {
 	dlist     core.DList // must be first
 	Ipv4      core.Ipv4Key
@@ -541,7 +541,7 @@ func (o *IgmpEntry) removeSource(ns *core.CNSCtx, s core.Ipv4Key) error {
 
 type MapIgmp map[core.Ipv4Key]*IgmpEntry
 
-//IgmpFlowTbl  map/dlist of the igmp entries
+// IgmpFlowTbl  map/dlist of the igmp entries
 type IgmpFlowTbl struct {
 	ns         *core.CNSCtx
 	mapIgmp    MapIgmp
@@ -649,7 +649,7 @@ func (o *IgmpFlowTbl) removeMc(ipv4 core.Ipv4Key) error {
 	return nil
 }
 
-//dumpAll for debug and testing
+// dumpAll for debug and testing
 func (o *IgmpFlowTbl) dumpAll() {
 
 	var it core.DListIterHead
@@ -670,14 +670,14 @@ type PluginIgmpClient struct {
 var igmpEvents = []string{}
 
 /*NewIgmpClient create plugin */
-func NewIgmpClient(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
+func NewIgmpClient(ctx *core.PluginCtx, initJson []byte) (*core.PluginBase, error) {
 	o := new(PluginIgmpClient)
 	o.InitPluginBase(ctx, o)             /* init base object*/
 	o.RegisterEvents(ctx, igmpEvents, o) /* register events, only if exits*/
 	nsplg := o.Ns.PluginCtx.GetOrCreate(IGMP_PLUG)
 	o.igmpNsPlug = nsplg.Ext.(*PluginIgmpNs)
 	o.OnCreate()
-	return &o.PluginBase
+	return &o.PluginBase, nil
 }
 
 /*OnEvent support event change of IP  */
@@ -738,7 +738,7 @@ type PluginIgmpNs struct {
 	iterReady       bool
 }
 
-func NewIgmpNs(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
+func NewIgmpNs(ctx *core.PluginCtx, initJson []byte) (*core.PluginBase, error) {
 
 	o := new(PluginIgmpNs)
 	init := IgmpNsInit{Mtu: 1500, Version: IGMP_VERSION_3}
@@ -766,7 +766,7 @@ func NewIgmpNs(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
 	o.timer.SetCB(&o.timerCb, o, 0) // set the callback to OnEvent
 	o.preparePacketTemplate()
 
-	return &o.PluginBase
+	return &o.PluginBase, nil
 }
 
 func (o *PluginIgmpNs) IterReset() bool {
@@ -855,7 +855,7 @@ func (o *PluginIgmpNs) onTimerUpdate() {
 	}
 }
 
-//add records IgmpSGRecord
+// add records IgmpSGRecord
 func (o *PluginIgmpNs) addMcSG(vecIpv4 []*IgmpSGRecord) error {
 	var err error
 	var first bool
@@ -887,7 +887,7 @@ func (o *PluginIgmpNs) addMcSG(vecIpv4 []*IgmpSGRecord) error {
 	return nil
 }
 
-//remove IgmpSGRecord
+// remove IgmpSGRecord
 func (o *PluginIgmpNs) removeMcSG(vecIpv4 []*IgmpSGRecord) error {
 	var err error
 	vec := []*IgmpSGRecord{}
@@ -1319,7 +1319,6 @@ func (o *PluginIgmpNs) pushEntry(pb *igmpPktBuilder) {
 	}
 }
 
-//
 // each group could be either EXCLUDE or INCLUDE
 // need to build packets on the fly base on the each entry information
 func (o *PluginIgmpNs) SendMcPacketSGQuery(vec []uint32) {
@@ -1679,11 +1678,11 @@ func HandleRxIgmpPacket(ps *core.ParserPacketState) int {
 type PluginIgmpCReg struct{}
 type PluginIgmpNsReg struct{}
 
-func (o PluginIgmpCReg) NewPlugin(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
+func (o PluginIgmpCReg) NewPlugin(ctx *core.PluginCtx, initJson []byte) (*core.PluginBase, error) {
 	return NewIgmpClient(ctx, initJson)
 }
 
-func (o PluginIgmpNsReg) NewPlugin(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
+func (o PluginIgmpNsReg) NewPlugin(ctx *core.PluginCtx, initJson []byte) (*core.PluginBase, error) {
 	return NewIgmpNs(ctx, initJson)
 }
 

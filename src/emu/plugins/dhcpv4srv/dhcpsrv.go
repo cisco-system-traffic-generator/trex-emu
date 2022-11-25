@@ -734,7 +734,7 @@ func GetT1T2(lease uint32) (t1, t2 uint32) {
 }
 
 // NewDhcpSrcClient creates a new DhcpSrv Emu Client Plugin.
-func NewDhcpSrvClient(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
+func NewDhcpSrvClient(ctx *core.PluginCtx, initJson []byte) (*core.PluginBase, error) {
 	o := new(PluginDhcpSrvClient)
 	o.InitPluginBase(ctx, o)                  // Init base object
 	o.RegisterEvents(ctx, dhcpSrvEvents, o)   // Register events
@@ -752,13 +752,16 @@ func NewDhcpSrvClient(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
 	err := o.Tctx.UnmarshalValidate(initJson, &o.params) // Unmarshal and validate init json
 	if err != nil {
 		o.stats.invalidInitJson++
-		return &o.PluginBase
+		return nil, err
 	}
 
 	// Create everything needed by the DhcpSrv
-	o.OnCreate()
+	err = o.OnCreate()
+	if err != nil {
+		return nil, err
+	}
 
-	return &o.PluginBase
+	return &o.PluginBase, nil
 }
 
 // validIPv4 validates that a string is a valid IPv4 address and returns True iff this is the case.
@@ -779,7 +782,7 @@ func (o *PluginDhcpSrvClient) validIPv4(ipv4Str string) bool {
 }
 
 // OnCreate is called upon the creation of a new DhcpSrv Emu client.
-func (o *PluginDhcpSrvClient) OnCreate() {
+func (o *PluginDhcpSrvClient) OnCreate() error {
 	o.clientCtxDb = make(map[core.MACKey]*DhcpClientCtx)
 
 	if o.params.DefaultLease > o.params.MaxLease {
@@ -791,28 +794,26 @@ func (o *PluginDhcpSrvClient) OnCreate() {
 
 	for _, pool := range o.params.Pools {
 		if !o.validIPv4(pool.Min) {
-			return
+			return fmt.Errorf("Invalid pool min IP %s", pool.Min)
 		}
 		if !o.validIPv4(pool.Max) {
-			return
+			return fmt.Errorf("Invalid pool max IP %s", pool.Max)
 		}
 		cidr := fmt.Sprintf("%s/%d", pool.Min, pool.Prefix)
 		_, netIp, err := net.ParseCIDR(cidr)
 		if err != nil {
-			// Invalid Subnet
 			o.stats.invalidInitJson++
-			return
+			return fmt.Errorf("Invalid pool CIDR %s", cidr)
 		}
 		if !netIp.Contains(net.ParseIP(pool.Max)) {
-			// Max not in the same subnet as min
 			o.stats.invalidInitJson++
-			return
+			return fmt.Errorf("Pool max %s not in the same subnet as min %s", pool.Max, netIp)
 		}
 		var excludedIpv4Key []core.Ipv4Key
 		var ipv4Key core.Ipv4Key
 		for _, ipString := range pool.Excluded {
 			if !o.validIPv4(ipString) {
-				return
+				return fmt.Errorf("Invalid pool excluded IP %s", ipString)
 			}
 			ipv4 := net.ParseIP(ipString).To4()
 			copy(ipv4Key[:], ipv4[0:4])
@@ -826,9 +827,8 @@ func (o *PluginDhcpSrvClient) OnCreate() {
 
 	o.nextServerIp = net.ParseIP(o.params.NextServerIp)
 	if o.nextServerIp == nil {
-		// Invalid NextServerIp
 		o.stats.invalidInitJson++
-		return
+		return fmt.Errorf("Invalid NextServerIp %s", o.params.NextServerIp)
 	}
 
 	// Hold a pointer to the pool in which the server belongs too.
@@ -840,6 +840,7 @@ func (o *PluginDhcpSrvClient) OnCreate() {
 	}
 
 	o.computeOptions()
+	return nil
 }
 
 // computeOptions computes the options for each type of packet that the server sends ahead of time.
@@ -1777,12 +1778,11 @@ type PluginDhcpSrvNs struct {
 }
 
 // NewDhcpSrvNs creates a new DhcpSrv namespace plugin
-func NewDhcpSrvNs(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
-
+func NewDhcpSrvNs(ctx *core.PluginCtx, initJson []byte) (*core.PluginBase, error) {
 	o := new(PluginDhcpSrvNs)
 	o.InitPluginBase(ctx, o)
 	o.RegisterEvents(ctx, []string{}, o)
-	return &o.PluginBase
+	return &o.PluginBase, nil
 }
 
 // OnRemove when removing DhcpSrv namespace plugin.
@@ -1845,19 +1845,23 @@ func HandleRxDhcpPacket(ps *core.ParserPacketState) int {
 	return dhcpSrvPlug.HandleRxDhcpPacket(ps)
 }
 
-/*======================================================================================================
-											Generate Plugin
-======================================================================================================*/
+/*
+======================================================================================================
+
+	Generate Plugin
+
+======================================================================================================
+*/
 type PluginDhcpSrvCReg struct{}
 type PluginDhcpSrvNsReg struct{}
 
 // NewPlugin creates a new DhcpSrv client plugin.
-func (o PluginDhcpSrvCReg) NewPlugin(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
+func (o PluginDhcpSrvCReg) NewPlugin(ctx *core.PluginCtx, initJson []byte) (*core.PluginBase, error) {
 	return NewDhcpSrvClient(ctx, initJson)
 }
 
 // NewPlugin creates a new DhcpSrv namespace plugin.
-func (o PluginDhcpSrvNsReg) NewPlugin(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
+func (o PluginDhcpSrvNsReg) NewPlugin(ctx *core.PluginCtx, initJson []byte) (*core.PluginBase, error) {
 	return NewDhcpSrvNs(ctx, initJson)
 }
 

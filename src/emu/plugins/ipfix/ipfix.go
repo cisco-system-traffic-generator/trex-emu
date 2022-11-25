@@ -131,14 +131,13 @@ type IPFixGen struct {
 
 // NewIPFixGen creates a new IPFix generator (exporting process) based on the parameters received in the
 // init JSON.
-func NewIPFixGen(ipfix *PluginIPFixClient, initJson *fastjson.RawMessage) (*IPFixGen, bool) {
+func NewIPFixGen(ipfix *PluginIPFixClient, initJson *fastjson.RawMessage) (*IPFixGen, error) {
 
 	init := IPFixGenParams{TemplateRate: DefaultIPFixTemplateRate, DataRate: DefaultIPFixDataRate, AutoStart: true}
 	err := ipfix.Tctx.UnmarshalValidate(*initJson, &init)
-
 	if err != nil {
 		ipfix.stats.invalidJson++
-		return nil, false
+		return nil, err
 	}
 
 	// validate fields as well, not only outside Json.
@@ -147,28 +146,28 @@ func NewIPFixGen(ipfix *PluginIPFixClient, initJson *fastjson.RawMessage) (*IPFi
 		err = validator.Struct(init.Fields[i])
 		if err != nil {
 			ipfix.stats.invalidJson++
-			return nil, false
+			return nil, err
 		}
 	}
 
 	if _, ok := ipfix.generatorsMap[init.Name]; ok {
 		ipfix.stats.duplicateGenName++
-		return nil, false
+		return nil, fmt.Errorf("duplicate generator name %s", init.Name)
 	}
 
 	if _, ok := ipfix.templateIDSet[init.TemplateID]; ok {
 		ipfix.stats.duplicateTemplateID++
-		return nil, false
+		return nil, fmt.Errorf("duplicate template ID %d", init.TemplateID)
 	}
 
 	if init.TemplateID <= 0xFF {
 		ipfix.stats.invalidTemplateID++
-		return nil, false
+		return nil, fmt.Errorf("invalid template ID %d", init.TemplateID)
 	}
 
 	if init.OptionsTemplate && (init.ScopeCount == 0) {
 		ipfix.stats.invalidScopeCount++
-		return nil, false
+		return nil, fmt.Errorf("invalid scope count %d", init.ScopeCount)
 	}
 
 	o := new(IPFixGen)
@@ -187,49 +186,49 @@ func NewIPFixGen(ipfix *PluginIPFixClient, initJson *fastjson.RawMessage) (*IPFi
 
 	// Create Engine Manager
 	if init.Engines != nil {
-		o.engineMgr = engines.NewEngineManager(o.ipfixPlug.Tctx, init.Engines)
-		if !o.engineMgr.WasCreatedSuccessfully() {
+		o.engineMgr, err = engines.NewEngineManager(o.ipfixPlug.Tctx, init.Engines)
+		if err != nil {
 			o.ipfixPlug.stats.failedBuildingEngineMgr++
-			return nil, false
+			return nil, fmt.Errorf("could not create engine manager: %w", err)
 		}
 		o.engineMap = o.engineMgr.GetEngineMap()
 	}
 
 	o.fieldNames = make(map[string]bool, len(o.fields))
 	// Build Template Fields and Data Buffer.
-	for i := range o.fields {
-		if o.ipfixPlug.ver == 0x09 && o.fields[i].isEnterprise() {
+	for _, field := range o.fields {
+		if o.ipfixPlug.ver == 9 && field.isEnterprise() {
 			o.ipfixPlug.stats.enterpriseFieldv9++
-			return nil, false
+			return nil, fmt.Errorf("NetFlow version 9 does not support enterprise field %s", field.Name)
 		}
-		if o.ipfixPlug.ver == 9 && o.fields[i].isVariableLength() {
+		if o.ipfixPlug.ver == 9 && field.isVariableLength() {
 			o.ipfixPlug.stats.variableLengthFieldv9++
-			return nil, false
+			return nil, fmt.Errorf("NetFlow version 9 does not support var len field %s", field.Name)
 		}
-		o.templateFields = append(o.templateFields, o.fields[i].getIPFixField())
-		if !o.fields[i].isVariableLength() && (len(o.fields[i].Data) != int(o.fields[i].Length)) {
+		o.templateFields = append(o.templateFields, field.getIPFixField())
+		if !field.isVariableLength() && (len(field.Data) != int(field.Length)) {
 			ipfix.stats.dataIncorrectLength++
-			return nil, false
+			return nil, fmt.Errorf("Field %s data size differs from declared field length %d", field.Name, field.Length)
 		}
-		o.fieldNames[o.fields[i].Name] = true // add each field to the field names
-		if !o.fields[i].isVariableLength() {
+		o.fieldNames[field.Name] = true // add each field to the field names
+		if !field.isVariableLength() {
 			// don't add variable length fields to the data buffer, they don't have a data buffer.
-			o.dataBuffer = append(o.dataBuffer, o.fields[i].Data...)
+			o.dataBuffer = append(o.dataBuffer, field.Data...)
 		} else {
 			o.variableLengthFields = true
 			// variable length field, verify that no data.
-			if len(o.fields[i].Data) != 0 {
+			if len(field.Data) != 0 {
 				ipfix.stats.dataIncorrectLength++
-				return nil, false
+				return nil, fmt.Errorf("variable length field %s has data", field.Name)
 			}
 			// also we must have an engine for variable length fields
 			if o.engineMgr == nil {
 				ipfix.stats.variableLengthNoEngine++
-				return nil, false
+				return nil, fmt.Errorf("No engine for var len field %s", field.Name)
 			} else {
-				if _, ok := o.engineMap[o.fields[i].Name]; !ok {
+				if _, ok := o.engineMap[field.Name]; !ok {
 					ipfix.stats.variableLengthNoEngine++
-					return nil, false
+					return nil, fmt.Errorf("No engine for var len field %s", field.Name)
 				}
 			}
 		}
@@ -240,6 +239,7 @@ func NewIPFixGen(ipfix *PluginIPFixClient, initJson *fastjson.RawMessage) (*IPFi
 		for engineName := range o.engineMap {
 			if _, ok := o.fieldNames[engineName]; !ok {
 				o.ipfixPlug.stats.invalidEngineName++
+				return nil, fmt.Errorf("Got engine for unexisting field %s", engineName)
 			}
 		}
 	}
@@ -251,11 +251,11 @@ func NewIPFixGen(ipfix *PluginIPFixClient, initJson *fastjson.RawMessage) (*IPFi
 	if o.ipfixPlug.dgMacResolved {
 		// If resolved before the generators were created, we call on resolve explicitly.
 		if ok := o.OnResolve(); !ok {
-			return nil, false
+			return nil, fmt.Errorf("could not resolve DG")
 		}
 	}
 
-	return o, true
+	return o, nil
 }
 
 func (o *IPFixGen) Pause(pause bool) {
@@ -418,9 +418,13 @@ func (o *IPFixGen) calcMaxRecordsVarLength() uint32 {
 	return uint32(o.availableRecordPayload / o.calcShortestRecord())
 }
 
-/*======================================================================================================
-										Send packet
-======================================================================================================*/
+/*
+======================================================================================================
+
+	Send packet
+
+======================================================================================================
+*/
 func (o *IPFixGen) sendTemplatePktInt() {
 	ipfixVer := o.ipfixPlug.ver
 	payload := o.templatePayload
@@ -1200,7 +1204,7 @@ func parseDstField(dstField string) (*url.URL, bool, error) {
 	}
 
 	if !isSupportedUrlScheme(dstUrl.Scheme) {
-		return nil, false, errors.New("Invalid dst URL scheme in init JSON (should be emu-udp, udp, file, http or https)")
+		return nil, false, fmt.Errorf("Invalid dst URL scheme '%s' in init JSON (should be emu-udp, udp, file, http or https)", dstUrl.Scheme)
 	}
 
 	host, _, _ := net.SplitHostPort(dstUrl.Host)
@@ -1252,7 +1256,7 @@ func (o *PluginIPFixClient) updateGenDataRate() {
 
 // NewIPFixClient creates an IPFix client plugin. An IPFix client can own multiple generators
 // (exporting processes).
-func NewIPFixClient(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
+func NewIPFixClient(ctx *core.PluginCtx, initJson []byte) (*core.PluginBase, error) {
 	o := new(PluginIPFixClient)
 	o.InitPluginBase(ctx, o) // Init base object
 	o.OnCreate()
@@ -1275,7 +1279,7 @@ func NewIPFixClient(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
 	err := o.Tctx.UnmarshalValidate(initJson, &init)
 	if err != nil {
 		o.stats.badOrNoInitJson++
-		return &o.PluginBase
+		return nil, err
 	}
 
 	// Init Json was provided and successfully unmarshalled.
@@ -1284,7 +1288,7 @@ func NewIPFixClient(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
 	dstUrl, isIpv6, err := parseDstField(init.Dst)
 	if err != nil {
 		o.stats.invalidDst++
-		return &o.PluginBase
+		return nil, err
 	}
 
 	o.ver = init.Ver
@@ -1304,7 +1308,7 @@ func NewIPFixClient(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
 		if err == ErrExporterWrongKernelMode {
 			o.stats.failedCreatingExporterWrongKernelMode++
 		}
-		return &o.PluginBase
+		return nil, err
 	}
 
 	o.cdbv.AddVec(o.exporter.GetCountersDbVec())
@@ -1313,14 +1317,14 @@ func NewIPFixClient(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
 		o.generatorsMap = make(map[string]*IPFixGen, len(init.Generators))
 		o.templateIDSet = make(map[uint16]bool, len(init.Generators))
 		for i := range init.Generators {
-			gen, ok := NewIPFixGen(o, init.Generators[i])
-			if ok {
-				o.generators = append(o.generators, gen)
-				o.generatorsMap[gen.name] = gen
-				o.templateIDSet[gen.templateID] = true
-			} else {
+			gen, err := NewIPFixGen(o, init.Generators[i])
+			if err != nil {
 				o.stats.failedCreatingGen++
+				return nil, err
 			}
+			o.generators = append(o.generators, gen)
+			o.generatorsMap[gen.name] = gen
+			o.templateIDSet[gen.templateID] = true
 		}
 
 		o.updateGenDataRate()
@@ -1335,7 +1339,7 @@ func NewIPFixClient(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
 
 	o.init = true
 
-	return &o.PluginBase
+	return &o.PluginBase, nil
 }
 
 func (o *PluginIPFixClient) Pause(pause bool) {
@@ -1537,12 +1541,11 @@ func NewIpfixNsStatsDb(p *IpfixNsStats) *core.CCounterDb {
 }
 
 // NewIpfixNs creates a new IPFIX namespace plugin.
-func NewIpfixNs(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
+func NewIpfixNs(ctx *core.PluginCtx, initJson []byte) (*core.PluginBase, error) {
 	// NS level IPFIX plugin is supported only in kernel mode
 	kernelMode := ctx.Tctx.GetKernelMode()
 	if !kernelMode {
-		log.Warning("Creating NS level IPFIX plugin failed - not kernel mode")
-		return nil
+		return nil, fmt.Errorf("Creating NS level IPFIX plugin failed - not kernel mode")
 	}
 
 	p := new(IpfixNsPlugin)
@@ -1555,13 +1558,13 @@ func NewIpfixNs(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
 	err := p.Tctx.UnmarshalValidate(initJson, &p.params)
 	if err != nil {
 		p.stats.invalidInitJson++
-		return &p.PluginBase
+		return nil, err
 	}
 
 	p.devicesAutoTrigger, err = NewDevicesAutoTrigger(p, p.params.DevicesAutoTrigger)
 	if err != nil {
 		p.stats.failedToCreateDevicesAutoTrigger++
-		return &p.PluginBase
+		return nil, err
 	}
 
 	p.cdbv.AddVec(p.devicesAutoTrigger.GetCountersDbVec())
@@ -1569,7 +1572,7 @@ func NewIpfixNs(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
 	log.Info("New IPFIX namespace plugin was created with init json: ")
 	log.Info(string(*p.params.DevicesAutoTrigger))
 
-	return &p.PluginBase
+	return &p.PluginBase, nil
 }
 
 // OnRemove when removing IPFIX namespace plugin
@@ -1583,9 +1586,13 @@ func (o *IpfixNsPlugin) OnRemove(ctx *core.PluginCtx) {
 // OnEvent for events the namespace plugin is registered.
 func (o *IpfixNsPlugin) OnEvent(msg string, a, b interface{}) {}
 
-/*======================================================================================================
-											Generate Plugin
-======================================================================================================*/
+/*
+======================================================================================================
+
+	Generate Plugin
+
+======================================================================================================
+*/
 type PluginIPFixCReg struct{}
 type PluginIPFixNsReg struct{}
 
@@ -1601,19 +1608,23 @@ func initIpfixPlugin(ctx *core.PluginCtx) {
 	Init = true
 }
 
-func (o PluginIPFixCReg) NewPlugin(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
+func (o PluginIPFixCReg) NewPlugin(ctx *core.PluginCtx, initJson []byte) (*core.PluginBase, error) {
 	initIpfixPlugin(ctx)
 	return NewIPFixClient(ctx, initJson)
 }
 
-func (o PluginIPFixNsReg) NewPlugin(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
+func (o PluginIPFixNsReg) NewPlugin(ctx *core.PluginCtx, initJson []byte) (*core.PluginBase, error) {
 	initIpfixPlugin(ctx)
 	return NewIpfixNs(ctx, initJson)
 }
 
-/*======================================================================================================
-											RPC Methods
-======================================================================================================*/
+/*
+======================================================================================================
+
+	RPC Methods
+
+======================================================================================================
+*/
 type GenInfo struct {
 	Enabled         bool    `json:"enabled"`               // Is generator enabled
 	OptionsTemplate bool    `json:"options_template"`      // Is options template or regular template

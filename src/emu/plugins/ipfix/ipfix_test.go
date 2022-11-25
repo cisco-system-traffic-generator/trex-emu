@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math/rand"
 	"os"
+	"regexp"
 	"testing"
 	"time"
 )
@@ -13,7 +14,9 @@ import (
 var monitor int
 
 type IPFixTestBase struct {
-	testname     string
+	goldenfile   string
+	t            testing.TB
+	expEnvErr    string
 	dropAll      bool
 	monitor      bool
 	match        uint8
@@ -43,8 +46,23 @@ func (o *VethIPFixSim) ProcessTxToRx(m *core.Mbuf) *core.Mbuf {
 	return nil
 }
 
-func (o *IPFixTestBase) Run(t *testing.T, compare bool) {
+func expErrCheck(t testing.TB, expErrStr string, err error) {
+	if err == nil {
+		if expErrStr == "" {
+			return
+		}
+		t.Fatalf("Did not get expected error: %s", expErrStr)
+	}
+	if expErrStr == "" {
+		t.Fatalf("Got unexpected error: %v", err)
+	}
+	expErrRe := regexp.MustCompile(expErrStr)
+	if !expErrRe.MatchString(err.Error()) {
+		t.Fatalf("Expected error '%s', got: '%v'", expErrStr, err)
+	}
+}
 
+func (o *IPFixTestBase) Run(compare bool) {
 	if o.seed != 0 {
 		rand.Seed(o.seed)
 	}
@@ -56,8 +74,11 @@ func (o *IPFixTestBase) Run(t *testing.T, compare bool) {
 	if o.match > 0 {
 		simVeth.match = o.match
 	}
-	var tctx *core.CThreadCtx
-	tctx, _ = createSimulationEnv(&simrx, o)
+	tctx, err := createSimulationEnv(&simrx, o)
+	expErrCheck(o.t, o.expEnvErr, err)
+	if err != nil {
+		return
+	}
 
 	if o.cb != nil {
 		o.cb(tctx, o)
@@ -75,7 +96,7 @@ func (o *IPFixTestBase) Run(t *testing.T, compare bool) {
 	key.Set(&core.CTunnelData{Vport: 1})
 	ns := tctx.GetNs(&key)
 	if ns == nil {
-		t.Fatalf(" can't find ns")
+		o.t.Fatalf(" can't find ns")
 		return
 	}
 
@@ -88,7 +109,7 @@ func (o *IPFixTestBase) Run(t *testing.T, compare bool) {
 		c := ns.CLookupByMac(&core.MACKey{0, 0, 1, 0, a, b})
 		clplg := c.PluginCtx.Get(IPFIX_PLUG)
 		if clplg == nil {
-			t.Fatalf(" can't find plugin")
+			o.t.Fatalf(" can't find plugin")
 		}
 		ipfixPlug = clplg.Ext.(*PluginIPFixClient)
 		ipfixPlug.cdbv.Dump()
@@ -97,20 +118,18 @@ func (o *IPFixTestBase) Run(t *testing.T, compare bool) {
 
 	if compare {
 		if o.monitor {
-			tctx.SimRecordCompare(o.testname, t)
+			tctx.SimRecordCompare(o.goldenfile, o.t)
 		} else {
 			if o.clientsToSim == 1 {
 				if o.counters != ipfixPlug.stats {
-					t.Errorf("Bad counters, want %+v, have %+v.\n", o.counters, ipfixPlug.stats)
-					t.FailNow()
+					o.t.Fatalf("Bad counters, want %+v, have %+v.\n", o.counters, ipfixPlug.stats)
 				}
 			}
-
 		}
 	}
 }
 
-func createSimulationEnv(simRx *core.VethIFSim, t *IPFixTestBase) (*core.CThreadCtx, *core.CClient) {
+func createSimulationEnv(simRx *core.VethIFSim, t *IPFixTestBase) (*core.CThreadCtx, error) {
 	tctx := core.NewThreadCtx(0, 4510, true, simRx)
 	var key core.CTunnelKey
 	key.Set(&core.CTunnelData{Vport: 1})
@@ -139,14 +158,19 @@ func createSimulationEnv(simRx *core.VethIFSim, t *IPFixTestBase) (*core.CThread
 		client.Ipv6ForceDGW = true
 		client.Ipv6ForcedgMac = core.MACKey{0, 0, 2, 0, 0, 0}
 		ns.AddClient(client)
-		client.PluginCtx.CreatePlugins([]string{IPFIX_PLUG}, t.initJSON)
+		err := client.PluginCtx.CreatePlugins([]string{IPFIX_PLUG}, t.initJSON)
+		if err != nil {
+			tctx.Delete()
+			return nil, err
+		}
 
 		// After adding the plugins, we can try to resolve.
 		client.AttemptResolve()
 
 		cPlg := client.PluginCtx.Get(IPFIX_PLUG)
 		if cPlg == nil {
-			panic(" can't find plugin")
+			tctx.Delete()
+			return nil, fmt.Errorf("can't find plugin %s", IPFIX_PLUG)
 		}
 	}
 	ns.Dump()
@@ -471,17 +495,12 @@ func TestPluginIPFixNeg1(t *testing.T) {
 	`, getTemplate261(&templateParams))
 
 	a := &IPFixTestBase{
-		testname:     "ipfixNeg1",
-		dropAll:      false,
-		monitor:      false,
-		match:        0,
-		capture:      true,
+		t:            t,
+		expEnvErr:    "Invalid dst URL scheme",
 		initJSON:     [][]byte{[]byte(initJson)},
-		duration:     10 * time.Second,
 		clientsToSim: 1,
-		counters:     IPFixStats{invalidDst: 1},
 	}
-	a.Run(t, true)
+	a.Run(true)
 }
 
 func TestPluginIPFixNeg2(t *testing.T) {
@@ -502,17 +521,12 @@ func TestPluginIPFixNeg2(t *testing.T) {
 	`, getTemplate261(&templateParams))
 
 	a := &IPFixTestBase{
-		testname:     "ipfixNeg2",
-		dropAll:      false,
-		monitor:      false,
-		match:        0,
-		capture:      true,
+		t:            t,
+		expEnvErr:    "Invalid dst URL or HostPort",
 		initJSON:     [][]byte{[]byte(initJson)},
-		duration:     10 * time.Second,
 		clientsToSim: 1,
-		counters:     IPFixStats{invalidDst: 1},
 	}
-	a.Run(t, true)
+	a.Run(true)
 }
 
 func TestPluginIPFixNeg3(t *testing.T) {
@@ -533,17 +547,12 @@ func TestPluginIPFixNeg3(t *testing.T) {
 	`, getTemplate261(&templateParams))
 
 	a := &IPFixTestBase{
-		testname:     "ipfixNeg3",
-		dropAll:      false,
-		monitor:      false,
-		match:        0,
-		capture:      true,
+		t:            t,
+		expEnvErr:    "invalid character",
 		initJSON:     [][]byte{[]byte(initJson)},
-		duration:     10 * time.Second,
 		clientsToSim: 1,
-		counters:     IPFixStats{badOrNoInitJson: 1},
 	}
-	a.Run(t, true)
+	a.Run(true)
 }
 
 func TestPluginIPFixNeg4(t *testing.T) {
@@ -564,7 +573,7 @@ func TestPluginIPFixNeg4(t *testing.T) {
 	`, getTemplate261(&templateParams))
 
 	a := &IPFixTestBase{
-		testname:     "ipfixNeg4",
+		t:            t,
 		dropAll:      false,
 		monitor:      false,
 		match:        0,
@@ -574,23 +583,18 @@ func TestPluginIPFixNeg4(t *testing.T) {
 		clientsToSim: 1,
 		counters:     IPFixStats{},
 	}
-	a.Run(t, true)
+	a.Run(true)
 }
 
 func TestPluginIPFixNeg5(t *testing.T) {
 
 	a := &IPFixTestBase{
-		testname:     "ipfixNeg5",
-		dropAll:      false,
-		monitor:      false,
-		match:        0,
-		capture:      true,
+		t:            t,
+		expEnvErr:    "Field validation .+ failed",
 		initJSON:     [][]byte{[]byte(`{}`)},
-		duration:     10 * time.Second,
 		clientsToSim: 1,
-		counters:     IPFixStats{badOrNoInitJson: 1},
 	}
-	a.Run(t, true)
+	a.Run(true)
 }
 
 func TestPluginIPFixNeg6(t *testing.T) {
@@ -639,18 +643,12 @@ func TestPluginIPFixNeg6(t *testing.T) {
 	}`)
 
 	a := &IPFixTestBase{
-		testname:     "ipfixNeg6",
-		dropAll:      false,
-		monitor:      false,
-		match:        0,
-		capture:      true,
+		t:            t,
+		expEnvErr:    "duplicate generator name",
 		initJSON:     [][]byte{[]byte(initJson)},
-		duration:     10 * time.Second,
 		clientsToSim: 1,
-		counters: IPFixStats{pktTempSent: 11, pktDataSent: 21,
-			recordsDataSent: 105, recordsTempSent: 11, failedCreatingGen: 1, duplicateGenName: 1},
 	}
-	a.Run(t, true)
+	a.Run(true)
 }
 
 func TestPluginIPFixNeg7(t *testing.T) {
@@ -696,18 +694,12 @@ func TestPluginIPFixNeg7(t *testing.T) {
 	}`)
 
 	a := &IPFixTestBase{
-		testname:     "ipfixNeg7",
-		dropAll:      false,
-		monitor:      false,
-		match:        0,
-		capture:      true,
+		t:            t,
+		expEnvErr:    "Got engine for unexisting field",
 		initJSON:     [][]byte{[]byte(initJson)},
-		duration:     10 * time.Second,
 		clientsToSim: 1,
-		counters: IPFixStats{pktTempSent: 11, pktDataSent: 21,
-			recordsDataSent: 105, recordsTempSent: 11, invalidEngineName: 1},
 	}
-	a.Run(t, true)
+	a.Run(true)
 }
 
 func TestPluginIPFixNeg8(t *testing.T) {
@@ -756,18 +748,12 @@ func TestPluginIPFixNeg8(t *testing.T) {
 				}`)
 
 	a := &IPFixTestBase{
-		testname:     "ipfixNeg8",
-		dropAll:      false,
-		monitor:      false,
-		match:        0,
-		capture:      true,
+		t:            t,
+		expEnvErr:    "duplicate template ID",
 		initJSON:     [][]byte{[]byte(initJson)},
-		duration:     10 * time.Second,
 		clientsToSim: 1,
-		counters: IPFixStats{pktTempSent: 11, pktDataSent: 21, recordsDataSent: 105,
-			recordsTempSent: 11, failedCreatingGen: 1, duplicateTemplateID: 1},
 	}
-	a.Run(t, true)
+	a.Run(true)
 }
 
 func TestPluginIPFixNeg9(t *testing.T) {
@@ -799,17 +785,12 @@ func TestPluginIPFixNeg9(t *testing.T) {
 				}`)
 
 	a := &IPFixTestBase{
-		testname:     "ipfixNeg9",
-		dropAll:      false,
-		monitor:      false,
-		match:        0,
-		capture:      true,
+		t:            t,
+		expEnvErr:    "data size differs from declared field length",
 		initJSON:     [][]byte{[]byte(initJson)},
-		duration:     10 * time.Second,
 		clientsToSim: 1,
-		counters:     IPFixStats{failedCreatingGen: 1, dataIncorrectLength: 1},
 	}
-	a.Run(t, true)
+	a.Run(true)
 }
 
 func TestPluginIPFixNeg10(t *testing.T) {
@@ -831,17 +812,12 @@ func TestPluginIPFixNeg10(t *testing.T) {
 	`, getTemplate261(&templateParams))
 
 	a := &IPFixTestBase{
-		testname:     "ipfixNeg10",
-		dropAll:      false,
-		monitor:      false,
-		match:        0,
-		capture:      true,
+		t:            t,
+		expEnvErr:    "invalid scope count",
 		initJSON:     [][]byte{[]byte(initJson)},
-		duration:     10 * time.Second,
 		clientsToSim: 1,
-		counters:     IPFixStats{invalidScopeCount: 1, failedCreatingGen: 1},
 	}
-	a.Run(t, true)
+	a.Run(true)
 }
 
 func TestPluginIPFixNeg11(t *testing.T) {
@@ -875,17 +851,12 @@ func TestPluginIPFixNeg11(t *testing.T) {
 	`
 
 	a := &IPFixTestBase{
-		testname:     "ipfixNeg11",
-		dropAll:      false,
-		monitor:      false,
-		match:        0,
-		capture:      true,
+		t:            t,
+		expEnvErr:    "invalid template ID",
 		initJSON:     [][]byte{[]byte(initJson)},
-		duration:     10 * time.Second,
 		clientsToSim: 1,
-		counters:     IPFixStats{invalidTemplateID: 1, failedCreatingGen: 1},
 	}
-	a.Run(t, true)
+	a.Run(true)
 }
 
 func TestPluginIPFixNeg12(t *testing.T) {
@@ -918,17 +889,12 @@ func TestPluginIPFixNeg12(t *testing.T) {
 	`
 
 	a := &IPFixTestBase{
-		testname:     "ipfixNeg12",
-		dropAll:      false,
-		monitor:      false,
-		match:        0,
-		capture:      true,
+		t:            t,
+		expEnvErr:    "NetFlow version 9 does not support enterprise field",
 		initJSON:     [][]byte{[]byte(initJson)},
-		duration:     10 * time.Second,
 		clientsToSim: 1,
-		counters:     IPFixStats{enterpriseFieldv9: 1, failedCreatingGen: 1},
 	}
-	a.Run(t, true)
+	a.Run(true)
 }
 
 func TestPluginIPFixNeg13(t *testing.T) {
@@ -962,17 +928,12 @@ func TestPluginIPFixNeg13(t *testing.T) {
 	`
 
 	a := &IPFixTestBase{
-		testname:     "ipfixNeg13",
-		dropAll:      false,
-		monitor:      false,
-		match:        0,
-		capture:      true,
+		t:            t,
+		expEnvErr:    "variable length .+ has data",
 		initJSON:     [][]byte{[]byte(initJson)},
-		duration:     10 * time.Second,
 		clientsToSim: 1,
-		counters:     IPFixStats{dataIncorrectLength: 1, failedCreatingGen: 1},
 	}
-	a.Run(t, true)
+	a.Run(true)
 }
 
 func TestPluginIPFixNeg14(t *testing.T) {
@@ -1024,17 +985,12 @@ func TestPluginIPFixNeg14(t *testing.T) {
 	`
 
 	a := &IPFixTestBase{
-		testname:     "ipfixNeg14",
-		dropAll:      false,
-		monitor:      false,
-		match:        0,
-		capture:      true,
+		t:            t,
+		expEnvErr:    "No engine for var len field",
 		initJSON:     [][]byte{[]byte(initJson)},
-		duration:     10 * time.Second,
 		clientsToSim: 1,
-		counters:     IPFixStats{variableLengthNoEngine: 1, failedCreatingGen: 1},
 	}
-	a.Run(t, true)
+	a.Run(true)
 }
 
 func TestPluginIPFix1(t *testing.T) {
@@ -1055,7 +1011,8 @@ func TestPluginIPFix1(t *testing.T) {
 	`, getTemplate261(&templateParams))
 
 	a := &IPFixTestBase{
-		testname:     "ipfix1",
+		goldenfile:   "ipfix1",
+		t:            t,
 		dropAll:      false,
 		monitor:      true,
 		match:        0,
@@ -1064,7 +1021,7 @@ func TestPluginIPFix1(t *testing.T) {
 		duration:     10 * time.Second,
 		clientsToSim: 1,
 	}
-	a.Run(t, true)
+	a.Run(true)
 }
 
 func TestPluginIPFix2(t *testing.T) {
@@ -1085,7 +1042,8 @@ func TestPluginIPFix2(t *testing.T) {
 	`, getTemplate261(&templateParams))
 
 	a := &IPFixTestBase{
-		testname:     "ipfix2",
+		goldenfile:   "ipfix2",
+		t:            t,
 		dropAll:      false,
 		monitor:      true,
 		match:        0,
@@ -1096,7 +1054,7 @@ func TestPluginIPFix2(t *testing.T) {
 		clientIpv6: core.Ipv6Key{0x20, 0x01, 0x0d, 0xb8, 0x00, 0x00, 0x00, 0x00,
 			0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01},
 	}
-	a.Run(t, true)
+	a.Run(true)
 }
 
 func TestPluginIPFix3(t *testing.T) {
@@ -1116,7 +1074,8 @@ func TestPluginIPFix3(t *testing.T) {
 	`, getTemplate261(&templateParams))
 
 	a := &IPFixTestBase{
-		testname:     "ipfix3",
+		goldenfile:   "ipfix3",
+		t:            t,
 		dropAll:      false,
 		monitor:      true,
 		match:        0,
@@ -1125,7 +1084,7 @@ func TestPluginIPFix3(t *testing.T) {
 		duration:     10 * time.Second,
 		clientsToSim: 1,
 	}
-	a.Run(t, true)
+	a.Run(true)
 }
 
 func TestPluginIPFix4(t *testing.T) {
@@ -1146,7 +1105,8 @@ func TestPluginIPFix4(t *testing.T) {
 	`, getTemplate261(&templateParams))
 
 	a := &IPFixTestBase{
-		testname:     "ipfix4",
+		goldenfile:   "ipfix4",
+		t:            t,
 		dropAll:      false,
 		monitor:      true,
 		match:        0,
@@ -1155,18 +1115,19 @@ func TestPluginIPFix4(t *testing.T) {
 		duration:     10 * time.Second,
 		clientsToSim: 1,
 	}
-	a.Run(t, true)
+	a.Run(true)
 }
 
 func TestPluginIPFix5(t *testing.T) {
 	// V9 with 0.5 data rate and IANA fields only.
 
 	a := &IPFixTestBase{
-		testname: "ipfix5",
-		dropAll:  false,
-		monitor:  true,
-		match:    0,
-		capture:  true,
+		goldenfile: "ipfix5",
+		t:          t,
+		dropAll:    false,
+		monitor:    true,
+		match:      0,
+		capture:    true,
 		initJSON: [][]byte{[]byte(`
 		{
 			"netflow_version": 9,
@@ -1231,7 +1192,7 @@ func TestPluginIPFix5(t *testing.T) {
 		duration:     10 * time.Second,
 		clientsToSim: 1,
 	}
-	a.Run(t, true)
+	a.Run(true)
 }
 
 func TestPluginIPFix6(t *testing.T) {
@@ -1258,7 +1219,8 @@ func TestPluginIPFix6(t *testing.T) {
 	`, getTemplate261(&template261Params), getTemplate266(&template266Params))
 
 	a := &IPFixTestBase{
-		testname:     "ipfix6",
+		goldenfile:   "ipfix6",
+		t:            t,
 		dropAll:      false,
 		monitor:      true,
 		match:        0,
@@ -1267,7 +1229,7 @@ func TestPluginIPFix6(t *testing.T) {
 		duration:     10 * time.Second,
 		clientsToSim: 1,
 	}
-	a.Run(t, true)
+	a.Run(true)
 }
 
 func TestPluginIPFix7(t *testing.T) {
@@ -1312,7 +1274,8 @@ func TestPluginIPFix7(t *testing.T) {
 	}`
 
 	a := &IPFixTestBase{
-		testname:     "ipfix7",
+		goldenfile:   "ipfix7",
+		t:            t,
 		dropAll:      false,
 		monitor:      true,
 		match:        0,
@@ -1321,7 +1284,7 @@ func TestPluginIPFix7(t *testing.T) {
 		duration:     10 * time.Second,
 		clientsToSim: 1,
 	}
-	a.Run(t, true)
+	a.Run(true)
 }
 
 func TestPluginIPFix8(t *testing.T) {
@@ -1361,7 +1324,8 @@ func TestPluginIPFix8(t *testing.T) {
 	`, getTemplate261Fields())
 
 	a := &IPFixTestBase{
-		testname:     "ipfix8",
+		goldenfile:   "ipfix8",
+		t:            t,
 		dropAll:      false,
 		monitor:      true,
 		match:        0,
@@ -1370,7 +1334,7 @@ func TestPluginIPFix8(t *testing.T) {
 		duration:     10 * time.Second,
 		clientsToSim: 1,
 	}
-	a.Run(t, true)
+	a.Run(true)
 }
 
 func TestPluginIPFix9(t *testing.T) {
@@ -1434,7 +1398,8 @@ func TestPluginIPFix9(t *testing.T) {
 	`, getTemplate261Fields())
 
 	a := &IPFixTestBase{
-		testname:     "ipfix9",
+		goldenfile:   "ipfix9",
+		t:            t,
 		dropAll:      false,
 		monitor:      true,
 		match:        0,
@@ -1444,7 +1409,7 @@ func TestPluginIPFix9(t *testing.T) {
 		clientsToSim: 1,
 		seed:         0xc15c0c15c0,
 	}
-	a.Run(t, true)
+	a.Run(true)
 }
 
 func TestPluginIPFix10(t *testing.T) {
@@ -1578,7 +1543,8 @@ func TestPluginIPFix10(t *testing.T) {
 	}`
 
 	a := &IPFixTestBase{
-		testname:     "ipfix10",
+		goldenfile:   "ipfix10",
+		t:            t,
 		dropAll:      false,
 		monitor:      true,
 		match:        0,
@@ -1590,7 +1556,7 @@ func TestPluginIPFix10(t *testing.T) {
 			0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01},
 		seed: 0xbe5be5,
 	}
-	a.Run(t, true)
+	a.Run(true)
 }
 
 func TestPluginIPFix11(t *testing.T) {
@@ -1678,7 +1644,8 @@ func TestPluginIPFix11(t *testing.T) {
 	}`
 
 	a := &IPFixTestBase{
-		testname:     "ipfix11",
+		goldenfile:   "ipfix11",
+		t:            t,
 		dropAll:      false,
 		monitor:      true,
 		match:        0,
@@ -1688,7 +1655,7 @@ func TestPluginIPFix11(t *testing.T) {
 		clientsToSim: 1,
 		seed:         0xdeadbeef,
 	}
-	a.Run(t, true)
+	a.Run(true)
 }
 
 type IPFixQueryCtx struct {
@@ -1765,7 +1732,8 @@ func TestPluginIPFix12(t *testing.T) {
 		`, getTemplate261(&templateParams))
 
 	a := &IPFixTestBase{
-		testname:     "ipfix12",
+		goldenfile:   "ipfix12",
+		t:            t,
 		dropAll:      false,
 		monitor:      true,
 		match:        12,
@@ -1775,7 +1743,7 @@ func TestPluginIPFix12(t *testing.T) {
 		clientsToSim: 1,
 		cb:           Cb1,
 	}
-	a.Run(t, true)
+	a.Run(true)
 
 }
 
@@ -1804,7 +1772,8 @@ func TestPluginIPFix13(t *testing.T) {
 		`, getTemplate261(&template261Params), getTemplate266(&template266Params))
 
 	a := &IPFixTestBase{
-		testname:     "ipfix13",
+		goldenfile:   "ipfix13",
+		t:            t,
 		dropAll:      false,
 		monitor:      true,
 		match:        13,
@@ -1814,7 +1783,7 @@ func TestPluginIPFix13(t *testing.T) {
 		clientsToSim: 1,
 		cb:           Cb1,
 	}
-	a.Run(t, true)
+	a.Run(true)
 }
 
 func TestPluginIPFix14(t *testing.T) {
@@ -1835,7 +1804,8 @@ func TestPluginIPFix14(t *testing.T) {
 		`, getTemplate261(&template261Params))
 
 	a := &IPFixTestBase{
-		testname:     "ipfix14",
+		goldenfile:   "ipfix14",
+		t:            t,
 		dropAll:      false,
 		monitor:      true,
 		match:        0,
@@ -1844,7 +1814,7 @@ func TestPluginIPFix14(t *testing.T) {
 		duration:     10 * time.Second,
 		clientsToSim: 1,
 	}
-	a.Run(t, true)
+	a.Run(true)
 }
 
 func TestPluginIPFix15(t *testing.T) {
@@ -1884,7 +1854,8 @@ func TestPluginIPFix15(t *testing.T) {
 	`, getTemplate261Fields())
 
 	a := &IPFixTestBase{
-		testname:     "ipfix15",
+		goldenfile:   "ipfix15",
+		t:            t,
 		dropAll:      false,
 		monitor:      true,
 		match:        0,
@@ -1893,7 +1864,7 @@ func TestPluginIPFix15(t *testing.T) {
 		duration:     10 * time.Second,
 		clientsToSim: 1,
 	}
-	a.Run(t, true)
+	a.Run(true)
 }
 
 func TestPluginIPFix16(t *testing.T) {
@@ -1980,7 +1951,8 @@ func TestPluginIPFix16(t *testing.T) {
 		`, getTemplate261Fields())
 
 	a := &IPFixTestBase{
-		testname:     "ipfix16",
+		goldenfile:   "ipfix16",
+		t:            t,
 		dropAll:      false,
 		monitor:      true,
 		match:        0,
@@ -1990,7 +1962,7 @@ func TestPluginIPFix16(t *testing.T) {
 		clientsToSim: 1,
 		seed:         0x23581321,
 	}
-	a.Run(t, true)
+	a.Run(true)
 }
 
 func TestPluginIPFix17(t *testing.T) {
@@ -2100,7 +2072,8 @@ func TestPluginIPFix17(t *testing.T) {
 		`
 
 	a := &IPFixTestBase{
-		testname:     "ipfix17",
+		goldenfile:   "ipfix17",
+		t:            t,
 		dropAll:      false,
 		monitor:      true,
 		match:        0,
@@ -2110,7 +2083,7 @@ func TestPluginIPFix17(t *testing.T) {
 		clientsToSim: 1,
 		seed:         0xbdbdbd,
 	}
-	a.Run(t, true)
+	a.Run(true)
 }
 
 func getVariableLengthJson(rate float32, data_records_num uint16) string {
@@ -2251,7 +2224,8 @@ func TestPluginIPFix18(t *testing.T) {
 	initJson := getVariableLengthJson(20, 3)
 
 	a := &IPFixTestBase{
-		testname:     "ipfix18",
+		goldenfile:   "ipfix18",
+		t:            t,
 		dropAll:      false,
 		monitor:      true,
 		match:        0,
@@ -2261,7 +2235,7 @@ func TestPluginIPFix18(t *testing.T) {
 		clientsToSim: 1,
 		seed:         0xbe5be5,
 	}
-	a.Run(t, true)
+	a.Run(true)
 }
 
 func TestPluginIPFix19(t *testing.T) {
@@ -2274,7 +2248,8 @@ func TestPluginIPFix19(t *testing.T) {
 	initJson := getVariableLengthJson(1, 0)
 
 	a := &IPFixTestBase{
-		testname:     "ipfix19",
+		goldenfile:   "ipfix19",
+		t:            t,
 		dropAll:      false,
 		monitor:      true,
 		match:        0,
@@ -2284,7 +2259,7 @@ func TestPluginIPFix19(t *testing.T) {
 		clientsToSim: 1,
 		seed:         0xbe5be5,
 	}
-	a.Run(t, true)
+	a.Run(true)
 }
 
 func TestPluginIPFix20(t *testing.T) {
@@ -2297,7 +2272,8 @@ func TestPluginIPFix20(t *testing.T) {
 	initJson := getVariableLengthJson(1, 255)
 
 	a := &IPFixTestBase{
-		testname:     "ipfix20",
+		goldenfile:   "ipfix20",
+		t:            t,
 		dropAll:      false,
 		monitor:      true,
 		match:        0,
@@ -2307,7 +2283,7 @@ func TestPluginIPFix20(t *testing.T) {
 		clientsToSim: 1,
 		seed:         0xc15c0be51,
 	}
-	a.Run(t, true)
+	a.Run(true)
 }
 
 func TestPluginIPFix21(t *testing.T) {
@@ -2320,7 +2296,8 @@ func TestPluginIPFix21(t *testing.T) {
 	initJson := getVariableLengthJson(200, 1)
 
 	a := &IPFixTestBase{
-		testname:     "ipfix21",
+		goldenfile:   "ipfix21",
+		t:            t,
 		dropAll:      false,
 		monitor:      true,
 		match:        0,
@@ -2330,7 +2307,7 @@ func TestPluginIPFix21(t *testing.T) {
 		clientsToSim: 1,
 		seed:         0xc15c0be51,
 	}
-	a.Run(t, true)
+	a.Run(true)
 }
 
 func TestPluginIPFix22(t *testing.T) {
@@ -2391,7 +2368,8 @@ func TestPluginIPFix22(t *testing.T) {
 	}
 	`
 	a := &IPFixTestBase{
-		testname:     "ipfix22",
+		goldenfile:   "ipfix22",
+		t:            t,
 		dropAll:      false,
 		monitor:      true,
 		match:        0,
@@ -2401,7 +2379,7 @@ func TestPluginIPFix22(t *testing.T) {
 		clientsToSim: 1,
 		seed:         0xc15c0be51,
 	}
-	a.Run(t, true)
+	a.Run(true)
 }
 
 func TestPluginIPFix23(t *testing.T) {
@@ -2488,7 +2466,8 @@ func TestPluginIPFix23(t *testing.T) {
 		}
 		`
 	a := &IPFixTestBase{
-		testname:     "ipfix23",
+		goldenfile:   "ipfix23",
+		t:            t,
 		dropAll:      false,
 		monitor:      true,
 		match:        0,
@@ -2498,7 +2477,7 @@ func TestPluginIPFix23(t *testing.T) {
 		clientsToSim: 1,
 		seed:         0xc15c0be51,
 	}
-	a.Run(t, true)
+	a.Run(true)
 }
 
 //func TestPluginIPFix24(t *testing.T) {
@@ -2531,6 +2510,7 @@ func TestPluginIPFix23(t *testing.T) {
 //
 //	a := &IPFixTestBase{
 //		testname:     "ipfix1",
+//		test:         t,
 //		dropAll:      false,
 //		monitor:      true,
 //		match:        0,
@@ -2539,7 +2519,7 @@ func TestPluginIPFix23(t *testing.T) {
 //		duration:     10 * time.Second,
 //		clientsToSim: 1,
 //	}
-//	a.Run(t, true)
+//	a.Run(true)
 //}
 
 func init() {

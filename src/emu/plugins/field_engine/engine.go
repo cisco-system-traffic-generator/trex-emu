@@ -116,7 +116,7 @@ func findValue(arr []uint16, val uint16) (int, bool) {
 func PutValue(size uint16, value uint64, b []byte, mgr *FieldEngineManager) error {
 	if len(b) < int(size) {
 		mgr.counters.bufferTooShort++
-		return fmt.Errorf("Provided slice is shorter that the size of the variable to write, want at least %v, have %v.\n", size, len(b))
+		return fmt.Errorf("Provided slice is shorter that the size of the variable to write, want at least %v, have %v.", size, len(b))
 	}
 	switch size {
 	case 1:
@@ -219,27 +219,27 @@ func NewUIntEngine(params *UIntEngineParams, mgr *FieldEngineManager) (*UIntEngi
 func (o *UIntEngine) validateParams(params *UIntEngineParams) (err error) {
 	err = nil
 	if params.MinValue > params.MaxValue {
-		err = fmt.Errorf("Min value %v is bigger than max value %v.\n", params.MinValue, params.MaxValue)
+		err = fmt.Errorf("Min value %v is bigger than max value %v.", params.MinValue, params.MaxValue)
 		o.mgr.counters.maxSmallerThanMin++
 	}
 	if params.InitValue != 0 && (params.InitValue < params.MinValue || params.InitValue > params.MaxValue) {
-		err = fmt.Errorf("Init value %v must be between [%v - %v].\n", params.InitValue, params.MinValue, params.MaxValue)
+		err = fmt.Errorf("Init value %v must be between [%v - %v].", params.InitValue, params.MinValue, params.MaxValue)
 		o.mgr.counters.badInitValue++
 	}
 	sizes := []uint16{1, 2, 4, 8}
 	maxPossible := []uint64{math.MaxUint8, math.MaxUint16, math.MaxUint32, math.MaxUint64}
 	i, ok := findValue(sizes, params.Size)
 	if !ok {
-		err = fmt.Errorf("Invalid size %v. Size should be {1, 2, 4, 8}.\n", params.Size)
+		err = fmt.Errorf("Invalid size %v. Size should be {1, 2, 4, 8}.", params.Size)
 		o.mgr.counters.invalidSize++
 	} else {
 		if params.MaxValue > maxPossible[i] {
-			err = fmt.Errorf("Max value %v cannot be represented with size %v.\n", params.MaxValue, params.Size)
+			err = fmt.Errorf("Max value %v cannot be represented with size %v.", params.MaxValue, params.Size)
 			o.mgr.counters.sizeTooSmall++
 		}
 	}
 	if params.Op != "inc" && params.Op != "dec" && params.Op != "rand" {
-		err = fmt.Errorf("Unsupported operation %v.\n", params.Op)
+		err = fmt.Errorf("Unsupported operation %v.", params.Op)
 		o.mgr.counters.badOperation++
 	}
 	return err
@@ -375,11 +375,11 @@ func NewIntEngine(params *IntEngineParams, mgr *FieldEngineManager) (*IntEngine,
 func (o *IntEngine) validateParams(params *IntEngineParams) (err error) {
 	err = nil
 	if params.MinValue > params.MaxValue {
-		err = fmt.Errorf("Min value %v is bigger than max value %v.\n", params.MinValue, params.MaxValue)
+		err = fmt.Errorf("Min value %v is bigger than max value %v.", params.MinValue, params.MaxValue)
 		o.mgr.counters.maxSmallerThanMin++
 	}
 	if params.InitValue != math.MinInt64 && (params.InitValue < params.MinValue || params.InitValue > params.MaxValue) {
-		err = fmt.Errorf("Init value %v must be between [%v - %v].\n", params.InitValue, params.MinValue, params.MaxValue)
+		err = fmt.Errorf("Init value %v must be between [%v - %v].", params.InitValue, params.MinValue, params.MaxValue)
 		o.mgr.counters.badInitValue++
 	}
 	sizes := []uint16{1, 2, 4, 8}
@@ -387,20 +387,20 @@ func (o *IntEngine) validateParams(params *IntEngineParams) (err error) {
 	minPossible := []int64{math.MinInt8, math.MinInt16, math.MinInt32, math.MinInt64}
 	i, ok := findValue(sizes, params.Size)
 	if !ok {
-		err = fmt.Errorf("Invalid size %v. Size should be {1, 2, 4, 8}.\n", params.Size)
+		err = fmt.Errorf("Invalid size %v. Size should be {1, 2, 4, 8}.", params.Size)
 		o.mgr.counters.invalidSize++
 	} else {
 		if params.MaxValue > maxPossible[i] {
-			err = fmt.Errorf("Max value %v cannot be represented with size %v.\n", params.MaxValue, params.Size)
+			err = fmt.Errorf("Max value %v cannot be represented with size %v.", params.MaxValue, params.Size)
 			o.mgr.counters.sizeTooSmall++
 		}
 		if params.MinValue < minPossible[i] {
-			err = fmt.Errorf("Min value %v cannot be represented with size %v.\n", params.MinValue, params.Size)
+			err = fmt.Errorf("Min value %v cannot be represented with size %v.", params.MinValue, params.Size)
 			o.mgr.counters.sizeTooSmall++
 		}
 	}
 	if params.Op != "inc" && params.Op != "dec" && params.Op != "rand" {
-		err = fmt.Errorf("Unsupported operation %v.\n", params.Op)
+		err = fmt.Errorf("Unsupported operation %v.", params.Op)
 		o.mgr.counters.badOperation++
 	}
 	return err
@@ -483,8 +483,8 @@ func (o *IntEngine) Update(b []byte) (int, error) {
 type FloatEngineParams struct {
 	Size   uint16  `json:"size" validate:"required,oneof=4 8"` // Size can be 4 (float32) or 8 (float64)
 	Offset uint16  `json:"offset"`                             // Offset in which to write in the packet
-	Min    float64 `json:"min", validate:"required"`           // Minimal value of the domain
-	Max    float64 `json:"max", validate:"required"`           // Maximal value of the domain
+	Min    float64 `json:"min" validate:"required"`            // Minimal value of the domain
+	Max    float64 `json:"max" validate:"required"`            // Maximal value of the domain
 }
 
 // FloatEngine represents a float32 or float64 engine. For float engines only rand makes sense.
@@ -528,7 +528,7 @@ func CreateFloatEngine(params *fastjson.RawMessage, mgr *FieldEngineManager) (Fi
 		return nil, err
 	}
 	if p.Min > p.Max {
-		err = fmt.Errorf("Min value %v is bigger than max value %v.\n", p.Min, p.Max)
+		err = fmt.Errorf("Min value %v is bigger than max value %v.", p.Min, p.Max)
 		mgr.counters.maxSmallerThanMin++
 	}
 	// create and return new engine
@@ -567,15 +567,15 @@ type BaseListEngine struct {
 // ValidateParams validates the parameters of the base list engine.
 func (o *BaseListEngine) validateParams(params *BaseListEngineParams) (err error) {
 	if params.Op != "inc" && params.Op != "dec" && params.Op != "rand" {
-		err = fmt.Errorf("Unsupported operation %v.\n", params.Op)
+		err = fmt.Errorf("Unsupported operation %v.", params.Op)
 		o.mgr.counters.badOperation++
 	}
 	if o.listLength == 0 {
-		err = fmt.Errorf("Engine list can't be empty.\n")
+		err = fmt.Errorf("Engine list can't be empty.")
 		o.mgr.counters.emptyList++
 	}
 	if o.listLength > 0 && int(params.InitIndex) >= o.listLength {
-		err = fmt.Errorf("Init index %v must be between [%v - %v].\n", params.InitIndex, 0, o.listLength)
+		err = fmt.Errorf("Init index %v must be between [%v - %v].", params.InitIndex, 0, o.listLength)
 		o.mgr.counters.badInitValue++
 	}
 	return err
@@ -690,12 +690,12 @@ func (o *UIntListEngine) validateParams(params *UIntListEngineParams) (err error
 	maxPossible := []uint64{math.MaxUint8, math.MaxUint16, math.MaxUint32, math.MaxUint64}
 	i, ok := findValue(sizes, params.Size)
 	if !ok {
-		err = fmt.Errorf("Invalid size %v. Size should be {1, 2, 4, 8}.\n", params.Size)
+		err = fmt.Errorf("Invalid size %v. Size should be {1, 2, 4, 8}.", params.Size)
 		o.mgr.counters.invalidSize++
 	} else {
 		for j := range params.List {
 			if params.List[j] > maxPossible[i] {
-				err = fmt.Errorf("List value %v cannot be represented with size %v.\n", params.List[j], params.Size)
+				err = fmt.Errorf("List value %v cannot be represented with size %v.", params.List[j], params.Size)
 				o.mgr.counters.sizeTooSmall++
 				break
 			}
@@ -781,12 +781,12 @@ func (o *IntListEngine) validateParams(params *IntListEngineParams) (err error) 
 	minPossible := []int64{math.MinInt8, math.MinInt16, math.MinInt32, math.MinInt64}
 	i, ok := findValue(sizes, params.Size)
 	if !ok {
-		err = fmt.Errorf("Invalid size %v. Size should be {1, 2, 4, 8}.\n", params.Size)
+		err = fmt.Errorf("Invalid size %v. Size should be {1, 2, 4, 8}.", params.Size)
 		o.mgr.counters.invalidSize++
 	} else {
 		for j := range params.List {
 			if params.List[j] > maxPossible[i] || params.List[j] < minPossible[i] {
-				err = fmt.Errorf("List value %v cannot be represented with size %v.\n", params.List[j], params.Size)
+				err = fmt.Errorf("List value %v cannot be represented with size %v.", params.List[j], params.Size)
 				o.mgr.counters.sizeTooSmall++
 				break
 			}
@@ -950,7 +950,7 @@ func (o *StringListEngine) validateParams(params *StringListEngineParams) (err e
 	err = o.BaseListEngine.validateParams(&params.BaseListEngineParams)
 	for _, str := range params.List {
 		if len([]byte(str)) > int(params.Size) {
-			err = fmt.Errorf("String %v cannot be represented with size %v.\n", str, params.Size)
+			err = fmt.Errorf("String %v cannot be represented with size %v.", str, params.Size)
 			o.mgr.counters.sizeTooSmall++
 			break
 		}
@@ -976,13 +976,13 @@ func (o *StringListEngine) processStrings() {
 func (o *StringListEngine) Update(b []byte) (int, error) {
 	if len(b) < int(o.Size) {
 		o.mgr.counters.bufferTooShort++
-		return 0, fmt.Errorf("Provided slice is shorter that the size of the variable to write, want at least %v, have %v.\n", o.Size, len(b))
+		return 0, fmt.Errorf("Provided slice is shorter that the size of the variable to write, want at least %v, have %v.", o.Size, len(b))
 	}
 
 	copied := copy(b, o.processedList[o.currIndex])
 	if copied != int(o.Size) {
 		o.mgr.counters.badCopyToBuffer++
-		return 0, fmt.Errorf("Error happened copying the string into the buffer. Copied bytes: want %v and have %v.\n", o.Size, copied)
+		return 0, fmt.Errorf("Error happened copying the string into the buffer. Copied bytes: want %v and have %v.", o.Size, copied)
 	}
 
 	err := o.PerformOp()
@@ -1044,13 +1044,13 @@ func (o *HistogramEngine) buildDistributionSlice(entries []HistogramEntry) {
 func (o *HistogramEngine) Update(b []byte) (int, error) {
 	if len(b) < int(o.par.Size) {
 		o.mgr.counters.bufferTooShort++
-		return 0, fmt.Errorf("Provided slice is shorter that the size of the variable to write, want at least %v, have %v.\n", o.par.Size, len(b))
+		return 0, fmt.Errorf("Provided slice is shorter that the size of the variable to write, want at least %v, have %v.", o.par.Size, len(b))
 	}
 	// clean the provided buffer
 	copiedSize := copy(b[:o.par.Size], make([]byte, o.par.Size))
 	if copiedSize != int(o.par.Size) {
 		o.mgr.counters.badCopyToBuffer++
-		return 0, fmt.Errorf("Didn't copy the right amount to the buffer, want %v have %v.\n", o.par.Size, copiedSize)
+		return 0, fmt.Errorf("Didn't copy the right amount to the buffer, want %v have %v.", o.par.Size, copiedSize)
 	}
 	entryIndex := o.generator.Generate()
 	entry := o.par.Entries[entryIndex]
@@ -1061,12 +1061,12 @@ func (o *HistogramEngine) Update(b []byte) (int, error) {
 	}
 	if len(newValueBytes) > int(o.par.Size) {
 		o.mgr.counters.sizeTooSmall++
-		return 0, fmt.Errorf("Size %v is too small for generated value with length %v.\n", o.par.Size, len(newValueBytes))
+		return 0, fmt.Errorf("Size %v is too small for generated value with length %v.", o.par.Size, len(newValueBytes))
 	}
 	copiedSize = copy(b[:o.par.Size], newValueBytes)
 	if copiedSize != len(newValueBytes) {
 		o.mgr.counters.badCopyToBuffer++
-		return 0, fmt.Errorf("Didn't copy the right amount to the buffer, want %v have %v.\n", len(newValueBytes), copiedSize)
+		return 0, fmt.Errorf("Didn't copy the right amount to the buffer, want %v have %v.", len(newValueBytes), copiedSize)
 	}
 	return copiedSize, nil
 }
@@ -1095,7 +1095,7 @@ func putValueInBuffer(size uint16, value uint32) (b []byte, err error) {
 	case 4:
 		binary.BigEndian.PutUint32(b, value)
 	default:
-		return nil, fmt.Errorf("Invalid size %v in GetValue!\n", size)
+		return nil, fmt.Errorf("Invalid size %v in GetValue!", size)
 	}
 	return b, nil
 }
@@ -1152,9 +1152,10 @@ func CreateHistogramUInt32Engine(params *fastjson.RawMessage, mgr *FieldEngineMa
 				mgr.counters.invalidSize++
 				return nil, fmt.Errorf("Value %v can't be represented with %v bytes\n.", p.Entries[i].V, p.Size)
 			}
-		case 8:
+		case 4:
+		default:
 			mgr.counters.invalidSize++
-			return nil, fmt.Errorf("Invalid size %v with type of engine.\n", p.Size)
+			return nil, fmt.Errorf("Invalid size %v with this type of engine.", p.Size)
 		}
 		histParams.Entries = append(histParams.Entries, &p.Entries[i])
 	}
@@ -1216,9 +1217,10 @@ func CreateHistogramInt32Engine(params *fastjson.RawMessage, mgr *FieldEngineMan
 				mgr.counters.invalidSize++
 				return nil, fmt.Errorf("Value %v can't be represented with %v bytes\n.", p.Entries[i].V, p.Size)
 			}
-		case 8:
+		case 4:
+		default:
 			mgr.counters.invalidSize++
-			return nil, fmt.Errorf("Invalid size %v with type of engine.\n", p.Size)
+			return nil, fmt.Errorf("Invalid size %v with this type of engine.", p.Size)
 		}
 		histParams.Entries = append(histParams.Entries, &p.Entries[i])
 	}
@@ -1248,7 +1250,7 @@ type HistogramUInt32RangeParams struct {
 // GetValue generates uniformly a value in the range and puts it in the byte buffer.
 func (o *HistogramUInt32RangeEntry) GetValue(size uint16) (b []byte, err error) {
 	if o.Max < o.Min {
-		return nil, fmt.Errorf("Max %v is smaller than min %v in HistogramRuneRangeEntry.\n", o.Max, o.Min)
+		return nil, fmt.Errorf("Max %v is smaller than min %v in HistogramRuneRangeEntry.", o.Max, o.Min)
 	}
 	v := rand.Uint32()                    // generate random 32 bytes
 	v = o.Min + (v % (o.Max - o.Min + 1)) // scale it to the domain
@@ -1277,22 +1279,23 @@ func CreateHistogramUInt32RangeEngine(params *fastjson.RawMessage, mgr *FieldEng
 	for i := range p.Entries {
 		if p.Entries[i].Min > p.Entries[i].Max {
 			mgr.counters.maxSmallerThanMin++
-			return nil, fmt.Errorf("Min %v bigger than max %v in entry #%v.\n", p.Entries[i].Min, p.Entries[i].Max, i)
+			return nil, fmt.Errorf("Min %v bigger than max %v in entry #%v.", p.Entries[i].Min, p.Entries[i].Max, i)
 		}
 		switch p.Size {
 		case 1:
 			if p.Entries[i].Max > 0xFF {
 				mgr.counters.invalidSize++
-				return nil, fmt.Errorf("Max %v can't be represented with %v bytes\n.", p.Entries[i].Max, p.Size)
+				return nil, fmt.Errorf("Max %v can't be represented with %v bytes.", p.Entries[i].Max, p.Size)
 			}
 		case 2:
 			if p.Entries[i].Max > 0xFFFF {
 				mgr.counters.invalidSize++
-				return nil, fmt.Errorf("Max %v can't be represented with %v bytes\n.", p.Entries[i].Max, p.Size)
+				return nil, fmt.Errorf("Max %v can't be represented with %v bytes.", p.Entries[i].Max, p.Size)
 			}
-		case 8:
+		case 4:
+		default:
 			mgr.counters.invalidSize++
-			return nil, fmt.Errorf("Invalid size %v with type of engine.\n", p.Size)
+			return nil, fmt.Errorf("Invalid size %v with this type of engine.", p.Size)
 		}
 
 		histParams.Entries = append(histParams.Entries, &p.Entries[i])
@@ -1350,7 +1353,7 @@ func CreateHistogramInt32RangeEngine(params *fastjson.RawMessage, mgr *FieldEngi
 	for i := range p.Entries {
 		if p.Entries[i].Min > p.Entries[i].Max {
 			mgr.counters.maxSmallerThanMin++
-			return nil, fmt.Errorf("Min %v bigger than max %v in entry #%v.\n", p.Entries[i].Min, p.Entries[i].Max, i)
+			return nil, fmt.Errorf("Min %v bigger than max %v in entry #%v.", p.Entries[i].Min, p.Entries[i].Max, i)
 		}
 		switch p.Size {
 		case 1:
@@ -1363,9 +1366,10 @@ func CreateHistogramInt32RangeEngine(params *fastjson.RawMessage, mgr *FieldEngi
 				mgr.counters.invalidSize++
 				return nil, fmt.Errorf("Range [%v-%v] can't be represented with %v bytes\n.", p.Entries[i].Min, p.Entries[i].Max, p.Size)
 			}
-		case 8:
+		case 4:
+		default:
 			mgr.counters.invalidSize++
-			return nil, fmt.Errorf("Invalid size %v with type of engine.\n", p.Size)
+			return nil, fmt.Errorf("Invalid size %v with this type of engine.", p.Size)
 		}
 		p.Entries[i].domainLength = calcDomainLenInt(int64(p.Entries[i].Min), int64(p.Entries[i].Max))
 		histParams.Entries = append(histParams.Entries, &p.Entries[i])
@@ -1395,7 +1399,7 @@ type HistogramUInt32ListParams struct {
 // GetValue picks a random value from the list and puts it in the byte buffer.
 func (o *HistogramUInt32ListEntry) GetValue(size uint16) (b []byte, err error) {
 	if o.List == nil || len(o.List) == 0 {
-		return nil, fmt.Errorf("Empty list in HistogramUInt32ListEntry.\n")
+		return nil, fmt.Errorf("Empty list in HistogramUInt32ListEntry.")
 	}
 	index := rand.Intn(len(o.List))
 	return putValueInBuffer(size, o.List[index])
@@ -1423,7 +1427,7 @@ func CreateHistogramUInt32ListEngine(params *fastjson.RawMessage, mgr *FieldEngi
 	for i := range p.Entries {
 		if len(p.Entries[i].List) == 0 {
 			mgr.counters.emptyList++
-			return nil, fmt.Errorf("Entry # %v contains an empty list.\n", i)
+			return nil, fmt.Errorf("Entry # %v contains an empty list.", i)
 		}
 		for j := range p.Entries[i].List {
 			v := p.Entries[i].List[j]
@@ -1438,9 +1442,10 @@ func CreateHistogramUInt32ListEngine(params *fastjson.RawMessage, mgr *FieldEngi
 					mgr.counters.invalidSize++
 					return nil, fmt.Errorf("List value %v can't be represented with %v bytes\n.", v, p.Size)
 				}
-			case 8:
+			case 4:
+			default:
 				mgr.counters.invalidSize++
-				return nil, fmt.Errorf("Invalid size %v with type of engine.\n", p.Size)
+				return nil, fmt.Errorf("Invalid size %v with this type of engine.", p.Size)
 			}
 		}
 		histParams.Entries = append(histParams.Entries, &p.Entries[i])
@@ -1470,7 +1475,7 @@ type HistogramInt32ListParams struct {
 // GetValue picks a random value from the list and puts it in the byte buffer.
 func (o *HistogramInt32ListEntry) GetValue(size uint16) (b []byte, err error) {
 	if o.List == nil || len(o.List) == 0 {
-		return nil, fmt.Errorf("Empty list in HistogramUInt32ListEntry.\n")
+		return nil, fmt.Errorf("Empty list in HistogramUInt32ListEntry.")
 	}
 	index := rand.Intn(len(o.List))
 	return putValueInBuffer(size, uint32(o.List[index]))
@@ -1498,7 +1503,7 @@ func CreateHistogramInt32ListEngine(params *fastjson.RawMessage, mgr *FieldEngin
 	for i := range p.Entries {
 		if len(p.Entries[i].List) == 0 {
 			mgr.counters.emptyList++
-			return nil, fmt.Errorf("Entry # %v contains an empty list.\n", i)
+			return nil, fmt.Errorf("Entry # %v contains an empty list.", i)
 		}
 		for j := range p.Entries[i].List {
 			v := p.Entries[i].List[j]
@@ -1513,9 +1518,10 @@ func CreateHistogramInt32ListEngine(params *fastjson.RawMessage, mgr *FieldEngin
 					mgr.counters.invalidSize++
 					return nil, fmt.Errorf("List value %v can't be represented with %v bytes\n.", v, p.Size)
 				}
-			case 8:
+			case 4:
+			default:
 				mgr.counters.invalidSize++
-				return nil, fmt.Errorf("Invalid size %v with type of engine.\n", p.Size)
+				return nil, fmt.Errorf("Invalid size %v with this type of engine.", p.Size)
 			}
 		}
 		histParams.Entries = append(histParams.Entries, &p.Entries[i])
@@ -1544,7 +1550,7 @@ type HistogramUInt64Params struct {
 // GetValue puts the value in the byte buffer.
 func (o *HistogramUInt64Entry) GetValue(size uint16) (b []byte, err error) {
 	if size != 8 {
-		return nil, fmt.Errorf("Size in HistogramUInt64Entry GetValue is %v, want %v.\n", size, 8)
+		return nil, fmt.Errorf("Size in HistogramUInt64Entry GetValue is %v, want %v.", size, 8)
 	}
 	b = make([]byte, size)
 	binary.BigEndian.PutUint64(b, o.V)
@@ -1567,7 +1573,7 @@ func CreateHistogramUInt64Engine(params *fastjson.RawMessage, mgr *FieldEngineMa
 	}
 	if p.Size != 8 {
 		mgr.counters.invalidSize++
-		return nil, fmt.Errorf("Invalid size %v with type of engine.\n", p.Size)
+		return nil, fmt.Errorf("Invalid size %v with this type of engine.", p.Size)
 	}
 
 	// create general params
@@ -1601,7 +1607,7 @@ type HistogramInt64Params struct {
 // GetValue puts the value in the byte buffer.
 func (o *HistogramInt64Entry) GetValue(size uint16) (b []byte, err error) {
 	if size != 8 {
-		return nil, fmt.Errorf("Size in HistogramUInt64Entry GetValue is %v, want %v.\n", size, 8)
+		return nil, fmt.Errorf("Size in HistogramUInt64Entry GetValue is %v, want %v.", size, 8)
 	}
 	b = make([]byte, size)
 	binary.BigEndian.PutUint64(b, uint64(o.V))
@@ -1624,7 +1630,7 @@ func CreateHistogramInt64Engine(params *fastjson.RawMessage, mgr *FieldEngineMan
 	}
 	if p.Size != 8 {
 		mgr.counters.invalidSize++
-		return nil, fmt.Errorf("Invalid size %v with type of engine.\n", p.Size)
+		return nil, fmt.Errorf("Invalid size %v with this type of engine.", p.Size)
 	}
 
 	// create general params
@@ -1683,7 +1689,7 @@ func CreateHistogramUInt64RangeEngine(params *fastjson.RawMessage, mgr *FieldEng
 
 	if p.Size != 8 {
 		mgr.counters.invalidSize++
-		return nil, fmt.Errorf("Invalid size %v with type of engine.\n", p.Size)
+		return nil, fmt.Errorf("Invalid size %v with this type of engine.", p.Size)
 	}
 
 	// create general params
@@ -1693,7 +1699,7 @@ func CreateHistogramUInt64RangeEngine(params *fastjson.RawMessage, mgr *FieldEng
 	for i := range p.Entries {
 		if p.Entries[i].Min > p.Entries[i].Max {
 			mgr.counters.maxSmallerThanMin++
-			return nil, fmt.Errorf("Min %v bigger than max %v in entry #%v.\n", p.Entries[i].Min, p.Entries[i].Max, i)
+			return nil, fmt.Errorf("Min %v bigger than max %v in entry #%v.", p.Entries[i].Min, p.Entries[i].Max, i)
 		}
 		histParams.Entries = append(histParams.Entries, &p.Entries[i])
 	}
@@ -1747,7 +1753,7 @@ func CreateHistogramInt64RangeEngine(params *fastjson.RawMessage, mgr *FieldEngi
 
 	if p.Size != 8 {
 		mgr.counters.invalidSize++
-		return nil, fmt.Errorf("Invalid size %v with type of engine.\n", p.Size)
+		return nil, fmt.Errorf("Invalid size %v with this type of engine.", p.Size)
 	}
 
 	// create general params
@@ -1757,7 +1763,7 @@ func CreateHistogramInt64RangeEngine(params *fastjson.RawMessage, mgr *FieldEngi
 	for i := range p.Entries {
 		if p.Entries[i].Min > p.Entries[i].Max {
 			mgr.counters.maxSmallerThanMin++
-			return nil, fmt.Errorf("Min %v bigger than max %v in entry #%v.\n", p.Entries[i].Min, p.Entries[i].Max, i)
+			return nil, fmt.Errorf("Min %v bigger than max %v in entry #%v.", p.Entries[i].Min, p.Entries[i].Max, i)
 		}
 		p.Entries[i].domainLength = calcDomainLenInt(p.Entries[i].Min, p.Entries[i].Max)
 		histParams.Entries = append(histParams.Entries, &p.Entries[i])
@@ -1809,7 +1815,7 @@ func CreateHistogramUInt64ListEngine(params *fastjson.RawMessage, mgr *FieldEngi
 
 	if p.Size != 8 {
 		mgr.counters.invalidSize++
-		return nil, fmt.Errorf("Invalid size %v with type of engine.\n", p.Size)
+		return nil, fmt.Errorf("Invalid size %v with this type of engine.", p.Size)
 	}
 
 	// create general params
@@ -1819,7 +1825,7 @@ func CreateHistogramUInt64ListEngine(params *fastjson.RawMessage, mgr *FieldEngi
 	for i := range p.Entries {
 		if len(p.Entries[i].List) == 0 {
 			mgr.counters.emptyList++
-			return nil, fmt.Errorf("Entry # %v contains an empty list.\n", i)
+			return nil, fmt.Errorf("Entry # %v contains an empty list.", i)
 		}
 		histParams.Entries = append(histParams.Entries, &p.Entries[i])
 	}
@@ -1870,7 +1876,7 @@ func CreateHistogramInt64ListEngine(params *fastjson.RawMessage, mgr *FieldEngin
 
 	if p.Size != 8 {
 		mgr.counters.invalidSize++
-		return nil, fmt.Errorf("Invalid size %v with type of engine.\n", p.Size)
+		return nil, fmt.Errorf("Invalid size %v with this type of engine.", p.Size)
 	}
 
 	// create general params
@@ -1880,7 +1886,7 @@ func CreateHistogramInt64ListEngine(params *fastjson.RawMessage, mgr *FieldEngin
 	for i := range p.Entries {
 		if len(p.Entries[i].List) == 0 {
 			mgr.counters.emptyList++
-			return nil, fmt.Errorf("Entry # %v contains an empty list.\n", i)
+			return nil, fmt.Errorf("Entry # %v contains an empty list.", i)
 		}
 		histParams.Entries = append(histParams.Entries, &p.Entries[i])
 	}
@@ -1948,17 +1954,17 @@ func NewTimeStartEngine(params *TimeStartEngineParams, mgr *FieldEngineManager) 
 func (o *TimeStartEngine) validateParams(params *TimeStartEngineParams) (err error) {
 	if params.Size != 4 && params.Size != 8 {
 		o.mgr.counters.invalidSize++
-		err = fmt.Errorf("Size for this engine must be 4 or 8. Invalid size %v.\n", params.Size)
+		err = fmt.Errorf("Size for this engine must be 4 or 8. Invalid size %v.", params.Size)
 	}
 
 	if params.InterPacketGapMin > params.InterPacketGapMax {
 		o.mgr.counters.maxSmallerThanMin++
-		err = fmt.Errorf("InterPacketGap min %v is greater than InterPacketGap max %v.\n", params.InterPacketGapMin, params.InterPacketGapMax)
+		err = fmt.Errorf("InterPacketGap min %v is greater than InterPacketGap max %v.", params.InterPacketGapMin, params.InterPacketGapMax)
 	}
 
 	if params.Size == 4 && (params.InterPacketGapMax > 0xFFFFFFFF || params.UptimeOffset > 0xFFFFFFFF) {
 		o.mgr.counters.sizeTooSmall++
-		err = fmt.Errorf("Size too small, can't represent max value or uptime offset with %v bytes.\n", params.Size)
+		err = fmt.Errorf("Size too small, can't represent max value or uptime offset with %v bytes.", params.Size)
 	}
 
 	return err
@@ -1992,12 +1998,12 @@ func (o *TimeStartEngine) Update(b []byte) (int, error) {
 	if o.timeEndEngine == nil {
 		timeEndEngine, ok := o.mgr.engines[o.par.TimeEndEngineName]
 		if !ok {
-			return 0, fmt.Errorf("TimeEnd engine name %v not found in engine manager database. Must provide this engine.\n", o.par.TimeEndEngineName)
+			return 0, fmt.Errorf("TimeEnd engine name %v not found in engine manager database. Must provide this engine.", o.par.TimeEndEngineName)
 		}
 		o.timeEndEngine, ok = timeEndEngine.(*TimeEndEngine)
 		if !ok {
 			o.mgr.counters.badEngineType++
-			return 0, fmt.Errorf("Failed converting engine %v to TimeEnd. Make sure the engine type is corrent.\n", o.par.TimeEndEngineName)
+			return 0, fmt.Errorf("Failed converting engine %v to TimeEnd. Make sure the engine type is corrent.", o.par.TimeEndEngineName)
 		}
 	}
 
@@ -2012,7 +2018,7 @@ func (o *TimeStartEngine) Update(b []byte) (int, error) {
 		binary.BigEndian.PutUint64(b, value)
 	default:
 		o.mgr.counters.invalidSize++
-		return 0, errors.New("Size should be 1, 2, 4 or 8.")
+		return 0, errors.New("Size should be 4 or 8.")
 	}
 
 	// Update the time end engine so it will know to calculate the new value
@@ -2084,17 +2090,17 @@ func NewTimeEndEngine(params *TimeEndEngineParams, mgr *FieldEngineManager) (*Ti
 func (o *TimeEndEngine) validateParams(params *TimeEndEngineParams) (err error) {
 	if params.Size != 4 && params.Size != 8 {
 		o.mgr.counters.invalidSize++
-		err = fmt.Errorf("Size for this engine must be 4 or 8. Invalid size %v.\n", params.Size)
+		err = fmt.Errorf("Size for this engine must be 4 or 8. Invalid size %v.", params.Size)
 	}
 
 	if params.DurationMin > params.DurationMax {
 		o.mgr.counters.maxSmallerThanMin++
-		err = fmt.Errorf("Duration min %v is greater than Duration max %v.\n", params.DurationMin, params.DurationMax)
+		err = fmt.Errorf("Duration min %v is greater than Duration max %v.", params.DurationMin, params.DurationMax)
 	}
 
 	if params.Size == 4 && params.DurationMax > 0xFFFFFFFF {
 		o.mgr.counters.sizeTooSmall++
-		err = fmt.Errorf("Size too small, can't represent max value %v  with %v bytes.\n", params.DurationMax, params.Size)
+		err = fmt.Errorf("Size too small, can't represent max value %v  with %v bytes.", params.DurationMax, params.Size)
 	}
 
 	return err
@@ -2125,12 +2131,12 @@ func (o *TimeEndEngine) Update(b []byte) (int, error) {
 	if o.timeStartEngine == nil {
 		timeEndEngine, ok := o.mgr.engines[o.par.TimeStartEngineName]
 		if !ok {
-			return 0, fmt.Errorf("TimeStart engine name %v not found in engine manager database. Must provide this engine.\n", o.par.TimeStartEngineName)
+			return 0, fmt.Errorf("TimeStart engine name %v not found in engine manager database. Must provide this engine.", o.par.TimeStartEngineName)
 		}
 		o.timeStartEngine, ok = timeEndEngine.(*TimeStartEngine)
 		if !ok {
 			o.mgr.counters.badEngineType++
-			return 0, fmt.Errorf("Failed converting engine %v to TimeStart. Make sure the engine type is corrent.\n", o.par.TimeStartEngineName)
+			return 0, fmt.Errorf("Failed converting engine %v to TimeStart. Make sure the engine type is corrent.", o.par.TimeStartEngineName)
 		}
 	}
 
@@ -2145,7 +2151,7 @@ func (o *TimeEndEngine) Update(b []byte) (int, error) {
 		binary.BigEndian.PutUint64(b, value)
 	default:
 		o.mgr.counters.invalidSize++
-		return 0, errors.New("Size should be 1, 2, 4 or 8.")
+		return 0, errors.New("Size should be 4 or 8.")
 	}
 
 	// Update the start engine so it will know how to calculate the IPG.
@@ -2194,21 +2200,21 @@ func (o *HistogramURLEntry) validateParams(mgr *FieldEngineManager, size uint16)
 	if o.Prob == 0 {
 		// Probability 0 can be okay too but let's be strict and eliminate redundant values.
 		mgr.counters.invalidHistogramEntry++
-		return fmt.Errorf("Invalid probability 0, please remove this entry.\n")
+		return fmt.Errorf("Invalid probability 0, please remove this entry.")
 	}
 	if len(o.Schemes) == 0 {
 		mgr.counters.emptyList++
 		mgr.counters.invalidHistogramEntry++
-		return fmt.Errorf("Schemes list can't be empty.\n")
+		return fmt.Errorf("Schemes list can't be empty.")
 	}
 	if len(o.Hosts) == 0 {
 		mgr.counters.emptyList++
 		mgr.counters.invalidHistogramEntry++
-		return fmt.Errorf("Hosts list can't be empty.\n")
+		return fmt.Errorf("Hosts list can't be empty.")
 	}
 	if len(o.Queries) != 0 && o.RandomQuery {
 		mgr.counters.invalidHistogramEntry++
-		return fmt.Errorf("Can't have a list of queries and random queries set together. Please use only one.\n")
+		return fmt.Errorf("Can't have a list of queries and random queries set together. Please use only one.")
 	}
 	longestScheme := longestString(o.Schemes)
 	longestHost := longestString(o.Hosts)
@@ -2225,7 +2231,7 @@ func (o *HistogramURLEntry) validateParams(mgr *FieldEngineManager, size uint16)
 		byteString := []byte(urlString)
 		if len(byteString) > int(size) {
 			mgr.counters.sizeTooSmall++
-			return fmt.Errorf("Size %v is not enough to encode the longest URL %v. Please provide size of at least %v bytes.\n", size, urlString, len(byteString))
+			return fmt.Errorf("Size %v is not enough to encode the longest URL %v. Please provide size of at least %v bytes.", size, urlString, len(byteString))
 		}
 	} else {
 		u := &url.URL{
@@ -2238,7 +2244,7 @@ func (o *HistogramURLEntry) validateParams(mgr *FieldEngineManager, size uint16)
 		if len(byteString)+3 > int(size) {
 			// + 3 for `?q=`` and an empty query
 			mgr.counters.sizeTooSmall++
-			return fmt.Errorf("Size %v is not enough to encode the longest URL %v with a random query. Please provide size of at least %v bytes.\n", size, urlString, len(byteString)+3)
+			return fmt.Errorf("Size %v is not enough to encode the longest URL %v with a random query. Please provide size of at least %v bytes.", size, urlString, len(byteString)+3)
 		}
 	}
 	return nil
@@ -2307,7 +2313,7 @@ func (o *HistogramURLEntry) GetValue(size uint16) (b []byte, err error) {
 	urlBytes := []byte(url.String())
 
 	if int(size) < len(urlBytes) {
-		return nil, fmt.Errorf("Size %v is too small for generated url %v.\n", size, url.String())
+		return nil, fmt.Errorf("Size %v is too small for generated url %v.", size, url.String())
 	}
 
 	return urlBytes, nil
@@ -2370,12 +2376,12 @@ func (o *HistogramStringEntry) validateParams(mgr *FieldEngineManager, size uint
 	if o.Prob == 0 {
 		// Probability 0 can be okay too but let's be strict and eliminate redundant values.
 		mgr.counters.invalidHistogramEntry++
-		return fmt.Errorf("Invalid probability 0, please remove this entry.\n")
+		return fmt.Errorf("Invalid probability 0, please remove this entry.")
 	}
 	byteString := []byte(o.Str)
 	if len(byteString) > int(size) {
 		mgr.counters.sizeTooSmall++
-		return fmt.Errorf("String %v cannot be represented with size %v.\n", o.Str, size)
+		return fmt.Errorf("String %v cannot be represented with size %v.", o.Str, size)
 	}
 	return nil
 }
@@ -2396,7 +2402,7 @@ func (o *HistogramStringEntry) processString(shouldPad bool, size uint16) {
 // GetValue returns the picked string encoded into the byte parameter.
 func (o *HistogramStringEntry) GetValue(size uint16) (b []byte, err error) {
 	if int(size) < len(o.processedStr) {
-		return nil, fmt.Errorf("Size %v is too small for string %v.\n", size, o.Str)
+		return nil, fmt.Errorf("Size %v is too small for string %v.", size, o.Str)
 	}
 	return o.processedStr, nil
 }

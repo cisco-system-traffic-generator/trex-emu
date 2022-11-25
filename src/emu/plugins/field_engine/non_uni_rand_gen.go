@@ -89,7 +89,7 @@ func NewNonUniformRandGen(distributions []uint32) (*NonUniformRandGen, error) {
 	}
 	if o.numNonZeroDist == 0 {
 		// degenerate array = all 0
-		return nil, fmt.Errorf("This array contains only 0.\n")
+		return nil, fmt.Errorf("Random distribution array contains only 0.")
 	}
 	o.distributions = make([]uint32, len(distributions))
 	copy(o.distributions, distributions)
@@ -112,7 +112,7 @@ func (o *NonUniformRandGen) scale() error {
 	var sum uint32
 	for _, dist := range o.distributions {
 		if sum+dist < sum {
-			return fmt.Errorf("The distributions sum to more than MaxUint32 (1), can't scale them.\n")
+			return fmt.Errorf("The distributions sum to more than MaxUint32 (1), can't scale them.")
 		}
 		sum += dist
 	}
@@ -166,7 +166,7 @@ func (o *NonUniformRandGen) distributeLeftoverRelatively(leftover uint32) {
 // If you however provide a very long slice of distributions (i.e 5Gig) we are in trouble.
 func (o *NonUniformRandGen) distributeLeftoverAsOnes(leftover uint32) error {
 	if leftover > uint32(len(o.distributions)) {
-		return fmt.Errorf("Leftover bigger than number of distributions, should distribute relatively first.\n")
+		return fmt.Errorf("Leftover bigger than number of distributions, should distribute relatively first.")
 	}
 	var i uint32
 	for ; i < leftover; i++ {
@@ -221,7 +221,7 @@ func (o *NonUniformRandGen) normalize() error {
 		sum += uint64(dist)
 	}
 	if sum != math.MaxUint32 {
-		return fmt.Errorf("Normalization was not successful, sum of distributions is %v.\n", sum)
+		return fmt.Errorf("Normalization was not successful, sum of distributions is %v.", sum)
 	}
 	return nil
 }
@@ -252,7 +252,7 @@ func (o *NonUniformRandGen) findNewBinDistIndexes(threshold uint32) (small, big 
 	}
 
 	if small == 0 && big == 0 {
-		err = fmt.Errorf("All the distributions are 0, %v.\n", o.distributions)
+		err = fmt.Errorf("All the distributions are 0, %v.", o.distributions)
 	}
 
 	return small, big, err
@@ -265,7 +265,7 @@ func (o *NonUniformRandGen) findNewBinDistIndexes(threshold uint32) (small, big 
 // the appropriate adjustments to the input distributions.
 func (o *NonUniformRandGen) computeNewBinDist(small, big int, numNonZero, threshold uint32) error {
 	if small == big {
-		return fmt.Errorf("While decomposing the indices are the same.\n")
+		return fmt.Errorf("While decomposing the indices are the same.")
 	} else {
 		o.binDistributions = append(o.binDistributions, NewBinDistribution(small, big, o.distributions[small]*(numNonZero-1)))
 		o.distributions[big] -= (threshold - o.distributions[small])
@@ -310,7 +310,7 @@ func (o *NonUniformRandGen) decompose() error {
 		}
 		// at this point we should have all the (numNonZeroDist - 1) binary distributions
 		if len(o.binDistributions) != int(o.numNonZeroDist-1) {
-			return fmt.Errorf("After decomposing, the number of binary distributions is incorrect.\n")
+			return fmt.Errorf("After decomposing, the number of binary distributions is incorrect.")
 		}
 	}
 	return nil

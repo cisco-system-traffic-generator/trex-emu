@@ -37,7 +37,7 @@ func (o *PluginPPPClientTimer) OnEvent(a, b interface{}) {
 	pi.onTimerEvent()
 }
 
-//onTimerEvent on timer event callback
+// onTimerEvent on timer event callback
 func (o *PluginPPPClient) onTimerEvent() {
 
 	switch o.state {
@@ -112,15 +112,14 @@ type PluginPPPNs struct {
 }
 
 // NewPPPNs handles creation of namespace
-func NewPPPNs(ctx *core.PluginCtx, initJSON []byte) *core.PluginBase {
-
+func NewPPPNs(ctx *core.PluginCtx, initJson []byte) (*core.PluginBase, error) {
 	LogTimeFormatted(INFO, ">> NewPPPNs >> Plugin PPP Ns")
 
 	o := new(PluginPPPNs)
 	o.InitPluginBase(ctx, o)
 	o.RegisterEvents(ctx, []string{}, o)
 
-	return &o.PluginBase
+	return &o.PluginBase, nil
 }
 
 func (o *PluginPPPNs) OnRemove(ctx *core.PluginCtx) {
@@ -138,14 +137,14 @@ func (o *PluginPPPNs) SetTruncated() {
 type PluginPPPCReg struct{}
 type PluginPPPNsReg struct{}
 
-func (o PluginPPPCReg) NewPlugin(ctx *core.PluginCtx, initJSON []byte) *core.PluginBase {
+func (o PluginPPPCReg) NewPlugin(ctx *core.PluginCtx, initJson []byte) (*core.PluginBase, error) {
 
-	return NewPPPClient(ctx, initJSON)
+	return NewPPPClient(ctx, initJson)
 }
 
-func (o PluginPPPNsReg) NewPlugin(ctx *core.PluginCtx, initJSON []byte) *core.PluginBase {
+func (o PluginPPPNsReg) NewPlugin(ctx *core.PluginCtx, initJson []byte) (*core.PluginBase, error) {
 
-	return NewPPPNs(ctx, initJSON)
+	return NewPPPNs(ctx, initJson)
 }
 
 // HandleRxPPPPacket Parser call this function with mbuf from the pool

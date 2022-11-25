@@ -22,6 +22,7 @@ import (
 var monitor int
 
 type DhcpTestBase struct {
+	t            testing.TB
 	testname     string
 	dropAll      bool
 	monitor      bool
@@ -37,7 +38,7 @@ type DhcpTestBase struct {
 
 type IgmpTestCb func(tctx *core.CThreadCtx, test *DhcpTestBase) int
 
-func (o *DhcpTestBase) Run(t *testing.T) {
+func (o *DhcpTestBase) Run() {
 	var simVeth VethIgmpSim
 	simVeth.DropAll = o.dropAll
 	var simrx core.VethIFSim
@@ -62,20 +63,20 @@ func (o *DhcpTestBase) Run(t *testing.T) {
 
 	ns := tctx.GetNs(&key)
 	if ns == nil {
-		t.Fatalf(" can't find ns")
+		o.t.Fatalf(" can't find ns")
 		return
 	}
 	c := ns.CLookupByMac(&core.MACKey{0, 0, 1, 0, 0, 1})
 	nsplg := c.PluginCtx.Get(DHCP_PLUG)
 	if nsplg == nil {
-		t.Fatalf(" can't find plugin")
+		o.t.Fatalf(" can't find plugin")
 	}
 	dhcpPlug := nsplg.Ext.(*PluginDhcpClient)
 	dhcpPlug.cdbv.Dump()
 	tctx.GetCounterDbVec().Dump()
 
 	//tctx.SimRecordAppend(igmpPlug.cdb.MarshalValues(false))
-	tctx.SimRecordCompare(o.testname, t)
+	tctx.SimRecordCompare(o.testname, o.t)
 
 }
 
@@ -92,17 +93,27 @@ func createSimulationEnv(simRx *core.VethIFSim, num int, test *DhcpTestBase) (*c
 		core.Ipv4Key{0, 0, 0, 0},
 		core.Ipv6Key{},
 		dg)
-	ns.AddClient(client)
-	ns.PluginCtx.CreatePlugins([]string{"dhcp"}, [][]byte{})
+	err := ns.AddClient(client)
+	if err != nil {
+		test.t.Fatal(err)
+	}
+	emptyJsonObj := []byte("{}")
+	err = ns.PluginCtx.CreatePlugins([]string{"dhcp"}, [][]byte{emptyJsonObj})
+	if err != nil {
+		test.t.Fatal(err)
+	}
 
 	var inijson [][]byte
 	if test.options == nil {
-		inijson = [][]byte{}
+		inijson = [][]byte{emptyJsonObj}
 	} else {
 		inijson = [][]byte{test.options}
 	}
 
-	client.PluginCtx.CreatePlugins([]string{"dhcp"}, inijson)
+	err = client.PluginCtx.CreatePlugins([]string{"dhcp"}, inijson)
+	if err != nil {
+		test.t.Fatal(err)
+	}
 	ns.Dump()
 	tctx.RegisterParserCb("dhcp")
 
@@ -192,6 +203,7 @@ func (o *VethIgmpSim) ProcessTxToRx(m *core.Mbuf) *core.Mbuf {
 
 func TestPluginDhcp1(t *testing.T) {
 	a := &DhcpTestBase{
+		t:            t,
 		testname:     "dhcp1",
 		dropAll:      false,
 		monitor:      false,
@@ -200,11 +212,12 @@ func TestPluginDhcp1(t *testing.T) {
 		duration:     120 * time.Second,
 		clientsToSim: 1,
 	}
-	a.Run(t)
+	a.Run()
 }
 
 func TestPluginDhcp3(t *testing.T) {
 	a := &DhcpTestBase{
+		t:            t,
 		testname:     "dhcp3",
 		dropAll:      false,
 		monitor:      false,
@@ -213,11 +226,12 @@ func TestPluginDhcp3(t *testing.T) {
 		duration:     120 * time.Second,
 		clientsToSim: 1,
 	}
-	a.Run(t)
+	a.Run()
 }
 
 func TestPluginDhcp4(t *testing.T) {
 	a := &DhcpTestBase{
+		t:            t,
 		testname:     "dhcp4",
 		dropAll:      false,
 		monitor:      false,
@@ -226,11 +240,12 @@ func TestPluginDhcp4(t *testing.T) {
 		duration:     120 * time.Second,
 		clientsToSim: 1,
 	}
-	a.Run(t)
+	a.Run()
 }
 
 func TestPluginDhcp5(t *testing.T) {
 	a := &DhcpTestBase{
+		t:            t,
 		testname:     "dhcp5",
 		dropAll:      false,
 		monitor:      false,
@@ -239,11 +254,12 @@ func TestPluginDhcp5(t *testing.T) {
 		duration:     120 * time.Second,
 		clientsToSim: 1,
 	}
-	a.Run(t)
+	a.Run()
 }
 
 func TestPluginDhcp6(t *testing.T) {
 	a := &DhcpTestBase{
+		t:            t,
 		testname:     "dhcp6",
 		dropAll:      false,
 		monitor:      false,
@@ -253,11 +269,12 @@ func TestPluginDhcp6(t *testing.T) {
 		clientsToSim: 1,
 		options:      []byte(`{"options": {"discoverDhcpClassIdOption": "MSFT 5.0", "requestDhcpClassIdOption":"MSFT 6.0"}} `),
 	}
-	a.Run(t)
+	a.Run()
 }
 
 func TestPluginDhcp7(t *testing.T) {
 	a := &DhcpTestBase{
+		t:            t,
 		testname:     "dhcp7",
 		dropAll:      false,
 		monitor:      false,
@@ -267,7 +284,7 @@ func TestPluginDhcp7(t *testing.T) {
 		clientsToSim: 1,
 		options:      []byte(`{"options": {"dis": [[60,8,77,83,70,84,32,53,46,48],[60,8,77,83,70,84,32,53,46,48]], "req":[[60,8,77,83,70,84,32,53,46,48],[60,8,77,83,70,84,32,53,46,48],[60,8,77,83,70,84,32,53,46,48]],"ren":[[60,8,77,83,70,84,32,53,46,48]] }} `),
 	}
-	a.Run(t)
+	a.Run()
 }
 
 func getL2() []byte {

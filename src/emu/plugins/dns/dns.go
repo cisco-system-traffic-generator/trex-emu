@@ -310,7 +310,7 @@ type PluginDnsClient struct {
 }
 
 // NewDnsClient creates a new Dns client.
-func NewDnsClient(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
+func NewDnsClient(ctx *core.PluginCtx, initJson []byte) (*core.PluginBase, error) {
 	o := new(PluginDnsClient)
 	o.InitPluginBase(ctx, o)              // Init base object
 	o.RegisterEvents(ctx, dnsEvents, o)   // Register events
@@ -321,20 +321,20 @@ func NewDnsClient(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
 	err := o.Tctx.UnmarshalValidate(initJson, &o.params)
 	if err != nil {
 		o.stats.invalidInitJson++
-		return &o.PluginBase
+		return nil, err
 	}
 
 	if o.IsNameServer() {
 		err = fastjson.Unmarshal(*o.params.Database, &o.db)
 		if err != nil {
 			o.stats.invalidInitJson++
-			return &o.PluginBase
+			return nil, err
 		}
 	} else {
 		dnsServer := net.ParseIP(o.params.DnsServerIP)
 		if dnsServer == nil {
 			o.stats.invalidInitJson++
-			return &o.PluginBase
+			return nil, fmt.Errorf("invalid DNS server IP %s", o.params.DnsServerIP)
 		}
 		if dnsServer.To4() == nil {
 			// Specified Ipv6 Dns server
@@ -342,19 +342,22 @@ func NewDnsClient(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
 			if err != nil {
 				// Client has no IPv6 address.
 				o.stats.invalidInitJson++
-				return &o.PluginBase
+				return nil, fmt.Errorf("invalid DNS server IP %s", o.params.DnsServerIP)
 			}
 		}
 		o.dstAddr = net.JoinHostPort(dnsServer.String(), DnsPort)
 	}
 
-	o.OnCreate()
+	err = o.OnCreate()
+	if err != nil {
+		return nil, err
+	}
 
-	return &o.PluginBase
+	return &o.PluginBase, nil
 }
 
 // OnCreate is called upon creating a new Dns client.
-func (o *PluginDnsClient) OnCreate() {
+func (o *PluginDnsClient) OnCreate() (err error) {
 
 	o.dnsPktBuilder = utils.NewDnsPktBuilder(false) // Create a packet builder for Dns
 
@@ -365,17 +368,21 @@ func (o *PluginDnsClient) OnCreate() {
 	// Create socket
 	transportCtx := transport.GetTransportCtx(o.Client)
 	if transportCtx != nil {
-		var err error
 		if o.IsNameServer() {
 			err = transportCtx.Listen("udp", ":53", o)
+			if err != nil {
+				o.stats.invalidSocket++
+				return fmt.Errorf("could not create listening socket: %w", err)
+			}
 		} else {
 			o.socket, err = transportCtx.Dial("udp", o.dstAddr, o, nil, nil, 0)
-		}
-		if err != nil {
-			o.stats.invalidSocket++
-			return
+			if err != nil {
+				o.stats.invalidSocket++
+				return fmt.Errorf("could not create dialing socket: %w", err)
+			}
 		}
 	}
+	return nil
 }
 
 // OnAccept is called when a new flow is received. This completed the IServerSocketCb interface.
@@ -479,7 +486,7 @@ func (o *PluginDnsClient) Query(queries []utils.DnsQueryParams, socket transport
 	if len(questions) > 0 {
 		data := o.dnsPktBuilder.BuildQueryPkt(questions, o.Tctx.Simulation)
 		if socket == nil {
-			fmt.Errorf("Invalid Socket in Query!")
+			return fmt.Errorf("Invalid Socket in Query!")
 		}
 		transportErr, _ := o.socket.Write(data)
 		if transportErr != transport.SeOK {
@@ -703,7 +710,7 @@ type PluginDnsNs struct {
 }
 
 // NewDnsNs creates a new DNS namespace plugin.
-func NewDnsNs(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
+func NewDnsNs(ctx *core.PluginCtx, initJson []byte) (*core.PluginBase, error) {
 	o := new(PluginDnsNs)
 	o.InitPluginBase(ctx, o)             // Init the base plugin
 	o.RegisterEvents(ctx, []string{}, o) // No events to register in namespace level.
@@ -714,7 +721,7 @@ func NewDnsNs(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
 	err := o.Tctx.UnmarshalValidate(initJson, &o.params)
 	if err != nil {
 		o.stats.invalidInitJson++
-		return &o.PluginBase
+		return nil, err
 	}
 	if o.params.AutoPlay {
 		// Set default values prior to unmarshal.
@@ -724,17 +731,17 @@ func NewDnsNs(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
 		err = o.Tctx.UnmarshalValidate(*o.params.AutoPlayParams, &o.autoPlayParams)
 		if err != nil {
 			o.stats.invalidInitJson++
-			return &o.PluginBase
+			return nil, err
 		}
 		// Create a new DnsNsAutoPlay which will call SendQuery each time we need to send a query.
-		o.autoPlay = utils.NewDnsNsAutoPlay(o, o.Tctx.GetTimerCtx(), o.autoPlayParams.CommonDnsAutoPlayParams)
-		if o.autoPlay == nil {
+		o.autoPlay, err = utils.NewDnsNsAutoPlay(o, o.Tctx.GetTimerCtx(), o.autoPlayParams.CommonDnsAutoPlayParams)
+		if err != nil {
 			o.stats.invalidInitJson++
-			return &o.PluginBase
+			return nil, fmt.Errorf("could not create DNS autoplay, error: %w", err)
 		}
 	}
 
-	return &o.PluginBase
+	return &o.PluginBase, nil
 }
 
 // buildQueries builds the query parameters based on the user specified program.
@@ -815,19 +822,23 @@ func (o *PluginDnsNs) OnRemove(ctx *core.PluginCtx) {
 // OnEvent for events the namespace plugin is registered.
 func (o *PluginDnsNs) OnEvent(msg string, a, b interface{}) {}
 
-/*======================================================================================================
-											Generate Plugin
-======================================================================================================*/
+/*
+======================================================================================================
+
+	Generate Plugin
+
+======================================================================================================
+*/
 type PluginDnsCReg struct{}
 type PluginDnsNsReg struct{}
 
 // NewPlugin creates a new DnsClient plugin.
-func (o PluginDnsCReg) NewPlugin(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
+func (o PluginDnsCReg) NewPlugin(ctx *core.PluginCtx, initJson []byte) (*core.PluginBase, error) {
 	return NewDnsClient(ctx, initJson)
 }
 
 // NewPlugin creates a new DnsNs plugin.
-func (o PluginDnsNsReg) NewPlugin(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
+func (o PluginDnsNsReg) NewPlugin(ctx *core.PluginCtx, initJson []byte) (*core.PluginBase, error) {
 	return NewDnsNs(ctx, initJson)
 }
 

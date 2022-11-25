@@ -45,7 +45,7 @@ func (o *ArpTestBase) Run(t *testing.T) {
 	if o.match > 0 {
 		simVeth.match = o.match
 	}
-	tctx, _ := createSimulationEnv(&simrx, o.clientsToSim)
+	tctx, _ := createSimulationEnv(t, &simrx, o.clientsToSim)
 	if o.cb != nil {
 		o.cb(tctx, o)
 	}
@@ -75,7 +75,7 @@ func (o *ArpTestBase) Run(t *testing.T) {
 
 }
 
-func createSimulationEnv(simRx *core.VethIFSim, num int) (*core.CThreadCtx, *core.CClient) {
+func createSimulationEnv(t testing.TB, simRx *core.VethIFSim, num int) (*core.CThreadCtx, *core.CClient) {
 	tctx := core.NewThreadCtx(0, 4510, true, simRx)
 	var key core.CTunnelKey
 	key.Set(&core.CTunnelData{Vport: 1, Vlans: [2]uint32{0x81000001, 0x81000002}})
@@ -95,7 +95,11 @@ func createSimulationEnv(simRx *core.VethIFSim, num int) (*core.CThreadCtx, *cor
 			core.Ipv6Key{},
 			dg)
 		ns.AddClient(client)
-		client.PluginCtx.CreatePlugins([]string{"arp"}, [][]byte{})
+		emptyJsonObj := []byte("{}")
+		err := client.PluginCtx.CreatePlugins([]string{"arp"}, [][]byte{emptyJsonObj})
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
 	tctx.RegisterParserCb("arp")
 	return tctx, nil

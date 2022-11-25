@@ -18,7 +18,7 @@ func validateGeneratedUint8(b []byte, expected []uint8, eng FieldEngineIF, t *te
 		eng.Update(b[eng.GetOffset():])
 		value = uint8(b[eng.GetOffset()])
 		if value != expected[i] {
-			t.Errorf("Incorrect update no %v, want %v, have %v.\n", i, expected[i], value)
+			t.Errorf("Incorrect update no %v, want %v, have %v.", i, expected[i], value)
 		}
 	}
 }
@@ -30,7 +30,7 @@ func validateGeneratedInt8(b []byte, expected []int8, eng FieldEngineIF, t *test
 		eng.Update(b[eng.GetOffset():])
 		value = int8(b[eng.GetOffset()])
 		if value != expected[i] {
-			t.Errorf("Incorrect update no %v, want %v, have %v.\n", i, expected[i], value)
+			t.Errorf("Incorrect update no %v, want %v, have %v.", i, expected[i], value)
 		}
 	}
 }
@@ -42,7 +42,7 @@ func validateGeneratedUint16(b []byte, expected []uint16, eng FieldEngineIF, t *
 		eng.Update(b[eng.GetOffset():])
 		value = binary.BigEndian.Uint16(b[eng.GetOffset():])
 		if value != expected[i] {
-			t.Errorf("Incorrect update no %v, want %v, have %v.\n", i, expected[i], value)
+			t.Errorf("Incorrect update no %v, want %v, have %v.", i, expected[i], value)
 		}
 	}
 }
@@ -54,7 +54,7 @@ func validateGeneratedInt16(b []byte, expected []int16, eng FieldEngineIF, t *te
 		eng.Update(b[eng.GetOffset():])
 		value = int16(binary.BigEndian.Uint16(b[eng.GetOffset():]))
 		if value != expected[i] {
-			t.Errorf("Incorrect update no %v, want %v, have %v.\n", i, expected[i], value)
+			t.Errorf("Incorrect update no %v, want %v, have %v.", i, expected[i], value)
 		}
 	}
 }
@@ -66,7 +66,7 @@ func validateGeneratedUint32(b []byte, expected []uint32, eng FieldEngineIF, t *
 		eng.Update(b[eng.GetOffset():])
 		value = binary.BigEndian.Uint32(b[eng.GetOffset():])
 		if value != expected[i] {
-			t.Errorf("Incorrect update no %v, want %v, have %v.\n", i, expected[i], value)
+			t.Errorf("Incorrect update no %v, want %v, have %v.", i, expected[i], value)
 		}
 	}
 }
@@ -78,7 +78,7 @@ func validateGeneratedInt32(b []byte, expected []int32, eng FieldEngineIF, t *te
 		eng.Update(b[eng.GetOffset():])
 		value = int32(binary.BigEndian.Uint32(b[eng.GetOffset():]))
 		if value != expected[i] {
-			t.Errorf("Incorrect update no %v, want %v, have %v.\n", i, expected[i], value)
+			t.Errorf("Incorrect update no %v, want %v, have %v.", i, expected[i], value)
 		}
 	}
 }
@@ -90,7 +90,7 @@ func validateGeneratedUint64(b []byte, expected []uint64, eng FieldEngineIF, t *
 		eng.Update(b[eng.GetOffset():])
 		value = binary.BigEndian.Uint64(b[eng.GetOffset():])
 		if value != expected[i] {
-			t.Errorf("Incorrect update no %v, want %v, have %v.\n", i, expected[i], value)
+			t.Errorf("Incorrect update no %v, want %v, have %v.", i, expected[i], value)
 		}
 	}
 }
@@ -104,7 +104,7 @@ func validateGeneratedFloat32(b []byte, expected []float32, eng FieldEngineIF, t
 		b32 = binary.BigEndian.Uint32(b[eng.GetOffset():])
 		v32 = math.Float32frombits(b32)
 		if v32 != expected[i] {
-			t.Errorf("Incorrect update no %v, want %v, have %v.\n", i, expected[i], v32)
+			t.Errorf("Incorrect update no %v, want %v, have %v.", i, expected[i], v32)
 		}
 	}
 }
@@ -118,7 +118,7 @@ func validateGeneratedFloat64(b []byte, expected []float64, eng FieldEngineIF, t
 		b64 = binary.BigEndian.Uint64(b[eng.GetOffset():])
 		v64 = math.Float64frombits(b64)
 		if v64 != expected[i] {
-			t.Errorf("Incorrect update no %v, want %v, have %v.\n", i, expected[i], v64)
+			t.Errorf("Incorrect update no %v, want %v, have %v.", i, expected[i], v64)
 		}
 	}
 }
@@ -133,8 +133,7 @@ func validateRandomInt64(b []byte, eng *IntEngine, t *testing.T) {
 		eng.Update(b[eng.GetOffset():])
 		v = int64(binary.BigEndian.Uint64(b[eng.GetOffset():]))
 		if v > eng.MaxValue || v < eng.MinValue {
-			t.Errorf("Generated number %v not in range [%v-%v].\n", v, eng.MinValue, eng.MaxValue)
-			t.FailNow()
+			t.Fatalf("Generated number %v not in range [%v-%v].", v, eng.MinValue, eng.MaxValue)
 		} else {
 			histogram[v]++
 		}
@@ -146,8 +145,7 @@ func validateRandomInt64(b []byte, eng *IntEngine, t *testing.T) {
 
 	for entry, reps := range histogram {
 		if reps > maxBound || reps < minBound {
-			t.Errorf("Value %v was generated %v times, it should be in [%v-%v]\n", entry, reps, minBound, maxBound)
-			t.FailNow()
+			t.Fatalf("Value %v was generated %v times, it should be in [%v-%v]", entry, reps, minBound, maxBound)
 		}
 	}
 
@@ -158,10 +156,12 @@ func createEngineManager(t *testing.T) (*FieldEngineManager, *core.CThreadCtx) {
 	var simrx core.VethIFSim
 	tctx := core.NewThreadCtx(0, 0, true, &simrx)
 	param := fastjson.RawMessage([]byte(`[]`))
-	feMgr := NewEngineManager(tctx, &param)
-	if feMgr.counters.invalidJson != 0 || feMgr.counters.failedBuildingEngine != 0 {
-		t.Errorf("Error while generating engine manager.\n")
+	feMgr, err := NewEngineManager(tctx, &param)
+	if err != nil {
 		t.FailNow()
+	}
+	if feMgr.counters.invalidJson != 0 || feMgr.counters.failedBuildingEngine != 0 {
+		t.Fatalf("Error while generating engine manager.")
 	}
 	return feMgr, tctx
 }
@@ -187,25 +187,25 @@ func TestUIntEngineBasic(t *testing.T) {
 	}
 	eng, err := NewUIntEngine(&params, feMgr)
 	if err != nil {
-		t.Errorf("Error while generating new engine.\n %v\n", err.Error())
+		t.Errorf("Error while generating new engine.\n %v", err.Error())
 	}
 	offset := eng.GetOffset()
 	if offset != params.Offset {
-		t.Errorf("GetOffset was incorrect, have %v, want %v.\n", offset, params.Offset)
+		t.Errorf("GetOffset was incorrect\nhave: %v\nwant: %v", offset, params.Offset)
 	}
 	size := eng.GetSize()
 	if size != params.Size {
-		t.Errorf("GetSize was incorrect, have %v, want %v.\n", size, params.Size)
+		t.Errorf("GetSize was incorrect\nhave: %v\nwant: %v", size, params.Size)
 	}
 	eng.Update(b[offset:])
 	value := binary.BigEndian.Uint64(b[offset:])
 	if value != params.MinValue {
-		t.Errorf("First Update was incorrect, have %v, want %v.\n", value, params.MinValue)
+		t.Errorf("First Update was incorrect\nhave: %v\nwant: %v", value, params.MinValue)
 	}
 	eng.Update(b[offset:])
 	value = binary.BigEndian.Uint64(b[offset:])
 	if value != params.MinValue+params.Step {
-		t.Errorf("Second Update was incorrect, have %v, want %v.\n", value, params.MinValue+params.Step)
+		t.Errorf("Second Update was incorrect\nhave: %v\nwant: %v", value, params.MinValue+params.Step)
 	}
 }
 
@@ -227,13 +227,13 @@ func TestUIntEngineNegative(t *testing.T) {
 		MinValue:                50,
 		MaxValue:                260,
 	}
-	exp := "Max value 260 cannot be represented with size 1.\n"
+	exp := "Max value 260 cannot be represented with size 1."
 	_, err := NewUIntEngine(&params, feMgr)
 	if err.Error() != exp {
-		t.Errorf("Didn't raise correct error, have %v, want %v.\n", err.Error(), exp)
+		t.Errorf("Didn't raise correct error\nhave: %v\nwant: %v", err.Error(), exp)
 	}
 	if feMgr.counters.sizeTooSmall != 1 {
-		t.Errorf("sizeTooSmall counter incorrect, have %v, want %v.\n", feMgr.counters.sizeTooSmall, 1)
+		t.Errorf("sizeTooSmall counter incorrect\nhave: %v\nwant %v", feMgr.counters.sizeTooSmall, 1)
 	}
 
 	baseParams = BaseNumericEngineParams{
@@ -247,13 +247,13 @@ func TestUIntEngineNegative(t *testing.T) {
 		MinValue:                50,
 		MaxValue:                40,
 	}
-	exp = "Min value 50 is bigger than max value 40.\n"
+	exp = "Min value 50 is bigger than max value 40."
 	_, err = NewUIntEngine(&params, feMgr)
 	if err.Error() != exp {
-		t.Errorf("Didn't raise correct error, have %v, want %v.\n", err.Error(), exp)
+		t.Errorf("Didn't raise correct error\nhave: %v\nwant: %v", err.Error(), exp)
 	}
 	if feMgr.counters.maxSmallerThanMin != 1 {
-		t.Errorf("maxSmallerThanMin counter incorrect, have %v, want %v.\n", feMgr.counters.maxSmallerThanMin, 1)
+		t.Errorf("maxSmallerThanMin counter incorrect\nhave: %v\nwant: %v", feMgr.counters.maxSmallerThanMin, 1)
 	}
 
 	baseParams = BaseNumericEngineParams{
@@ -268,13 +268,13 @@ func TestUIntEngineNegative(t *testing.T) {
 		MinValue:                50,
 		MaxValue:                55,
 	}
-	exp = "Unsupported operation aa.\n"
+	exp = "Unsupported operation aa."
 	_, err = NewUIntEngine(&params, feMgr)
 	if err.Error() != exp {
-		t.Errorf("Didn't raise correct error, have %v, want %v.\n", err.Error(), exp)
+		t.Errorf("Didn't raise correct error\nhave: %v\nwant %v", err.Error(), exp)
 	}
 	if feMgr.counters.badOperation != 1 {
-		t.Errorf("badOperation counter incorrect, have %v, want %v.\n", feMgr.counters.badOperation, 1)
+		t.Errorf("badOperation counter incorrect\nhave: %v\nwant: %v", feMgr.counters.badOperation, 1)
 	}
 	baseParams = BaseNumericEngineParams{
 		Offset: 2,
@@ -287,13 +287,13 @@ func TestUIntEngineNegative(t *testing.T) {
 		MinValue:                50,
 		MaxValue:                55,
 	}
-	exp = "Invalid size 3. Size should be {1, 2, 4, 8}.\n"
+	exp = "Invalid size 3. Size should be {1, 2, 4, 8}."
 	_, err = NewUIntEngine(&params, feMgr)
 	if err.Error() != exp {
-		t.Errorf("Didn't raise correct error, have %v, want %v.\n", err.Error(), exp)
+		t.Errorf("Didn't raise correct error\nhave: %v\nwant: %v", err.Error(), exp)
 	}
 	if feMgr.counters.invalidSize != 1 {
-		t.Errorf("invalidSize counter incorrect, have %v, want %v.\n", feMgr.counters.invalidSize, 1)
+		t.Errorf("invalidSize counter incorrect\nhave: %v\nwant: %v", feMgr.counters.invalidSize, 1)
 	}
 
 	baseParams = BaseNumericEngineParams{
@@ -309,13 +309,13 @@ func TestUIntEngineNegative(t *testing.T) {
 		MaxValue:                55,
 		InitValue:               1,
 	}
-	exp = "Init value 1 must be between [3 - 55].\n"
+	exp = "Init value 1 must be between [3 - 55]."
 	_, err = NewUIntEngine(&params, feMgr)
 	if err.Error() != exp {
-		t.Errorf("Didn't raise correct error, have %v, want %v.\n", err.Error(), exp)
+		t.Errorf("Didn't raise correct error\nhave: %v\nwant: %v", err.Error(), exp)
 	}
 	if feMgr.counters.badInitValue != 1 {
-		t.Errorf("badInitValue counter incorrect, have %v, want %v.\n", feMgr.counters.badInitValue, 1)
+		t.Errorf("badInitValue counter incorrect\nhave: %v\nwant: %v", feMgr.counters.badInitValue, 1)
 	}
 
 	baseParams = BaseNumericEngineParams{
@@ -331,13 +331,13 @@ func TestUIntEngineNegative(t *testing.T) {
 		MaxValue:                65667,
 		InitValue:               1,
 	}
-	exp = "Max value 65667 cannot be represented with size 2.\n"
+	exp = "Max value 65667 cannot be represented with size 2."
 	_, err = NewUIntEngine(&params, feMgr)
 	if err.Error() != exp {
-		t.Errorf("Didn't raise correct error, have %v, want %v.\n", err.Error(), exp)
+		t.Errorf("Didn't raise correct error\nhave: %v\nwant: %v", err.Error(), exp)
 	}
 	if feMgr.counters.sizeTooSmall != 2 {
-		t.Errorf("sizeTooSmall counter incorrect, have %v, want %v.\n", feMgr.counters.sizeTooSmall, 2)
+		t.Errorf("sizeTooSmall counter incorrect\nhave %v\nwant: %v", feMgr.counters.sizeTooSmall, 2)
 	}
 }
 
@@ -363,8 +363,7 @@ func TestUInt16EngineInc(t *testing.T) {
 	}
 	eng, err := NewUIntEngine(&params, feMgr)
 	if err != nil {
-		t.Errorf("Error while generating new engine.\n %v\n", err.Error())
-		t.FailNow()
+		t.Fatalf("Error while generating new engine.\n %v", err.Error())
 	}
 	// Restarting takes 1, so going from 100 to 50 consumes 1 and then 4 are left.
 	expected := []uint16{75, 80, 85, 90, 95, 100, 54, 59, 64, 69, 74}
@@ -386,8 +385,7 @@ func TestUInt16EngineInc(t *testing.T) {
 	}
 	eng, err = NewUIntEngine(&params, feMgr)
 	if err != nil {
-		t.Errorf("Error while generating new engine.\n %v\n", err.Error())
-		t.FailNow()
+		t.Fatalf("Error while generating new engine.\n %v", err.Error())
 	}
 	expected = []uint16{5, 6, 7, 8, 9, 5, 6}
 	validateGeneratedUint16(b, expected, eng, t)
@@ -407,8 +405,7 @@ func TestUInt16EngineInc(t *testing.T) {
 	}
 	eng, err = NewUIntEngine(&params, feMgr)
 	if err != nil {
-		t.Errorf("Error while generating new engine.\n %v\n", err.Error())
-		t.FailNow()
+		t.Fatalf("Error while generating new engine.\n %v", err.Error())
 	}
 	expected = []uint16{3, 5, 7, 4, 6, 3}
 	validateGeneratedUint16(b, expected, eng, t)
@@ -429,8 +426,7 @@ func TestUInt16EngineInc(t *testing.T) {
 	}
 	eng, err = NewUIntEngine(&params, feMgr)
 	if err != nil {
-		t.Errorf("Error while generating new engine.\n %v\n", err.Error())
-		t.FailNow()
+		t.Fatalf("Error while generating new engine.\n %v", err.Error())
 	}
 	expected = []uint16{10000, 15000, 20000, 25000, 30000, 35000, 40000}
 	validateGeneratedUint16(b, expected, eng, t)
@@ -438,7 +434,7 @@ func TestUInt16EngineInc(t *testing.T) {
 	// validate bytes slice in the end
 	expectedBytes := []byte{0x00, 0x4a, 0x00, 0x06, 0x00, 0x03, 0x9c, 0x40} // [74, 6, 3, 40000]
 	if !bytes.Equal(expectedBytes, b) {
-		t.Errorf("Byte slice not as expected, have %v, want %v.\n", b, expectedBytes)
+		t.Errorf("Byte slice not as expected\nhave: %v\nwant: %v", b, expectedBytes)
 	}
 }
 
@@ -466,8 +462,7 @@ func TestUInt16EngineDec(t *testing.T) {
 	var value uint16
 	eng, err := NewUIntEngine(&params, feMgr)
 	if err != nil {
-		t.Errorf("Error while generating new engine.")
-		t.FailNow()
+		t.Fatalf("Error while generating new engine.")
 	}
 	expected := []uint16{3, 2, 1, 0, 5, 4}
 	validateGeneratedUint16(b, expected, eng, t)
@@ -488,15 +483,14 @@ func TestUInt16EngineDec(t *testing.T) {
 	}
 	eng, err = NewUIntEngine(&params, feMgr)
 	if err != nil {
-		t.Errorf("Error while generating new engine.\n %v\n", err.Error())
-		t.FailNow()
+		t.Fatalf("Error while generating new engine.\n %v", err.Error())
 	}
 	for i := 0; i < 0xffff; i++ {
 		eng.Update(b[params.Offset:])
 	}
 	value = binary.BigEndian.Uint16(b[params.Offset:])
 	if value != 1 {
-		t.Errorf("Incorrect update,  want %v, have %v.\n", 1, value)
+		t.Errorf("Incorrect update,  want %v, have %v.", 1, value)
 	}
 
 	baseParams = BaseNumericEngineParams{
@@ -514,8 +508,7 @@ func TestUInt16EngineDec(t *testing.T) {
 	}
 	eng, err = NewUIntEngine(&params, feMgr)
 	if err != nil {
-		t.Errorf("Error while generating new engine.\n %v\n", err.Error())
-		t.FailNow()
+		t.Fatalf("Error while generating new engine.\n %v", err.Error())
 	}
 	expected = []uint16{0, 0xffff - 1, 0xffff - 3}
 	validateGeneratedUint16(b, expected, eng, t)
@@ -535,8 +528,7 @@ func TestUInt16EngineDec(t *testing.T) {
 	}
 	eng, err = NewUIntEngine(&params, feMgr)
 	if err != nil {
-		t.Errorf("Error while generating new engine.\n %v\n", err.Error())
-		t.FailNow()
+		t.Fatalf("Error while generating new engine.\n %v", err.Error())
 	}
 	expected = []uint16{3, 3, 3}
 	validateGeneratedUint16(b, expected, eng, t)
@@ -544,7 +536,7 @@ func TestUInt16EngineDec(t *testing.T) {
 	// validate bytes slice in the end
 	expectedBytes := []byte{0x00, 0x04, 0x00, 0x01, 0xff, 0xff - 3, 0x00, 0x03}
 	if !bytes.Equal(expectedBytes, b) {
-		t.Errorf("Byte slice not as expected, have %v, want %v.\n", b, expectedBytes)
+		t.Errorf("Byte slice not as expected\nhave: %v\nwant: %v", b, expectedBytes)
 	}
 }
 
@@ -571,14 +563,13 @@ func TestUInt16EngineRand(t *testing.T) {
 	var value uint16
 	eng, err := NewUIntEngine(&params, feMgr)
 	if err != nil {
-		t.Errorf("Error while generating new engine.\n %v\n", err.Error())
-		t.FailNow()
+		t.Fatalf("Error while generating new engine.\n %v", err.Error())
 	}
 	for i := 0; i < 1000; i++ {
 		eng.Update(b[params.Offset:])
 		value = binary.BigEndian.Uint16(b[params.Offset:])
 		if value < 0 || value > 5 {
-			t.Errorf("Incorrect update, want in [%v-%v], have %v.\n", 0, 5, value)
+			t.Errorf("Incorrect update, want in [%v-%v], have %v.", 0, 5, value)
 		}
 	}
 
@@ -596,14 +587,13 @@ func TestUInt16EngineRand(t *testing.T) {
 	}
 	eng, err = NewUIntEngine(&params, feMgr)
 	if err != nil {
-		t.Errorf("Error while generating new engine.\n %v\n", err.Error())
-		t.FailNow()
+		t.Fatalf("Error while generating new engine.\n %v", err.Error())
 	}
 	for i := 0; i < 1000; i++ {
 		eng.Update(b[params.Offset:])
 		value = binary.BigEndian.Uint16(b[params.Offset:])
 		if value != 7 {
-			t.Errorf("Incorrect update no %v, want %v, have %v.\n", i, 7, value)
+			t.Errorf("Incorrect update no %v\nwant: %v\nhave: %v.", i, 7, value)
 		}
 	}
 
@@ -622,8 +612,7 @@ func TestUInt16EngineRand(t *testing.T) {
 	}
 	eng, err = NewUIntEngine(&params, feMgr)
 	if err != nil {
-		t.Errorf("Error while generating new engine.\n %v\n", err.Error())
-		t.FailNow()
+		t.Fatalf("Error while generating new engine.\n %v", err.Error())
 	}
 	ones, twos := 0, 0
 	for i := 0; i < iterNumber; i++ {
@@ -634,18 +623,17 @@ func TestUInt16EngineRand(t *testing.T) {
 		} else if value == 2 {
 			twos++
 		} else {
-			t.Errorf("Generated value %v not in domain, [%v - %v].\n", value, params.MinValue, params.MaxValue)
+			t.Errorf("Generated value %v not in domain, [%v - %v].", value, params.MinValue, params.MaxValue)
 		}
 	}
 	if ones+twos != iterNumber {
-		t.Errorf("Expected %v generated numbers, generated only %v.\n", iterNumber, ones+twos)
-		t.FailNow()
+		t.Fatalf("Expected %v generated numbers, generated only %v.", iterNumber, ones+twos)
 	}
 	expectedGen := iterNumber >> 1
 	expectedLowerBound := float64(expectedGen) * 0.99
 	expectedHigherBound := float64(expectedGen) * 1.01
 	if float64(ones) < expectedLowerBound || float64(ones) > expectedHigherBound {
-		t.Errorf("Generated number of 1s incorrect, have %v, expected [%v - %v].\n", ones, expectedLowerBound, expectedHigherBound)
+		t.Errorf("Generated number of 1s incorrect, have %v, expected [%v - %v].", ones, expectedLowerBound, expectedHigherBound)
 	}
 
 	baseParams = BaseNumericEngineParams{
@@ -663,8 +651,7 @@ func TestUInt16EngineRand(t *testing.T) {
 	var generatedHistogram [8]int
 	eng, err = NewUIntEngine(&params, feMgr)
 	if err != nil {
-		t.Errorf("Error while generating new engine.\n %v\n", err.Error())
-		t.FailNow()
+		t.Fatalf("Error while generating new engine.\n %v", err.Error())
 	}
 	for i := 0; i < iterNumber; i++ {
 		eng.Update(b[params.Offset:])
@@ -677,7 +664,7 @@ func TestUInt16EngineRand(t *testing.T) {
 	expectedHigherBound = float64(expectedGen) * 1.1
 	for i := 0; i < len(generatedHistogram); i++ {
 		if float64(generatedHistogram[i]) < expectedLowerBound || float64(generatedHistogram[i]) > expectedHigherBound {
-			t.Errorf("Generated number of %vs incorrect, have %v, expected [%v - %v].\n", i, generatedHistogram[i], expectedLowerBound, expectedHigherBound)
+			t.Errorf("Generated number of %vs incorrect, have %v, expected [%v - %v].", i, generatedHistogram[i], expectedLowerBound, expectedHigherBound)
 		}
 	}
 }
@@ -704,8 +691,7 @@ func TestUInt32Engine(t *testing.T) {
 	b := make([]byte, 16)
 	eng, err := NewUIntEngine(&params, feMgr)
 	if err != nil {
-		t.Errorf("Error while generating new engine.\n %v.\n", err.Error())
-		t.FailNow()
+		t.Fatalf("Error while generating new engine.\n %v.", err.Error())
 	}
 	expected := []uint32{0xffff, 0xffff + 2, 0xffff + 4, 0xffff + 6, 0xffff + 8, 0xffff + 10, 0xffff + 1, 0xffff + 3}
 	validateGeneratedUint32(b, expected, eng, t)
@@ -726,8 +712,7 @@ func TestUInt32Engine(t *testing.T) {
 	}
 	eng, err = NewUIntEngine(&params, feMgr)
 	if err != nil {
-		t.Errorf("Error while generating new engine.\n %v.\n", err.Error())
-		t.FailNow()
+		t.Fatalf("Error while generating new engine.\n %v.", err.Error())
 	}
 	expected = []uint32{101, 100, 0xffffffff, 0xffffffff - 1}
 	validateGeneratedUint32(b, expected, eng, t)
@@ -746,8 +731,7 @@ func TestUInt32Engine(t *testing.T) {
 	}
 	eng, err = NewUIntEngine(&params, feMgr)
 	if err != nil {
-		t.Errorf("Error while generating new engine.\n %v.\n", err.Error())
-		t.FailNow()
+		t.Fatalf("Error while generating new engine.\n %v.", err.Error())
 	}
 	var value uint32
 	zeroOffset := uint32(params.MinValue)
@@ -763,7 +747,7 @@ func TestUInt32Engine(t *testing.T) {
 	expectedHigherBound := float64(expectedGen) * 1.05
 	for i := 0; i < len(generatedHistogram); i++ {
 		if float64(generatedHistogram[i]) < expectedLowerBound || float64(generatedHistogram[i]) > expectedHigherBound {
-			t.Errorf("Generated number of %vs incorrect, have %v, expected [%v - %v].\n", i, generatedHistogram[i], expectedLowerBound, expectedHigherBound)
+			t.Errorf("Generated number of %vs incorrect, have %v, expected [%v - %v].", i, generatedHistogram[i], expectedLowerBound, expectedHigherBound)
 		}
 	}
 
@@ -782,8 +766,7 @@ func TestUInt32Engine(t *testing.T) {
 	}
 	eng, err = NewUIntEngine(&params, feMgr)
 	if err != nil {
-		t.Errorf("Error while generating new engine.\n %v.\n", err.Error())
-		t.FailNow()
+		t.Fatalf("Error while generating new engine.\n %v.", err.Error())
 	}
 	var expValue uint32
 	var genValue uint32
@@ -798,7 +781,7 @@ func TestUInt32Engine(t *testing.T) {
 		}
 		genValue = binary.BigEndian.Uint32(b[eng.GetOffset():])
 		if genValue != expValue {
-			t.Errorf("Failed on iteration %v, want %v, have %v.\n", i-16, expValue, genValue)
+			t.Errorf("Failed on iteration %v, want %v, have %v.", i-16, expValue, genValue)
 		}
 	}
 }
@@ -824,8 +807,7 @@ func TestUInt64Engine(t *testing.T) {
 	b := make([]byte, 24)
 	eng, err := NewUIntEngine(&params, feMgr)
 	if err != nil {
-		t.Errorf("Error while generating new engine.\n %v.\n", err.Error())
-		t.FailNow()
+		t.Fatalf("Error while generating new engine.\n %v.", err.Error())
 	}
 	var value uint64
 	iterNumber := 1 << 16
@@ -840,7 +822,7 @@ func TestUInt64Engine(t *testing.T) {
 	expectedHigherBound := float64(expectedGen) * 1.1
 	for i := 0; i < len(generatedHistogram); i++ {
 		if float64(generatedHistogram[i]) < expectedLowerBound || float64(generatedHistogram[i]) > expectedHigherBound {
-			t.Errorf("Generated number of %vs incorrect, have %v, expected [%v - %v].\n", i, generatedHistogram[i], expectedLowerBound, expectedHigherBound)
+			t.Errorf("Generated number of %vs incorrect, have %v, expected [%v - %v].", i, generatedHistogram[i], expectedLowerBound, expectedHigherBound)
 		}
 	}
 
@@ -860,8 +842,7 @@ func TestUInt64Engine(t *testing.T) {
 	}
 	eng, err = NewUIntEngine(&params, feMgr)
 	if err != nil {
-		t.Errorf("Error while generating new engine.\n %v.\n", err.Error())
-		t.FailNow()
+		t.Fatalf("Error while generating new engine.\n %v.", err.Error())
 	}
 	expected := []uint64{math.MaxUint64 - 2, math.MaxUint64, 1, 3, 5, 7}
 	validateGeneratedUint64(b, expected, eng, t)
@@ -883,8 +864,7 @@ func TestUInt64Engine(t *testing.T) {
 	}
 	eng, err = NewUIntEngine(&params, feMgr)
 	if err != nil {
-		t.Errorf("Error while generating new engine.\n %v.\n", err.Error())
-		t.FailNow()
+		t.Fatalf("Error while generating new engine.\n %v.", err.Error())
 	}
 	expected = []uint64{1, 0, math.MaxUint64, math.MaxUint64 - 1}
 	validateGeneratedUint64(b, expected, eng, t)
@@ -912,8 +892,7 @@ func TestUInt8Engine(t *testing.T) {
 	b := make([]byte, 8)
 	eng, err := NewUIntEngine(&params, feMgr)
 	if err != nil {
-		t.Errorf("Error while generating new engine.\n %v.\n", err.Error())
-		t.FailNow()
+		t.Fatalf("Error while generating new engine.\n %v.", err.Error())
 	}
 	var expected []uint8
 	for i := 0; i <= 256; i++ {
@@ -939,8 +918,7 @@ func TestUInt8Engine(t *testing.T) {
 	expected = []uint8{5, 4, 3, 2, 1, 0, 255, 254, 253, 252, 251, 250}
 	eng, err = NewUIntEngine(&params, feMgr)
 	if err != nil {
-		t.Errorf("Error while generating new engine.\n %v.\n", err.Error())
-		t.FailNow()
+		t.Fatalf("Error while generating new engine.\n %v.", err.Error())
 	}
 	validateGeneratedUint8(b, expected, eng, t)
 
@@ -959,8 +937,7 @@ func TestUInt8Engine(t *testing.T) {
 
 	eng, err = NewUIntEngine(&params, feMgr)
 	if err != nil {
-		t.Errorf("Error while generating new engine.\n %v.\n", err.Error())
-		t.FailNow()
+		t.Fatalf("Error while generating new engine.\n %v.", err.Error())
 	}
 	expected = expected[:0]
 	for i := 0; i <= 500; i += 5 {
@@ -985,8 +962,7 @@ func TestUInt8Engine(t *testing.T) {
 	}
 	eng, err = NewUIntEngine(&params, feMgr)
 	if err != nil {
-		t.Errorf("Error while generating new engine.\n %v.\n", err.Error())
-		t.FailNow()
+		t.Fatalf("Error while generating new engine.\n %v.", err.Error())
 	}
 	expected = expected[:0]
 	for i := 0xff; i >= 0; i -= 5 {
@@ -999,7 +975,7 @@ func TestUInt8Engine(t *testing.T) {
 	// validate bytes slice in the end
 	expectedBytes := []byte{0x00, 0xfa, 0xf4, 0xfb}
 	if !bytes.Equal(expectedBytes, b[0:4]) {
-		t.Errorf("Byte slice not as expected, have %v, want %v.\n", b[0:4], expectedBytes)
+		t.Errorf("Byte slice not as expected\nhave: %v\nwant: %v", b[0:4], expectedBytes)
 	}
 
 	// rand 0xff
@@ -1015,15 +991,14 @@ func TestUInt8Engine(t *testing.T) {
 	}
 	eng, err = NewUIntEngine(&params, feMgr)
 	if err != nil {
-		t.Errorf("Error while generating new engine.\n %v.\n", err.Error())
-		t.FailNow()
+		t.Fatalf("Error while generating new engine.\n %v.", err.Error())
 	}
 	var value uint8
 	for i := 0; i < 0xff; i++ {
 		eng.Update(b[eng.GetOffset():])
 		value = uint8(b[eng.GetOffset()])
 		if value != 0xff {
-			t.Errorf("Error generating random value, have %v, want %v.\n", value, 0xff)
+			t.Errorf("Error generating random value\nhave: %v\nwant: %v", value, 0xff)
 		}
 	}
 
@@ -1040,8 +1015,7 @@ func TestUInt8Engine(t *testing.T) {
 	}
 	eng, err = NewUIntEngine(&params, feMgr)
 	if err != nil {
-		t.Errorf("Error while generating new engine.\n %v.\n", err.Error())
-		t.FailNow()
+		t.Fatalf("Error while generating new engine.\n %v.", err.Error())
 	}
 	iterNumber := 1 << 20
 	var generatedHistogram [256]int
@@ -1056,12 +1030,12 @@ func TestUInt8Engine(t *testing.T) {
 	expectedHigherBound := float64(expectedGen) * 1.1
 	for i := 0; i < len(generatedHistogram); i++ {
 		if float64(generatedHistogram[i]) < expectedLowerBound || float64(generatedHistogram[i]) > expectedHigherBound {
-			t.Errorf("Generated number of %vs incorrect, have %v, expected [%v - %v].\n", i, generatedHistogram[i], expectedLowerBound, expectedHigherBound)
+			t.Errorf("Generated number of %vs incorrect, have %v, expected [%v - %v].", i, generatedHistogram[i], expectedLowerBound, expectedHigherBound)
 		}
 	}
 }
 
-//TestIntEngines
+// TestIntEngines
 func TestIntEngines(t *testing.T) {
 	feMgr, tctx := createEngineManager(t)
 	defer tctx.Delete()
@@ -1083,8 +1057,7 @@ func TestIntEngines(t *testing.T) {
 	b := make([]byte, 8)
 	eng, err := NewIntEngine(&params, feMgr)
 	if err != nil {
-		t.Errorf("Error while generating new engine.\n %v.\n", err.Error())
-		t.FailNow()
+		t.Fatalf("Error while generating new engine.\n %v.", err.Error())
 	}
 	var expected []int8
 	for i := -128; i <= 127; i++ {
@@ -1110,8 +1083,7 @@ func TestIntEngines(t *testing.T) {
 	b = make([]byte, 8)
 	eng, err = NewIntEngine(&params, feMgr)
 	if err != nil {
-		t.Errorf("Error while generating new engine.\n %v.\n", err.Error())
-		t.FailNow()
+		t.Fatalf("Error while generating new engine.\n %v.", err.Error())
 	}
 	expected = []int8{0, -5, -10, 6, 1, -4, -9, 7}
 	validateGeneratedInt8(b, expected, eng, t)
@@ -1133,15 +1105,14 @@ func TestIntEngines(t *testing.T) {
 
 	eng, err = NewIntEngine(&params, feMgr)
 	if err != nil {
-		t.Errorf("Error while generating new engine.\n %v.\n", err.Error())
-		t.FailNow()
+		t.Fatalf("Error while generating new engine.\n %v.", err.Error())
 	}
 	var value int16
 	for i := 0; i < 1000; i++ {
 		eng.Update(b[params.Offset:])
 		value = int16(binary.BigEndian.Uint16(b[params.Offset:]))
 		if value < int16(params.MinValue) || value > int16(params.MaxValue) {
-			t.Errorf("Incorrect update, want in [%v-%v], have %v.\n", params.MinValue, params.MaxValue, value)
+			t.Errorf("Incorrect update, want in [%v-%v], have %v.", params.MinValue, params.MaxValue, value)
 		}
 	}
 
@@ -1161,8 +1132,7 @@ func TestIntEngines(t *testing.T) {
 
 	eng, err = NewIntEngine(&params, feMgr)
 	if err != nil {
-		t.Errorf("Error while generating new engine.\n %v.\n", err.Error())
-		t.FailNow()
+		t.Fatalf("Error while generating new engine.\n %v.", err.Error())
 	}
 	var exp16 []int16
 	for i := -200; i <= -128; i++ {
@@ -1189,8 +1159,7 @@ func TestIntEngines(t *testing.T) {
 
 	eng, err = NewIntEngine(&params, feMgr)
 	if err != nil {
-		t.Errorf("Error while generating new engine.\n %v.\n", err.Error())
-		t.FailNow()
+		t.Fatalf("Error while generating new engine.\n %v.", err.Error())
 	}
 
 	exp32 := []int32{-0x0123FFFF, -0x0123FF00, -0x0123FE01, -0x0123FD02, -0x0123FC03}
@@ -1213,8 +1182,7 @@ func TestIntEngines(t *testing.T) {
 
 	eng, err = NewIntEngine(&params, feMgr)
 	if err != nil {
-		t.Errorf("Error while generating new engine.\n %v.\n", err.Error())
-		t.FailNow()
+		t.Fatalf("Error while generating new engine.\n %v.", err.Error())
 	}
 	b[0] = 0x00
 	b[1] = 0xFF
@@ -1222,7 +1190,7 @@ func TestIntEngines(t *testing.T) {
 	validateGeneratedInt16(b, exp16, eng, t)
 	expBytes := []byte{0x00, 0xFF, 0x00, 0x10, 0x00, 0x00, 0x00, 0x00}
 	if !bytes.Equal(expBytes, b) {
-		t.Errorf("Byte slice not as expected, have %v, want %v.\n", b, expBytes)
+		t.Errorf("Byte slice not as expected\nhave: %v\nwant: %v", b, expBytes)
 	}
 
 	// uint64
@@ -1241,13 +1209,11 @@ func TestIntEngines(t *testing.T) {
 	}
 	eng, err = NewIntEngine(&params, feMgr)
 	if err != nil {
-		t.Errorf("Error while generating new engine.\n %v.\n", err.Error())
-		t.FailNow()
+		t.Fatalf("Error while generating new engine.\n %v.", err.Error())
 	}
 
 	if eng.domainLen != math.MaxUint64 {
-		t.Errorf("Domain length for [%v-%v] not properly calculated, result = %v\n", params.MinValue, params.MaxValue, eng.domainLen)
-		t.FailNow()
+		t.Fatalf("Domain length for [%v-%v] not properly calculated, result = %v", params.MinValue, params.MaxValue, eng.domainLen)
 	}
 
 	params = IntEngineParams{
@@ -1258,13 +1224,11 @@ func TestIntEngines(t *testing.T) {
 	}
 	eng, err = NewIntEngine(&params, feMgr)
 	if err != nil {
-		t.Errorf("Error while generating new engine.\n %v.\n", err.Error())
-		t.FailNow()
+		t.Fatalf("Error while generating new engine.\n %v.", err.Error())
 	}
 
 	if eng.domainLen != 11 {
-		t.Errorf("Domain length for [%v-%v] not properly calculated, result = %v\n", params.MinValue, params.MaxValue, eng.domainLen)
-		t.FailNow()
+		t.Fatalf("Domain length for [%v-%v] not properly calculated, result = %v", params.MinValue, params.MaxValue, eng.domainLen)
 	}
 	validateRandomInt64(b, eng, t)
 
@@ -1276,13 +1240,11 @@ func TestIntEngines(t *testing.T) {
 	}
 	eng, err = NewIntEngine(&params, feMgr)
 	if err != nil {
-		t.Errorf("Error while generating new engine.\n %v.\n", err.Error())
-		t.FailNow()
+		t.Fatalf("Error while generating new engine.\n %v.", err.Error())
 	}
 
 	if eng.domainLen != 51 {
-		t.Errorf("Domain length for [%v-%v] not properly calculated, result = %v\n", params.MinValue, params.MaxValue, eng.domainLen)
-		t.FailNow()
+		t.Fatalf("Domain length for [%v-%v] not properly calculated, result = %v", params.MinValue, params.MaxValue, eng.domainLen)
 	}
 
 	validateRandomInt64(b, eng, t)
@@ -1295,19 +1257,17 @@ func TestIntEngines(t *testing.T) {
 	}
 	eng, err = NewIntEngine(&params, feMgr)
 	if err != nil {
-		t.Errorf("Error while generating new engine.\n %v.\n", err.Error())
-		t.FailNow()
+		t.Fatalf("Error while generating new engine.\n %v.", err.Error())
 	}
 
 	if eng.domainLen != 17 {
-		t.Errorf("Domain length for [%v-%v] not properly calculated, result = %v\n", params.MinValue, params.MaxValue, eng.domainLen)
-		t.FailNow()
+		t.Fatalf("Domain length for [%v-%v] not properly calculated, result = %v", params.MinValue, params.MaxValue, eng.domainLen)
 	}
 
 	validateRandomInt64(b, eng, t)
 }
 
-//TestFloatEngines
+// TestFloatEngines
 func TestFloatEngines(t *testing.T) {
 	feMgr, tctx := createEngineManager(t)
 	defer tctx.Delete()
@@ -1321,8 +1281,7 @@ func TestFloatEngines(t *testing.T) {
 	b := make([]byte, 12)
 	eng, err := NewFloatEngine(&params, feMgr)
 	if err != nil {
-		t.Errorf("Error while generating new engine.\n %v.\n", err.Error())
-		t.FailNow()
+		t.Fatalf("Error while generating new engine.\n %v.", err.Error())
 	}
 	iterNumber := 1 << 10
 	var v32 float32
@@ -1332,8 +1291,7 @@ func TestFloatEngines(t *testing.T) {
 		b32 = binary.BigEndian.Uint32(b[eng.GetOffset() : eng.GetOffset()+eng.GetSize()])
 		v32 = math.Float32frombits(b32)
 		if v32 > float32(params.Max) || v32 < float32(params.Min) {
-			t.Errorf("Float engine generated %v, not in range [%v-%v].", v32, params.Min, params.Max)
-			t.FailNow()
+			t.Fatalf("Float engine generated %v, not in range [%v-%v].", v32, params.Min, params.Max)
 		}
 	}
 
@@ -1345,8 +1303,7 @@ func TestFloatEngines(t *testing.T) {
 	}
 	eng, err = NewFloatEngine(&params, feMgr)
 	if err != nil {
-		t.Errorf("Error while generating new engine.\n %v.\n", err.Error())
-		t.FailNow()
+		t.Fatalf("Error while generating new engine.\n %v.", err.Error())
 	}
 	var v64 float64
 	var b64 uint64
@@ -1355,13 +1312,12 @@ func TestFloatEngines(t *testing.T) {
 		b64 = binary.BigEndian.Uint64(b[eng.GetOffset() : eng.GetOffset()+eng.GetSize()])
 		v64 = math.Float64frombits(b64)
 		if v64 > params.Max || v64 < params.Min {
-			t.Errorf("Float engine generated %v, not in range [%v-%v].", v32, params.Min, params.Max)
-			t.FailNow()
+			t.Fatalf("Float engine generated %v, not in range [%v-%v].", v32, params.Min, params.Max)
 		}
 	}
 }
 
-//TestIntEnginesNegative
+// TestIntEnginesNegative
 func TestIntEnginesNegative(t *testing.T) {
 	feMgr, tctx := createEngineManager(t)
 	defer tctx.Delete()
@@ -1378,13 +1334,13 @@ func TestIntEnginesNegative(t *testing.T) {
 		MinValue:                -129,
 		MaxValue:                126,
 	}
-	exp := "Min value -129 cannot be represented with size 1.\n"
+	exp := "Min value -129 cannot be represented with size 1."
 	_, err := NewIntEngine(&params, feMgr)
 	if err.Error() != exp {
-		t.Errorf("Didn't raise correct error, have %v, want %v.\n", err.Error(), exp)
+		t.Errorf("Didn't raise correct error\nhave: %v\nwant: %v", err.Error(), exp)
 	}
 	if feMgr.counters.sizeTooSmall != 1 {
-		t.Errorf("sizeTooSmall counter incorrect, have %v, want %v.\n", feMgr.counters.sizeTooSmall, 1)
+		t.Errorf("sizeTooSmall counter incorrect\nhave: %v\nwant: %v", feMgr.counters.sizeTooSmall, 1)
 	}
 
 	baseParams = BaseNumericEngineParams{
@@ -1399,13 +1355,13 @@ func TestIntEnginesNegative(t *testing.T) {
 		MaxValue:                -230,
 		InitValue:               math.MinInt64,
 	}
-	exp = "Min value -25 is bigger than max value -230.\n"
+	exp = "Min value -25 is bigger than max value -230."
 	_, err = NewIntEngine(&params, feMgr)
 	if err.Error() != exp {
-		t.Errorf("Didn't raise correct error, have %v, want %v.\n", err.Error(), exp)
+		t.Errorf("Didn't raise correct error\nhave: %v\nwant: %v", err.Error(), exp)
 	}
 	if feMgr.counters.maxSmallerThanMin != 1 {
-		t.Errorf("maxSmallerThanMin counter incorrect, have %v, want %v.\n", feMgr.counters.maxSmallerThanMin, 1)
+		t.Errorf("maxSmallerThanMin counter incorrect\nhave: %v\nwant: %v", feMgr.counters.maxSmallerThanMin, 1)
 	}
 
 	params = IntEngineParams{
@@ -1413,13 +1369,13 @@ func TestIntEnginesNegative(t *testing.T) {
 		MinValue:                -40,
 		MaxValue:                -30,
 	}
-	exp = "Init value 0 must be between [-40 - -30].\n"
+	exp = "Init value 0 must be between [-40 - -30]."
 	_, err = NewIntEngine(&params, feMgr)
 	if err.Error() != exp {
-		t.Errorf("Didn't raise correct error, have %v, want %v.\n", err.Error(), exp)
+		t.Errorf("Didn't raise correct error\nhave: %v\nwant: %v", err.Error(), exp)
 	}
 	if feMgr.counters.badInitValue != 1 {
-		t.Errorf("badInitValue counter incorrect, have %v, want %v.\n", feMgr.counters.badInitValue, 1)
+		t.Errorf("badInitValue counter incorrect\nhave: %v\nwant: %v", feMgr.counters.badInitValue, 1)
 	}
 }
 
@@ -1444,8 +1400,7 @@ func TestHistogramUInt32Engine(t *testing.T) {
 	iterNumber := 1 << 20
 	eng, err := NewHistogramEngine(&params, feMgr)
 	if err != nil {
-		t.Errorf("Error while generating new engine.\n %v.\n", err.Error())
-		t.FailNow()
+		t.Fatalf("Error while generating new engine.\n %v.", err.Error())
 	}
 	for i := 0; i < iterNumber; i++ {
 		eng.Update(b[eng.GetOffset():])
@@ -1455,7 +1410,7 @@ func TestHistogramUInt32Engine(t *testing.T) {
 		} else if v == 10 {
 			generated[1]++
 		} else {
-			t.Errorf("Generated number not in range of any entry %v.\n", v)
+			t.Errorf("Generated number not in range of any entry %v.", v)
 		}
 	}
 	verifyBinGenerator(iterNumber>>2, generated[0], 2, t)
@@ -1476,8 +1431,7 @@ func TestHistogramUInt32Engine(t *testing.T) {
 	}
 	eng, err = NewHistogramEngine(&params, feMgr)
 	if err != nil {
-		t.Errorf("Error while generating new engine.\n %v.\n", err.Error())
-		t.FailNow()
+		t.Fatalf("Error while generating new engine.\n %v.", err.Error())
 	}
 	for i := 0; i < 1<<10; i++ {
 		eng.Update(b[eng.GetOffset():])
@@ -1495,8 +1449,7 @@ func TestHistogramUInt32Engine(t *testing.T) {
 	generated = make([]int, len(entries))
 	eng, err = NewHistogramEngine(&params, feMgr)
 	if err != nil {
-		t.Errorf("Error while generating new engine.\n %v.\n", err.Error())
-		t.FailNow()
+		t.Fatalf("Error while generating new engine.\n %v.", err.Error())
 	}
 	for i := 0; i < iterNumber; i++ {
 		eng.Update(b[eng.GetOffset():])
@@ -1518,14 +1471,13 @@ func TestHistogramUInt32Engine(t *testing.T) {
 	}
 	eng, err = NewHistogramEngine(&params, feMgr)
 	if err != nil {
-		t.Errorf("Error while generating new engine.\n %v.\n", err.Error())
-		t.FailNow()
+		t.Fatalf("Error while generating new engine.\n %v.", err.Error())
 	}
 	for i := 0; i < 1<<10; i++ {
 		eng.Update(b[eng.GetOffset():])
 		v = binary.BigEndian.Uint32(b[eng.GetOffset():])
 		if v != 0 {
-			t.Errorf("Generated wrong value, want %v have %v.\n", 0, v)
+			t.Errorf("Generated wrong value, want %v have %v.", 0, v)
 		}
 	}
 }
@@ -1551,8 +1503,7 @@ func TestHistogramInt32Engine(t *testing.T) {
 	iterNumber := 1 << 20
 	eng, err := NewHistogramEngine(&params, feMgr)
 	if err != nil {
-		t.Errorf("Error while generating new engine.\n %v.\n", err.Error())
-		t.FailNow()
+		t.Fatalf("Error while generating new engine.\n %v.", err.Error())
 	}
 	for i := 0; i < iterNumber; i++ {
 		eng.Update(b[eng.GetOffset():])
@@ -1562,7 +1513,7 @@ func TestHistogramInt32Engine(t *testing.T) {
 		} else if v == -1 {
 			generated[1]++
 		} else {
-			t.Errorf("Generated number not in range of any entry %v.\n", v)
+			t.Errorf("Generated number not in range of any entry %v.", v)
 		}
 	}
 	verifyBinGenerator(iterNumber>>1, generated[0], 2, t)
@@ -1579,8 +1530,7 @@ func TestHistogramInt32Engine(t *testing.T) {
 	generated = make([]int, len(entries))
 	eng, err = NewHistogramEngine(&params, feMgr)
 	if err != nil {
-		t.Errorf("Error while generating new engine.\n %v.\n", err.Error())
-		t.FailNow()
+		t.Fatalf("Error while generating new engine.\n %v.", err.Error())
 	}
 	for i := 0; i < iterNumber; i++ {
 		eng.Update(b[eng.GetOffset():])
@@ -1602,15 +1552,14 @@ func TestHistogramInt32Engine(t *testing.T) {
 	}
 	eng, err = NewHistogramEngine(&params, feMgr)
 	if err != nil {
-		t.Errorf("Error while generating new engine.\n %v.\n", err.Error())
-		t.FailNow()
+		t.Fatalf("Error while generating new engine.\n %v.", err.Error())
 	}
 	var v16 int16
 	for i := 0; i < 1<<10; i++ {
 		eng.Update(b[eng.GetOffset():])
 		v16 = int16(binary.BigEndian.Uint16(b[eng.GetOffset():]))
 		if v16 != -1 {
-			t.Errorf("Generated wrong value, want %v have %v.\n", 0, v)
+			t.Errorf("Generated wrong value, want %v have %v.", 0, v)
 		}
 	}
 }
@@ -1636,8 +1585,7 @@ func TestHistogramUInt32RangeEngine(t *testing.T) {
 	iterNumber := 1 << 20
 	eng, err := NewHistogramEngine(&params, feMgr)
 	if err != nil {
-		t.Errorf("Error while generating new engine.\n %v.\n", err.Error())
-		t.FailNow()
+		t.Fatalf("Error while generating new engine.\n %v.", err.Error())
 	}
 	for i := 0; i < iterNumber; i++ {
 		eng.Update(b)
@@ -1647,7 +1595,7 @@ func TestHistogramUInt32RangeEngine(t *testing.T) {
 		} else if v >= 101 && v <= 200 {
 			generated[1]++
 		} else {
-			t.Errorf("Generated number not in range of any entry %v.\n", v)
+			t.Errorf("Generated number not in range of any entry %v.", v)
 		}
 	}
 	verifyBinGenerator(1<<19, generated[0], 1, t)
@@ -1664,8 +1612,7 @@ func TestHistogramUInt32RangeEngine(t *testing.T) {
 	}
 	eng, err = NewHistogramEngine(&params, feMgr)
 	if err != nil {
-		t.Errorf("Error while generating new engine.\n %v.\n", err.Error())
-		t.FailNow()
+		t.Fatalf("Error while generating new engine.\n %v.", err.Error())
 	}
 	generated = make([]int, 3)
 	for i := 0; i < iterNumber; i++ {
@@ -1678,7 +1625,7 @@ func TestHistogramUInt32RangeEngine(t *testing.T) {
 		} else if v >= 1000 && v <= 1500 {
 			generated[2]++
 		} else {
-			t.Errorf("Generated number not in range of any entry %v.\n", v)
+			t.Errorf("Generated number not in range of any entry %v.", v)
 		}
 	}
 	verifyBinGenerator(1<<18, generated[0], 1, t)
@@ -1696,8 +1643,7 @@ func TestHistogramUInt32RangeEngine(t *testing.T) {
 	}
 	eng, err = NewHistogramEngine(&params, feMgr)
 	if err != nil {
-		t.Errorf("Error while generating new engine.\n %v.\n", err.Error())
-		t.FailNow()
+		t.Fatalf("Error while generating new engine.\n %v.", err.Error())
 	}
 	generated = make([]int, len(entries))
 	for i := 0; i < iterNumber; i++ {
@@ -1710,7 +1656,7 @@ func TestHistogramUInt32RangeEngine(t *testing.T) {
 		} else if v >= 4000 && v <= 5000 {
 			generated[2]++
 		} else {
-			t.Errorf("Generated number not in range of any entry %v.\n", v)
+			t.Errorf("Generated number not in range of any entry %v.", v)
 		}
 	}
 	verifyBinGenerator(iterNumber/3, generated[0], 1, t)
@@ -1727,8 +1673,7 @@ func TestHistogramUInt32RangeEngine(t *testing.T) {
 	}
 	eng, err = NewHistogramEngine(&params, feMgr)
 	if err != nil {
-		t.Errorf("Error while generating new engine.\n %v.\n", err.Error())
-		t.FailNow()
+		t.Fatalf("Error while generating new engine.\n %v.", err.Error())
 	}
 	generated = make([]int, len(entries))
 	for i := 0; i < iterNumber; i++ {
@@ -1739,7 +1684,7 @@ func TestHistogramUInt32RangeEngine(t *testing.T) {
 		} else if v >= 2000 && v <= 3000 {
 			generated[1]++
 		} else {
-			t.Errorf("Generated number not in range of any entry %v.\n", v)
+			t.Errorf("Generated number not in range of any entry %v.", v)
 		}
 	}
 	verifyBinGenerator(iterNumber>>3, generated[0], 1, t)
@@ -1767,8 +1712,7 @@ func TestHistogramInt32RangeEngine(t *testing.T) {
 	iterNumber := 1 << 20
 	eng, err := NewHistogramEngine(&params, feMgr)
 	if err != nil {
-		t.Errorf("Error while generating new engine.\n %v.\n", err.Error())
-		t.FailNow()
+		t.Fatalf("Error while generating new engine.\n %v.", err.Error())
 	}
 	for i := 0; i < iterNumber; i++ {
 		eng.Update(b)
@@ -1778,7 +1722,7 @@ func TestHistogramInt32RangeEngine(t *testing.T) {
 		} else if v >= -25 && v <= -20 {
 			generated[1]++
 		} else {
-			t.Errorf("Generated number not in range of any entry %v.\n", v)
+			t.Errorf("Generated number not in range of any entry %v.", v)
 		}
 	}
 	verifyBinGenerator(1<<19, generated[0], 1, t)
@@ -1804,15 +1748,14 @@ func TestHistogramUInt32ListEngine(t *testing.T) {
 	iterNumber := 1 << 20
 	eng, err := NewHistogramEngine(&params, feMgr)
 	if err != nil {
-		t.Errorf("Error while generating new engine.\n %v.\n", err.Error())
-		t.FailNow()
+		t.Fatalf("Error while generating new engine.\n %v.", err.Error())
 	}
 	evens := 0
 	for i := 0; i < iterNumber; i++ {
 		eng.Update(b)
 		v = binary.BigEndian.Uint32(b)
 		if v >= 10 {
-			t.Errorf("Generated number not in range of any entry %v.\n", v)
+			t.Errorf("Generated number not in range of any entry %v.", v)
 		} else {
 			if v%2 == 0 {
 				evens++
@@ -1832,15 +1775,14 @@ func TestHistogramUInt32ListEngine(t *testing.T) {
 	}
 	eng, err = NewHistogramEngine(&params, feMgr)
 	if err != nil {
-		t.Errorf("Error while generating new engine.\n %v.\n", err.Error())
-		t.FailNow()
+		t.Fatalf("Error while generating new engine.\n %v.", err.Error())
 	}
 	evens = 0
 	for i := 0; i < iterNumber; i++ {
 		eng.Update(b[eng.GetOffset():])
 		v = binary.BigEndian.Uint32(b[eng.GetOffset():])
 		if v >= 10 {
-			t.Errorf("Generated number not in range of any entry %v.\n", v)
+			t.Errorf("Generated number not in range of any entry %v.", v)
 		} else {
 			if v%2 == 0 {
 				evens++
@@ -1870,8 +1812,7 @@ func TestHistogramInt32ListEngine(t *testing.T) {
 	iterNumber := 1 << 20
 	eng, err := NewHistogramEngine(&params, feMgr)
 	if err != nil {
-		t.Errorf("Error while generating new engine.\n %v.\n", err.Error())
-		t.FailNow()
+		t.Fatalf("Error while generating new engine.\n %v.", err.Error())
 	}
 	evens := 0
 	negatives := 0
@@ -1879,7 +1820,7 @@ func TestHistogramInt32ListEngine(t *testing.T) {
 		eng.Update(b)
 		v = int8(b[0])
 		if v > 6 || v < -6 {
-			t.Errorf("Generated number not in range of any entry %v.\n", v)
+			t.Errorf("Generated number not in range of any entry %v.", v)
 		} else {
 			if v%2 == 0 {
 				evens++
@@ -1911,13 +1852,13 @@ func TestUIntListEngineNegative(t *testing.T) {
 		BaseListEngineParams: baseParams,
 		List:                 []uint64{5, 3, 260},
 	}
-	exp := "List value 260 cannot be represented with size 1.\n"
+	exp := "List value 260 cannot be represented with size 1."
 	_, err := NewUIntListEngine(&params, feMgr)
 	if err.Error() != exp {
-		t.Errorf("Didn't raise correct error, have %v, want %v.\n", err.Error(), exp)
+		t.Errorf("Didn't raise correct error\nhave: %v\nwant: %v", err.Error(), exp)
 	}
 	if feMgr.counters.sizeTooSmall != 1 {
-		t.Errorf("sizeTooSmall counter incorrect, have %v, want %v.\n", feMgr.counters.sizeTooSmall, 1)
+		t.Errorf("sizeTooSmall counter incorrect\nhave: %v\nwant: %v", feMgr.counters.sizeTooSmall, 1)
 	}
 
 	// invalid size
@@ -1931,13 +1872,13 @@ func TestUIntListEngineNegative(t *testing.T) {
 		BaseListEngineParams: baseParams,
 		List:                 []uint64{5, 3, 260},
 	}
-	exp = "Invalid size 3. Size should be {1, 2, 4, 8}.\n"
+	exp = "Invalid size 3. Size should be {1, 2, 4, 8}."
 	_, err = NewUIntListEngine(&params, feMgr)
 	if err.Error() != exp {
-		t.Errorf("Didn't raise correct error, have %v, want %v.\n", err.Error(), exp)
+		t.Errorf("Didn't raise correct error\nhave: %v\nwant: %v", err.Error(), exp)
 	}
 	if feMgr.counters.invalidSize != 1 {
-		t.Errorf("invalidSize counter incorrect, have %v, want %v.\n", feMgr.counters.invalidSize, 1)
+		t.Errorf("invalidSize counter incorrect\nhave: %v\nwant: %v", feMgr.counters.invalidSize, 1)
 	}
 
 	// bad operation
@@ -1951,13 +1892,13 @@ func TestUIntListEngineNegative(t *testing.T) {
 		BaseListEngineParams: baseParams,
 		List:                 []uint64{5, 3, 260},
 	}
-	exp = "Unsupported operation bes.\n"
+	exp = "Unsupported operation bes."
 	_, err = NewUIntListEngine(&params, feMgr)
 	if err.Error() != exp {
-		t.Errorf("Didn't raise correct error, have %v, want %v.\n", err.Error(), exp)
+		t.Errorf("Didn't raise correct error\nhave: %v\nwant: %v", err.Error(), exp)
 	}
 	if feMgr.counters.badOperation != 1 {
-		t.Errorf("badOperation counter incorrect, have %v, want %v.\n", feMgr.counters.badOperation, 1)
+		t.Errorf("badOperation counter incorrect\nhave: %v\nwant: %v", feMgr.counters.badOperation, 1)
 	}
 
 	// bad init index
@@ -1972,13 +1913,13 @@ func TestUIntListEngineNegative(t *testing.T) {
 		BaseListEngineParams: baseParams,
 		List:                 []uint64{5, 3, 260},
 	}
-	exp = "Init index 4 must be between [0 - 3].\n"
+	exp = "Init index 4 must be between [0 - 3]."
 	_, err = NewUIntListEngine(&params, feMgr)
 	if err.Error() != exp {
-		t.Errorf("Didn't raise correct error, have %v, want %v.\n", err.Error(), exp)
+		t.Errorf("Didn't raise correct error\nhave: %v\nwant: %v", err.Error(), exp)
 	}
 	if feMgr.counters.badInitValue != 1 {
-		t.Errorf("badInitValue counter incorrect, have %v, want %v.\n", feMgr.counters.badInitValue, 1)
+		t.Errorf("badInitValue counter incorrect\nhave: %v\nwant: %v", feMgr.counters.badInitValue, 1)
 	}
 
 	// size too small
@@ -1993,13 +1934,13 @@ func TestUIntListEngineNegative(t *testing.T) {
 		BaseListEngineParams: baseParams,
 		List:                 []uint64{5, 0xFFFF + 1, 260},
 	}
-	exp = "List value 65536 cannot be represented with size 2.\n"
+	exp = "List value 65536 cannot be represented with size 2."
 	_, err = NewUIntListEngine(&params, feMgr)
 	if err.Error() != exp {
-		t.Errorf("Didn't raise correct error, have %v, want %v.\n", err.Error(), exp)
+		t.Errorf("Didn't raise correct error\nhave: %v\nwant: %v", err.Error(), exp)
 	}
 	if feMgr.counters.sizeTooSmall != 2 {
-		t.Errorf("sizeTooSmall counter incorrect, have %v, want %v.\n", feMgr.counters.sizeTooSmall, 2)
+		t.Errorf("sizeTooSmall counter incorrect\nhave: %v\nwant: %v", feMgr.counters.sizeTooSmall, 2)
 	}
 
 	// empty list
@@ -2015,13 +1956,13 @@ func TestUIntListEngineNegative(t *testing.T) {
 		BaseListEngineParams: baseParams,
 		List:                 []uint64{},
 	}
-	exp = "Engine list can't be empty.\n"
+	exp = "Engine list can't be empty."
 	_, err = NewUIntListEngine(&params, feMgr)
 	if err.Error() != exp {
-		t.Errorf("Didn't raise correct error, have %v, want %v.\n", err.Error(), exp)
+		t.Errorf("Didn't raise correct error\nhave: %v\nwant: %v", err.Error(), exp)
 	}
 	if feMgr.counters.emptyList != 1 {
-		t.Errorf("emptyList counter incorrect, have %v, want %v.\n", feMgr.counters.emptyList, 1)
+		t.Errorf("emptyList counter incorrect\nhave: %v\nwant: %v", feMgr.counters.emptyList, 1)
 	}
 }
 
@@ -2046,8 +1987,7 @@ func TestUIntListEngine(t *testing.T) {
 	}
 	eng, err := NewUIntListEngine(&params, feMgr)
 	if err != nil {
-		t.Errorf("Error while generating new engine.\n %v\n", err.Error())
-		t.FailNow()
+		t.Fatalf("Error while generating new engine.\n %v", err.Error())
 	}
 	expected := []uint16{60, 63, 50, 60, 63, 50, 60}
 	b := make([]byte, 20)
@@ -2068,8 +2008,7 @@ func TestUIntListEngine(t *testing.T) {
 	}
 	eng, err = NewUIntListEngine(&params, feMgr)
 	if err != nil {
-		t.Errorf("Error while generating new engine.\n %v\n", err.Error())
-		t.FailNow()
+		t.Fatalf("Error while generating new engine.\n %v", err.Error())
 	}
 	exp := []uint8{5, 8, 3, 9, 7, 5, 8, 3, 9, 7, 5}
 	validateGeneratedUint8(b, exp, eng, t)
@@ -2089,8 +2028,7 @@ func TestUIntListEngine(t *testing.T) {
 	}
 	eng, err = NewUIntListEngine(&params, feMgr)
 	if err != nil {
-		t.Errorf("Error while generating new engine.\n %v\n", err.Error())
-		t.FailNow()
+		t.Fatalf("Error while generating new engine.\n %v", err.Error())
 	}
 	exp = []uint8{5, 20, 4, 9, 5, 20, 4, 9, 5, 20, 4}
 	validateGeneratedUint8(b, exp, eng, t)
@@ -2111,8 +2049,7 @@ func TestUIntListEngine(t *testing.T) {
 	}
 	eng, err = NewUIntListEngine(&params, feMgr)
 	if err != nil {
-		t.Errorf("Error while generating new engine.\n %v\n", err.Error())
-		t.FailNow()
+		t.Fatalf("Error while generating new engine.\n %v", err.Error())
 	}
 	expected = []uint16{40, 20, 4, 9, 5, 1, 250, 40, 20, 4, 9, 5, 1}
 	validateGeneratedUint16(b, expected, eng, t)
@@ -2133,8 +2070,7 @@ func TestUIntListEngine(t *testing.T) {
 	}
 	eng, err = NewUIntListEngine(&params, feMgr)
 	if err != nil {
-		t.Errorf("Error while generating new engine.\n %v\n", err.Error())
-		t.FailNow()
+		t.Fatalf("Error while generating new engine.\n %v", err.Error())
 	}
 	expected = []uint16{8, 2048, 64, 2, 512, 16, 4096, 128, 4, 1024, 32, 1, 256, 8}
 	validateGeneratedUint16(b, expected, eng, t)
@@ -2154,8 +2090,7 @@ func TestUIntListEngine(t *testing.T) {
 	}
 	eng, err = NewUIntListEngine(&params, feMgr)
 	if err != nil {
-		t.Errorf("Error while generating new engine.\n %v\n", err.Error())
-		t.FailNow()
+		t.Fatalf("Error while generating new engine.\n %v", err.Error())
 	}
 	exp64 := []uint64{0xFFFFFFFF + 1, 0x100000000, 0xFF, 0xFFFF, 0xFFFFF, 0xFFFFFFFF + 1}
 	validateGeneratedUint64(b, exp64, eng, t)
@@ -2175,8 +2110,7 @@ func TestUIntListEngine(t *testing.T) {
 	}
 	eng, err = NewUIntListEngine(&params, feMgr)
 	if err != nil {
-		t.Errorf("Error while generating new engine.\n %v\n", err.Error())
-		t.FailNow()
+		t.Fatalf("Error while generating new engine.\n %v", err.Error())
 	}
 	exp32 := []uint32{0xFFFFF, 0xFF, 0xFFFFFFFF, 0xFFFF, 0xFFFF + 1, 0xFFFFF}
 	validateGeneratedUint32(b, exp32, eng, t)
@@ -2184,7 +2118,7 @@ func TestUIntListEngine(t *testing.T) {
 	// validate bytes slice in the end
 	expectedBytes := []byte{0x00, 60, 5, 4, 0, 1, 0, 8, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0x0F, 0xFF, 0xFF}
 	if !bytes.Equal(expectedBytes, b) {
-		t.Errorf("Byte slice not as expected, have %v, want %v.\n", b, expectedBytes)
+		t.Errorf("Byte slice not as expected\nhave: %v\nwant: %v", b, expectedBytes)
 	}
 }
 
@@ -2208,14 +2142,13 @@ func TestUIntListEngineRand(t *testing.T) {
 	var value uint16
 	eng, err := NewUIntListEngine(&params, feMgr)
 	if err != nil {
-		t.Errorf("Error while generating new engine.\n %v\n", err.Error())
-		t.FailNow()
+		t.Fatalf("Error while generating new engine.\n %v", err.Error())
 	}
 	for i := 0; i < 1000; i++ {
 		eng.Update(b[eng.GetOffset():])
 		value = binary.BigEndian.Uint16(b[eng.GetOffset():])
 		if value != 1 {
-			t.Errorf("Incorrect update, want 1, have %v.\n", value)
+			t.Errorf("Incorrect update, want 1, have %v.", value)
 		}
 	}
 
@@ -2233,14 +2166,13 @@ func TestUIntListEngineRand(t *testing.T) {
 	var value32 uint32
 	eng, err = NewUIntListEngine(&params, feMgr)
 	if err != nil {
-		t.Errorf("Error while generating new engine.\n %v\n", err.Error())
-		t.FailNow()
+		t.Fatalf("Error while generating new engine.\n %v", err.Error())
 	}
 	for i := 0; i < 1000; i++ {
 		eng.Update(b[eng.GetOffset():])
 		value32 = binary.BigEndian.Uint32(b[eng.GetOffset():])
 		if value32 != 1 && value32 != 2 && value32 != 3 {
-			t.Errorf("Incorrect update, want {1, 2, 3}, have %v.\n", value)
+			t.Errorf("Incorrect update, want {1, 2, 3}, have %v.", value)
 		}
 	}
 
@@ -2257,8 +2189,7 @@ func TestUIntListEngineRand(t *testing.T) {
 	var twenties, thirties, twentyfives int
 	eng, err = NewUIntListEngine(&params, feMgr)
 	if err != nil {
-		t.Errorf("Error while generating new engine.\n %v\n", err.Error())
-		t.FailNow()
+		t.Fatalf("Error while generating new engine.\n %v", err.Error())
 	}
 	for i := 0; i < 30000; i++ {
 		eng.Update(b[eng.GetOffset():])
@@ -2271,14 +2202,14 @@ func TestUIntListEngineRand(t *testing.T) {
 		case 25:
 			twentyfives++
 		default:
-			t.Errorf("Incorrect update, want {20, 25, 30}, have %v.\n", value)
+			t.Errorf("Incorrect update, want {20, 25, 30}, have %v.", value)
 		}
 	}
 	if twenties < 9000 || twenties > 11000 {
-		t.Errorf("Expected number of 20's not in domain [9000-11000], have %v\n", twenties)
+		t.Errorf("Expected number of 20's not in domain [9000-11000], have %v", twenties)
 	}
 	if thirties < 9000 || thirties > 11000 {
-		t.Errorf("Expected number of 30's not in domain [9000-11000], have %v\n", thirties)
+		t.Errorf("Expected number of 30's not in domain [9000-11000], have %v", thirties)
 	}
 }
 
@@ -2287,7 +2218,7 @@ func validateGeneratedString(b []byte, expected [][]byte, eng *StringListEngine,
 	for i := 0; i < len(expected); i++ {
 		eng.Update(b[eng.GetOffset() : eng.GetOffset()+eng.GetSize()])
 		if !bytes.Equal(expected[i], b[eng.GetOffset():eng.GetOffset()+eng.GetSize()]) {
-			t.Errorf("Incorrect update no %v, want %v, have %v.\n", i, expected[i], b[eng.GetOffset():eng.GetOffset()+eng.GetSize()])
+			t.Errorf("Incorrect update no %v, want %v, have %v.", i, expected[i], b[eng.GetOffset():eng.GetOffset()+eng.GetSize()])
 		}
 	}
 }
@@ -2310,13 +2241,13 @@ func TestIntListEngineNegative(t *testing.T) {
 		BaseListEngineParams: baseParams,
 		List:                 []int64{-128, 50, 128},
 	}
-	exp := "List value 128 cannot be represented with size 1.\n"
+	exp := "List value 128 cannot be represented with size 1."
 	_, err := NewIntListEngine(&params, feMgr)
 	if err.Error() != exp {
-		t.Errorf("Didn't raise correct error, have %v, want %v.\n", err.Error(), exp)
+		t.Errorf("Didn't raise correct error\nhave: %v\nwant: %v", err.Error(), exp)
 	}
 	if feMgr.counters.sizeTooSmall != 1 {
-		t.Errorf("sizeTooSmall counter incorrect, have %v, want %v.\n", feMgr.counters.sizeTooSmall, 1)
+		t.Errorf("sizeTooSmall counter incorrect\nhave: %v\nwant: %v", feMgr.counters.sizeTooSmall, 1)
 	}
 
 	// invalid size
@@ -2330,13 +2261,13 @@ func TestIntListEngineNegative(t *testing.T) {
 		BaseListEngineParams: baseParams,
 		List:                 []int64{5, 3, 260},
 	}
-	exp = "Invalid size 3. Size should be {1, 2, 4, 8}.\n"
+	exp = "Invalid size 3. Size should be {1, 2, 4, 8}."
 	_, err = NewIntListEngine(&params, feMgr)
 	if err.Error() != exp {
-		t.Errorf("Didn't raise correct error, have %v, want %v.\n", err.Error(), exp)
+		t.Errorf("Didn't raise correct error\nhave: %v\nwant: %v", err.Error(), exp)
 	}
 	if feMgr.counters.invalidSize != 1 {
-		t.Errorf("invalidSize counter incorrect, have %v, want %v.\n", feMgr.counters.invalidSize, 1)
+		t.Errorf("invalidSize counter incorrect\nhave: %v\nwant: %v", feMgr.counters.invalidSize, 1)
 	}
 
 	// bad operation
@@ -2350,13 +2281,13 @@ func TestIntListEngineNegative(t *testing.T) {
 		BaseListEngineParams: baseParams,
 		List:                 []int64{5, 3, 260},
 	}
-	exp = "Unsupported operation bes.\n"
+	exp = "Unsupported operation bes."
 	_, err = NewIntListEngine(&params, feMgr)
 	if err.Error() != exp {
-		t.Errorf("Didn't raise correct error, have %v, want %v.\n", err.Error(), exp)
+		t.Errorf("Didn't raise correct error\nhave: %v\nwant: %v", err.Error(), exp)
 	}
 	if feMgr.counters.badOperation != 1 {
-		t.Errorf("badOperation counter incorrect, have %v, want %v.\n", feMgr.counters.badOperation, 1)
+		t.Errorf("badOperation counter incorrect\nhave: %v\nwant: %v", feMgr.counters.badOperation, 1)
 	}
 
 	// bad init index
@@ -2371,13 +2302,13 @@ func TestIntListEngineNegative(t *testing.T) {
 		BaseListEngineParams: baseParams,
 		List:                 []int64{5, 3, 260},
 	}
-	exp = "Init index 4 must be between [0 - 3].\n"
+	exp = "Init index 4 must be between [0 - 3]."
 	_, err = NewIntListEngine(&params, feMgr)
 	if err.Error() != exp {
-		t.Errorf("Didn't raise correct error, have %v, want %v.\n", err.Error(), exp)
+		t.Errorf("Didn't raise correct error\nhave: %v\nwant: %v", err.Error(), exp)
 	}
 	if feMgr.counters.badInitValue != 1 {
-		t.Errorf("badInitValue counter incorrect, have %v, want %v.\n", feMgr.counters.badInitValue, 1)
+		t.Errorf("badInitValue counter incorrect\nhave: %v\nwant: %v", feMgr.counters.badInitValue, 1)
 	}
 
 	// empty list
@@ -2393,13 +2324,13 @@ func TestIntListEngineNegative(t *testing.T) {
 		BaseListEngineParams: baseParams,
 		List:                 []int64{},
 	}
-	exp = "Engine list can't be empty.\n"
+	exp = "Engine list can't be empty."
 	_, err = NewIntListEngine(&params, feMgr)
 	if err.Error() != exp {
-		t.Errorf("Didn't raise correct error, have %v, want %v.\n", err.Error(), exp)
+		t.Errorf("Didn't raise correct error\nhave: %v\nwant: %v", err.Error(), exp)
 	}
 	if feMgr.counters.emptyList != 1 {
-		t.Errorf("emptyList counter incorrect, have %v, want %v.\n", feMgr.counters.emptyList, 1)
+		t.Errorf("emptyList counter incorrect\nhave: %v\nwant: %v", feMgr.counters.emptyList, 1)
 	}
 }
 
@@ -2424,8 +2355,7 @@ func TestIntListEngine(t *testing.T) {
 	}
 	eng, err := NewIntListEngine(&params, feMgr)
 	if err != nil {
-		t.Errorf("Error while generating new engine.\n %v\n", err.Error())
-		t.FailNow()
+		t.Fatalf("Error while generating new engine.\n %v", err.Error())
 	}
 	expected := []int16{0, 1, -1, 0, 1, -1, 0, 1}
 	b := make([]byte, 8)
@@ -2446,8 +2376,7 @@ func TestIntListEngine(t *testing.T) {
 	}
 	eng, err = NewIntListEngine(&params, feMgr)
 	if err != nil {
-		t.Errorf("Error while generating new engine.\n %v\n", err.Error())
-		t.FailNow()
+		t.Fatalf("Error while generating new engine.\n %v", err.Error())
 	}
 	expected = []int16{1000, 0, -1000, 1500, 500, -500, 2000, 1000, 0, -1000}
 	validateGeneratedInt16(b, expected, eng, t)
@@ -2467,8 +2396,7 @@ func TestIntListEngine(t *testing.T) {
 	}
 	eng, err = NewIntListEngine(&params, feMgr)
 	if err != nil {
-		t.Errorf("Error while generating new engine.\n %v\n", err.Error())
-		t.FailNow()
+		t.Fatalf("Error while generating new engine.\n %v", err.Error())
 	}
 	exp32 := []int32{0, math.MaxInt16, math.MinInt32, math.MaxInt32, math.MaxInt16}
 	validateGeneratedInt32(b, exp32, eng, t)
@@ -2476,7 +2404,7 @@ func TestIntListEngine(t *testing.T) {
 	// validate bytes slice in the end
 	expectedBytes := []byte{0x00, 0x01, 0xFC, 0x18, 0x00, 0x00, 0x7F, 0xFF}
 	if !bytes.Equal(expectedBytes, b) {
-		t.Errorf("Byte slice not as expected, have %v, want %v.\n", b, expectedBytes)
+		t.Errorf("Byte slice not as expected\nhave: %v\nwant: %v", b, expectedBytes)
 	}
 }
 
@@ -2501,8 +2429,7 @@ func TestFloatListEngine(t *testing.T) {
 	}
 	eng, err := NewFloatListEngine(&params, feMgr)
 	if err != nil {
-		t.Errorf("Error while generating new engine.\n %v\n", err.Error())
-		t.FailNow()
+		t.Fatalf("Error while generating new engine.\n %v", err.Error())
 	}
 	expected := []float32{math.E, math.Pi, math.Phi, math.E, math.Pi, math.Phi}
 	b := make([]byte, 12)
@@ -2523,8 +2450,7 @@ func TestFloatListEngine(t *testing.T) {
 	}
 	eng, err = NewFloatListEngine(&params, feMgr)
 	if err != nil {
-		t.Errorf("Error while generating new engine.\n %v\n", err.Error())
-		t.FailNow()
+		t.Fatalf("Error while generating new engine.\n %v", err.Error())
 	}
 	expected64 := []float64{math.SmallestNonzeroFloat64, -20.07, -123.4, math.SmallestNonzeroFloat32, 19.95, -99.9, 0}
 	validateGeneratedFloat64(b, expected64, eng, t)
@@ -2550,13 +2476,13 @@ func TestStringListNegative(t *testing.T) {
 
 		PaddingValue: 1,
 	}
-	exp := "String aaaaaaaaaaa cannot be represented with size 10.\n"
+	exp := "String aaaaaaaaaaa cannot be represented with size 10."
 	_, err := NewStringListEngine(&params, feMgr)
 	if err.Error() != exp {
-		t.Errorf("Didn't raise correct error, have %v, want %v.\n", err.Error(), exp)
+		t.Errorf("Didn't raise correct error\nhave: %v\nwant: %v", err.Error(), exp)
 	}
 	if feMgr.counters.sizeTooSmall != 1 {
-		t.Errorf("sizeTooSmall counter incorrect, have %v, want %v.\n", feMgr.counters.sizeTooSmall, 1)
+		t.Errorf("sizeTooSmall counter incorrect\nhave: %v\nwant: %v", feMgr.counters.sizeTooSmall, 1)
 	}
 
 	// bad init value
@@ -2572,13 +2498,13 @@ func TestStringListNegative(t *testing.T) {
 		List:                 []string{"abc", "בס", "bes"},
 		PaddingValue:         1,
 	}
-	exp = "Init index 3 must be between [0 - 3].\n"
+	exp = "Init index 3 must be between [0 - 3]."
 	_, err = NewStringListEngine(&params, feMgr)
 	if err.Error() != exp {
-		t.Errorf("Didn't raise correct error, have %v, want %v.\n", err.Error(), exp)
+		t.Errorf("Didn't raise correct error\nhave: %v\nwant: %v", err.Error(), exp)
 	}
 	if feMgr.counters.badInitValue != 1 {
-		t.Errorf("badInitValue counter incorrect, have %v, want %v.\n", feMgr.counters.badInitValue, 1)
+		t.Errorf("badInitValue counter incorrect\nhave: %v\nwant: %v", feMgr.counters.badInitValue, 1)
 	}
 
 	// bad operation
@@ -2593,13 +2519,13 @@ func TestStringListNegative(t *testing.T) {
 		BaseListEngineParams: baseParams,
 		List:                 []string{"abc", "בס", "bes"},
 	}
-	exp = "Unsupported operation a.\n"
+	exp = "Unsupported operation a."
 	_, err = NewStringListEngine(&params, feMgr)
 	if err.Error() != exp {
-		t.Errorf("Didn't raise correct error, have %v, want %v.\n", err.Error(), exp)
+		t.Errorf("Didn't raise correct error\nhave: %v\nwant: %v", err.Error(), exp)
 	}
 	if feMgr.counters.badOperation != 1 {
-		t.Errorf("badOperation counter incorrect, have %v, want %v.\n", feMgr.counters.badOperation, 1)
+		t.Errorf("badOperation counter incorrect\nhave: %v\nwant: %v", feMgr.counters.badOperation, 1)
 	}
 
 	// too short
@@ -2614,13 +2540,13 @@ func TestStringListNegative(t *testing.T) {
 		BaseListEngineParams: baseParams,
 		List:                 []string{"abc", "בס", "bes"},
 	}
-	exp = "String בס cannot be represented with size 3.\n"
+	exp = "String בס cannot be represented with size 3."
 	_, err = NewStringListEngine(&params, feMgr)
 	if err.Error() != exp {
-		t.Errorf("Didn't raise correct error, have %v, want %v.\n", err.Error(), exp)
+		t.Errorf("Didn't raise correct error\nhave: %v\nwant: %v", err.Error(), exp)
 	}
 	if feMgr.counters.sizeTooSmall != 2 {
-		t.Errorf("sizeTooSmall counter incorrect, have %v, want %v.\n", feMgr.counters.sizeTooSmall, 2)
+		t.Errorf("sizeTooSmall counter incorrect\nhave: %v\nwant: %v", feMgr.counters.sizeTooSmall, 2)
 	}
 
 	// empty list
@@ -2635,13 +2561,13 @@ func TestStringListNegative(t *testing.T) {
 		BaseListEngineParams: baseParams,
 		List:                 []string{},
 	}
-	exp = "Engine list can't be empty.\n"
+	exp = "Engine list can't be empty."
 	_, err = NewStringListEngine(&params, feMgr)
 	if err.Error() != exp {
-		t.Errorf("Didn't raise correct error, have %v, want %v.\n", err.Error(), exp)
+		t.Errorf("Didn't raise correct error\nhave: %v\nwant: %v", err.Error(), exp)
 	}
 	if feMgr.counters.emptyList != 1 {
-		t.Errorf("emptyList counter incorrect, have %v, want %v.\n", feMgr.counters.emptyList, 1)
+		t.Errorf("emptyList counter incorrect\nhave: %v\nwant: %v", feMgr.counters.emptyList, 1)
 	}
 }
 
@@ -2667,8 +2593,7 @@ func TestStringList(t *testing.T) {
 	}
 	eng, err := NewStringListEngine(&params, feMgr)
 	if err != nil {
-		t.Errorf("Error while generating new engine.\n %v\n", err.Error())
-		t.FailNow()
+		t.Fatalf("Error while generating new engine.\n %v", err.Error())
 	}
 	icmpBytes := []byte("icmp")
 	tcpBytes := []byte("tcp")
@@ -2693,8 +2618,7 @@ func TestStringList(t *testing.T) {
 	}
 	eng, err = NewStringListEngine(&params, feMgr)
 	if err != nil {
-		t.Errorf("Error while generating new engine.\n %v\n", err.Error())
-		t.FailNow()
+		t.Fatalf("Error while generating new engine.\n %v", err.Error())
 	}
 	besBytes := []byte("bes")
 	besBytes = append(besBytes, []byte{1, 1, 1}...)
@@ -2718,8 +2642,7 @@ func TestStringList(t *testing.T) {
 	}
 	eng, err = NewStringListEngine(&params, feMgr)
 	if err != nil {
-		t.Errorf("Error while generating new engine.\n %v\n", err.Error())
-		t.FailNow()
+		t.Fatalf("Error while generating new engine.\n %v", err.Error())
 	}
 	trex := []byte("TRex - Realistic traffic generator")
 	trex = append(trex, []byte{0, 0, 0, 0, 0, 0}...)
@@ -2754,8 +2677,7 @@ func TestStringListRand(t *testing.T) {
 	}
 	eng, err := NewStringListEngine(&params, feMgr)
 	if err != nil {
-		t.Errorf("Error while generating new engine.\n %v\n", err.Error())
-		t.FailNow()
+		t.Fatalf("Error while generating new engine.\n %v", err.Error())
 	}
 	y := []byte("y")
 	y = append(y, []byte{0, 0, 0}...)
@@ -2777,13 +2699,12 @@ func TestStringListRand(t *testing.T) {
 			}
 		}
 		if !expectedValue {
-			t.Errorf("Unexpected value generated %v.\n", b[eng.GetOffset():eng.GetOffset()+eng.GetSize()])
-			t.FailNow()
+			t.Fatalf("Unexpected value generated %v.", b[eng.GetOffset():eng.GetOffset()+eng.GetSize()])
 		}
 	}
 	for i := 0; i < len(histogram); i++ {
 		if histogram[i] < 4500 || histogram[i] > 5500 {
-			t.Errorf("String generated %v times, want in domain [4500-5500].\n", histogram[i])
+			t.Errorf("String generated %v times, want in domain [4500-5500].", histogram[i])
 		}
 	}
 }
@@ -2803,13 +2724,13 @@ func TestTimeEngineNegative(t *testing.T) {
 		TimeEndEngineName: "end",
 		UptimeOffset:      20,
 	}
-	exp := "Size for this engine must be 4 or 8. Invalid size 2.\n"
+	exp := "Size for this engine must be 4 or 8. Invalid size 2."
 	_, err := NewTimeStartEngine(&params, feMgr)
 	if err.Error() != exp {
-		t.Errorf("Didn't raise correct error, have %v, want %v.\n", err.Error(), exp)
+		t.Errorf("Didn't raise correct error\nhave: %v\nwant: %v", err.Error(), exp)
 	}
 	if feMgr.counters.invalidSize != 1 {
-		t.Errorf("invalidSize counter incorrect, have %v, want %v.\n", feMgr.counters.invalidSize, 1)
+		t.Errorf("invalidSize counter incorrect\nhave: %v\nwant: %v", feMgr.counters.invalidSize, 1)
 	}
 
 	// invalid size
@@ -2820,13 +2741,13 @@ func TestTimeEngineNegative(t *testing.T) {
 		DurationMax:         1000,
 		TimeStartEngineName: "start",
 	}
-	exp = "Size for this engine must be 4 or 8. Invalid size 2.\n"
+	exp = "Size for this engine must be 4 or 8. Invalid size 2."
 	_, err = NewTimeEndEngine(&paramsEnd, feMgr)
 	if err.Error() != exp {
-		t.Errorf("Didn't raise correct error, have %v, want %v.\n", err.Error(), exp)
+		t.Errorf("Didn't raise correct error\nhave: %v\nwant: %v", err.Error(), exp)
 	}
 	if feMgr.counters.invalidSize != 2 {
-		t.Errorf("invalidSize counter incorrect, have %v, want %v.\n", feMgr.counters.invalidSize, 2)
+		t.Errorf("invalidSize counter incorrect\nhave: %v\nwant: %v", feMgr.counters.invalidSize, 2)
 	}
 
 	// max smaller than min
@@ -2838,13 +2759,13 @@ func TestTimeEngineNegative(t *testing.T) {
 		TimeEndEngineName: "end",
 		UptimeOffset:      20,
 	}
-	exp = "InterPacketGap min 500 is greater than InterPacketGap max 250.\n"
+	exp = "InterPacketGap min 500 is greater than InterPacketGap max 250."
 	_, err = NewTimeStartEngine(&params, feMgr)
 	if err.Error() != exp {
-		t.Errorf("Didn't raise correct error, have %v, want %v.\n", err.Error(), exp)
+		t.Errorf("Didn't raise correct error\nhave: %v\nwant: %v", err.Error(), exp)
 	}
 	if feMgr.counters.maxSmallerThanMin != 1 {
-		t.Errorf("maxSmallerThanMin counter incorrect, have %v, want %v.\n", feMgr.counters.maxSmallerThanMin, 1)
+		t.Errorf("maxSmallerThanMin counter incorrect\nhave: %v\nwant: %v", feMgr.counters.maxSmallerThanMin, 1)
 	}
 
 	// max smaller than min
@@ -2855,13 +2776,13 @@ func TestTimeEngineNegative(t *testing.T) {
 		DurationMax:         250,
 		TimeStartEngineName: "start",
 	}
-	exp = "Duration min 500 is greater than Duration max 250.\n"
+	exp = "Duration min 500 is greater than Duration max 250."
 	_, err = NewTimeEndEngine(&paramsEnd, feMgr)
 	if err.Error() != exp {
-		t.Errorf("Didn't raise correct error, have %v, want %v.\n", err.Error(), exp)
+		t.Errorf("Didn't raise correct error\nhave: %v\nwant: %v", err.Error(), exp)
 	}
 	if feMgr.counters.maxSmallerThanMin != 2 {
-		t.Errorf("maxSmallerThanMin counter incorrect, have %v, want %v.\n", feMgr.counters.maxSmallerThanMin, 2)
+		t.Errorf("maxSmallerThanMin counter incorrect\nhave: %v\nwant: %v", feMgr.counters.maxSmallerThanMin, 2)
 	}
 
 	// size too small
@@ -2873,13 +2794,13 @@ func TestTimeEngineNegative(t *testing.T) {
 		TimeEndEngineName: "end",
 		UptimeOffset:      20,
 	}
-	exp = "Size too small, can't represent max value or uptime offset with 4 bytes.\n"
+	exp = "Size too small, can't represent max value or uptime offset with 4 bytes."
 	_, err = NewTimeStartEngine(&params, feMgr)
 	if err.Error() != exp {
-		t.Errorf("Didn't raise correct error, have %v, want %v.\n", err.Error(), exp)
+		t.Errorf("Didn't raise correct error\nhave: %v\nwant: %v", err.Error(), exp)
 	}
 	if feMgr.counters.sizeTooSmall != 1 {
-		t.Errorf("sizeTooSmall counter incorrect, have %v, want %v.\n", feMgr.counters.sizeTooSmall, 1)
+		t.Errorf("sizeTooSmall counter incorrect\nhave: %v\nwant: %v", feMgr.counters.sizeTooSmall, 1)
 	}
 
 	// size too small
@@ -2891,13 +2812,13 @@ func TestTimeEngineNegative(t *testing.T) {
 		TimeEndEngineName: "end",
 		UptimeOffset:      0xF00000000,
 	}
-	exp = "Size too small, can't represent max value or uptime offset with 4 bytes.\n"
+	exp = "Size too small, can't represent max value or uptime offset with 4 bytes."
 	_, err = NewTimeStartEngine(&params, feMgr)
 	if err.Error() != exp {
-		t.Errorf("Didn't raise correct error, have %v, want %v.\n", err.Error(), exp)
+		t.Errorf("Didn't raise correct error\nhave: %v\nwant: %v", err.Error(), exp)
 	}
 	if feMgr.counters.sizeTooSmall != 2 {
-		t.Errorf("sizeTooSmall counter incorrect, have %v, want %v.\n", feMgr.counters.sizeTooSmall, 2)
+		t.Errorf("sizeTooSmall counter incorrect\nhave: %v\nwant: %v", feMgr.counters.sizeTooSmall, 2)
 	}
 
 	// size too small
@@ -2908,13 +2829,13 @@ func TestTimeEngineNegative(t *testing.T) {
 		DurationMax:         0xFFFFFFFF + 1,
 		TimeStartEngineName: "start",
 	}
-	exp = "Size too small, can't represent max value 4294967296  with 4 bytes.\n"
+	exp = "Size too small, can't represent max value 4294967296  with 4 bytes."
 	_, err = NewTimeEndEngine(&paramsEnd, feMgr)
 	if err.Error() != exp {
-		t.Errorf("Didn't raise correct error, have %v, want %v.\n", err.Error(), exp)
+		t.Errorf("Didn't raise correct error\nhave: %v\nwant: %v", err.Error(), exp)
 	}
 	if feMgr.counters.sizeTooSmall != 3 {
-		t.Errorf("sizeTooSmall counter incorrect, have %v, want %v.\n", feMgr.counters.sizeTooSmall, 3)
+		t.Errorf("sizeTooSmall counter incorrect\nhave: %v\nwant: %v", feMgr.counters.sizeTooSmall, 3)
 	}
 }
 
@@ -2934,8 +2855,7 @@ func TestTimeEngine(t *testing.T) {
 	}
 	startEng, err := NewTimeStartEngine(&paramsStart, feMgr)
 	if err != nil {
-		t.Errorf("Error while generating new engine.\n %v\n", err.Error())
-		t.FailNow()
+		t.Fatalf("Error while generating new engine.\n %v", err.Error())
 	}
 
 	paramsEnd := TimeEndEngineParams{
@@ -2947,8 +2867,7 @@ func TestTimeEngine(t *testing.T) {
 	}
 	endEng, err := NewTimeEndEngine(&paramsEnd, feMgr)
 	if err != nil {
-		t.Errorf("Error while generating new engine.\n %v\n", err.Error())
-		t.FailNow()
+		t.Fatalf("Error while generating new engine.\n %v", err.Error())
 	}
 
 	feMgr.engines[paramsStart.TimeEndEngineName] = endEng
@@ -2961,8 +2880,7 @@ func TestTimeEngine(t *testing.T) {
 		minStart := end + uint32(paramsStart.InterPacketGapMin)
 		maxStart := end + uint32(paramsStart.InterPacketGapMax)
 		if start < minStart || start > maxStart {
-			t.Errorf("Bad Update no %v. Expected Flow Start in [%v-%v], got %v.\n", i, minStart, maxStart, start)
-			t.FailNow()
+			t.Fatalf("Bad Update no %v. Expected Flow Start in [%v-%v], got %v.", i, minStart, maxStart, start)
 		}
 
 		endEng.Update(b[endEng.GetOffset() : endEng.GetOffset()+endEng.GetSize()])
@@ -2970,8 +2888,7 @@ func TestTimeEngine(t *testing.T) {
 		minEnd := start + uint32(paramsEnd.DurationMin)
 		maxEnd := start + uint32(paramsEnd.DurationMax)
 		if end < minEnd || end > maxEnd {
-			t.Errorf("Bad Update no %v. Expected Flow End in [%v-%v], got %v.\n", i, minEnd, minEnd, end)
-			t.FailNow()
+			t.Fatalf("Bad Update no %v. Expected Flow End in [%v-%v], got %v.", i, minEnd, minEnd, end)
 		}
 	}
 
@@ -2990,8 +2907,7 @@ func TestTimeEngine(t *testing.T) {
 	}
 	startEng, err = NewTimeStartEngine(&paramsStart, feMgr)
 	if err != nil {
-		t.Errorf("Error while generating new engine.\n %v\n", err.Error())
-		t.FailNow()
+		t.Fatalf("Error while generating new engine.\n %v", err.Error())
 	}
 
 	paramsEnd = TimeEndEngineParams{
@@ -3003,8 +2919,7 @@ func TestTimeEngine(t *testing.T) {
 	}
 	endEng, err = NewTimeEndEngine(&paramsEnd, feMgr)
 	if err != nil {
-		t.Errorf("Error while generating new engine.\n %v\n", err.Error())
-		t.FailNow()
+		t.Fatalf("Error while generating new engine.\n %v", err.Error())
 	}
 
 	feMgr.engines[paramsStart.TimeEndEngineName] = endEng
@@ -3016,15 +2931,13 @@ func TestTimeEngine(t *testing.T) {
 		startEng.Update(b[startEng.GetOffset() : startEng.GetOffset()+startEng.GetSize()])
 		start := binary.BigEndian.Uint64(b[startEng.GetOffset():])
 		if start != startExp {
-			t.Errorf("Bad Update no %v. Expected Flow Start %v, got %v.\n", i, startExp, start)
-			t.FailNow()
+			t.Fatalf("Bad Update no %v. Expected Flow Start %v, got %v.", i, startExp, start)
 		}
 
 		endEng.Update(b[endEng.GetOffset() : endEng.GetOffset()+endEng.GetSize()])
 		end := binary.BigEndian.Uint64(b[endEng.GetOffset():])
 		if end != endExp {
-			t.Errorf("Bad Update no %v. Expected Flow End %v, got %v.\n", i, endExp, end)
-			t.FailNow()
+			t.Fatalf("Bad Update no %v. Expected Flow End %v, got %v.", i, endExp, end)
 		}
 		difference := paramsStart.InterPacketGapMax + paramsEnd.DurationMax
 		startExp = startExp + difference
@@ -3077,8 +2990,7 @@ func TestHistogramURL(t *testing.T) {
 	iterNumber := 180000
 	eng, err := NewHistogramEngine(&params, feMgr)
 	if err != nil {
-		t.Errorf("Error while generating new engine.\n %v.\n", err.Error())
-		t.FailNow()
+		t.Fatalf("Error while generating new engine.\n %v.", err.Error())
 	}
 	for i := 0; i < iterNumber; i++ {
 		length, _ := eng.Update(b[eng.GetOffset() : eng.GetOffset()+eng.GetSize()])
@@ -3099,8 +3011,7 @@ func TestHistogramURL(t *testing.T) {
 		min := int(float32(expected[url]) * 0.9)
 		max := int(float32(expected[url]) * 1.1)
 		if generated[url] < min || generated[url] > max {
-			t.Errorf("Bad amount generated for url %v, expected in [%v-%v], got %v.\n", url, min, max, generated[url])
-			t.FailNow()
+			t.Fatalf("Bad amount generated for url %v, expected in [%v-%v], got %v.", url, min, max, generated[url])
 		}
 	}
 
@@ -3146,8 +3057,7 @@ func TestHistogramURL(t *testing.T) {
 
 	eng, err = NewHistogramEngine(&params, feMgr)
 	if err != nil {
-		t.Errorf("Error while generating new engine.\n %v.\n", err.Error())
-		t.FailNow()
+		t.Fatalf("Error while generating new engine.\n %v.", err.Error())
 	}
 	generated = make(map[string]int, 14)
 	for i := 0; i < iterNumber; i++ {
@@ -3176,8 +3086,7 @@ func TestHistogramURL(t *testing.T) {
 		min := int(float32(expected[url]) * 0.9)
 		max := int(float32(expected[url]) * 1.1)
 		if generated[url] < min || generated[url] > max {
-			t.Errorf("Bad amount generated for url %v, expected in [%v-%v], got %v.\n", url, min, max, generated[url])
-			t.FailNow()
+			t.Fatalf("Bad amount generated for url %v, expected in [%v-%v], got %v.", url, min, max, generated[url])
 		}
 	}
 
@@ -3201,8 +3110,7 @@ func TestHistogramURL(t *testing.T) {
 
 	eng, err = NewHistogramEngine(&params, feMgr)
 	if err != nil {
-		t.Errorf("Error while generating new engine.\n %v.\n", err.Error())
-		t.FailNow()
+		t.Fatalf("Error while generating new engine.\n %v.", err.Error())
 	}
 	for i := 0; i < iterNumber; i++ {
 		length, _ := eng.Update(b[eng.GetOffset() : eng.GetOffset()+eng.GetSize()])
@@ -3226,8 +3134,7 @@ func TestHistogramURL(t *testing.T) {
 		}
 
 		if generated[url] < min || generated[url] > max {
-			t.Errorf("Bad amount generated for url %v, expected in [%v-%v], got %v.\n", url, min, max, generated[url])
-			t.FailNow()
+			t.Fatalf("Bad amount generated for url %v, expected in [%v-%v], got %v.", url, min, max, generated[url])
 		}
 	}
 
@@ -3271,8 +3178,7 @@ func genStringHistogramEngine(t *testing.T, pad bool, factor int, p1, p2 uint32)
 
 	eng, err := NewHistogramEngine(&params, feMgr)
 	if err != nil {
-		t.Errorf("Error while generating new engine.\n %v.\n", err.Error())
-		t.FailNow()
+		t.Fatalf("Error while generating new engine.\n %v.", err.Error())
 	}
 
 	b := make([]byte, size+params.Offset)
@@ -3288,7 +3194,7 @@ func genStringHistogramEngine(t *testing.T, pad bool, factor int, p1, p2 uint32)
 	return generated
 }
 
-//TestHistogramStringFixedLength
+// TestHistogramStringFixedLength
 func TestHistogramStringFixedLength(t *testing.T) {
 
 	var p1, p2 uint32 = 5, 3
@@ -3304,13 +3210,12 @@ func TestHistogramStringFixedLength(t *testing.T) {
 		min := int(float32(expected[str]) * 0.9)
 		max := int(float32(expected[str]) * 1.1)
 		if generated[str] < min || generated[str] > max {
-			t.Errorf("Bad amount generated for str %v, expected in [%v-%v], got %v.\n", str, min, max, generated[str])
-			t.FailNow()
+			t.Fatalf("Bad amount generated for str %v, expected in [%v-%v], got %v.", str, min, max, generated[str])
 		}
 	}
 }
 
-//TestHistogramStringVarLength
+// TestHistogramStringVarLength
 func TestHistogramStringVarLength(t *testing.T) {
 
 	var p1, p2 uint32 = 5, 3
@@ -3326,8 +3231,7 @@ func TestHistogramStringVarLength(t *testing.T) {
 		min := int(float32(expected[str]) * 0.9)
 		max := int(float32(expected[str]) * 1.1)
 		if generated[str] < min || generated[str] > max {
-			t.Errorf("Bad amount generated for str %v, expected in [%v-%v], got %v.\n", str, min, max, generated[str])
-			t.FailNow()
+			t.Fatalf("Bad amount generated for str %v, expected in [%v-%v], got %v.", str, min, max, generated[str])
 		}
 	}
 }

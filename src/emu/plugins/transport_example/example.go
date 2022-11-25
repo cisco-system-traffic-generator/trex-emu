@@ -111,7 +111,7 @@ func NewTransENsStatsDb(o *TransEStats) *core.CCounterDb {
 	return db
 }
 
-//PluginDhcpClient information per client
+// PluginDhcpClient information per client
 type PluginTransportEClient struct {
 	core.PluginBase
 	tranNsPlug *PluginTransportENs
@@ -126,7 +126,7 @@ type PluginTransportEClient struct {
 var events = []string{core.MSG_DG_MAC_RESOLVED}
 
 /*NewDhcpClient create plugin */
-func NewTransportEClient(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
+func NewTransportEClient(ctx *core.PluginCtx, initJson []byte) (*core.PluginBase, error) {
 
 	o := new(PluginTransportEClient)
 	o.InitPluginBase(ctx, o)         /* init base object*/
@@ -143,7 +143,7 @@ func NewTransportEClient(ctx *core.PluginCtx, initJson []byte) *core.PluginBase 
 	o.b[o.cfg.DataSize-1] = byte('\n')
 	o.loops = 0
 
-	return &o.PluginBase
+	return &o.PluginBase, nil
 }
 
 func (o *PluginTransportEClient) startLoop() {
@@ -243,15 +243,14 @@ type PluginTransportENs struct {
 	cdbv  *core.CCounterDbVec
 }
 
-func NewTransportENs(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
-
+func NewTransportENs(ctx *core.PluginCtx, initJson []byte) (*core.PluginBase, error) {
 	o := new(PluginTransportENs)
 	o.InitPluginBase(ctx, o)
 	o.RegisterEvents(ctx, []string{}, o)
 	o.cdb = NewTransENsStatsDb(&o.stats)
 	o.cdbv = core.NewCCounterDbVec("stats")
 	o.cdbv.Add(o.cdb)
-	return &o.PluginBase
+	return &o.PluginBase, nil
 }
 
 func (o *PluginTransportENs) OnRemove(ctx *core.PluginCtx) {
@@ -275,11 +274,11 @@ type (
 type PluginTransportECReg struct{}
 type PluginTransportENsReg struct{}
 
-func (o PluginTransportECReg) NewPlugin(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
+func (o PluginTransportECReg) NewPlugin(ctx *core.PluginCtx, initJson []byte) (*core.PluginBase, error) {
 	return NewTransportEClient(ctx, initJson)
 }
 
-func (o PluginTransportENsReg) NewPlugin(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
+func (o PluginTransportENsReg) NewPlugin(ctx *core.PluginCtx, initJson []byte) (*core.PluginBase, error) {
 	return NewTransportENs(ctx, initJson)
 }
 

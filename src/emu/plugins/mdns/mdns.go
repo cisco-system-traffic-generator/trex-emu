@@ -327,7 +327,7 @@ type PluginMDnsClient struct {
 }
 
 // NewMDnsClient creates a new MDns client.
-func NewMDnsClient(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
+func NewMDnsClient(ctx *core.PluginCtx, initJson []byte) (*core.PluginBase, error) {
 	o := new(PluginMDnsClient)
 	o.InitPluginBase(ctx, o)               // Init base object
 	o.RegisterEvents(ctx, mdnsEvents, o)   // Register events
@@ -339,16 +339,19 @@ func NewMDnsClient(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
 	err := o.Tctx.UnmarshalValidate(initJson, &o.params)
 	if err != nil {
 		o.stats.invalidInitJson++
-		return &o.PluginBase
+		return nil, err
 	}
 
-	o.OnCreate()
+	err = o.OnCreate()
+	if err != nil {
+		return nil, err
+	}
 
-	return &o.PluginBase
+	return &o.PluginBase, nil
 }
 
 // OnCreate is called upon creating a new mDNS client.
-func (o *PluginMDnsClient) OnCreate() {
+func (o *PluginMDnsClient) OnCreate() (err error) {
 
 	// Register hosts on namespace database.
 	o.mDnsNsPlugin = o.Ns.PluginCtx.Get(MDNS_PLUG).Ext.(*PluginMDnsNs)
@@ -365,11 +368,10 @@ func (o *PluginMDnsClient) OnCreate() {
 	// create sockets
 	transportCtx := transport.GetTransportCtx(o.Client)
 	if transportCtx != nil {
-		var err error
 		o.socketIpv4, err = transportCtx.Dial("udp", Ipv4HostPort, o, ioctlMap, &Ipv4McastMacAddress, 5353)
 		if err != nil {
 			o.stats.invalidSocket++
-			return
+			return fmt.Errorf("could not create dialing IPv4 socket: %w", err)
 		}
 		_, err = o.Client.GetSourceIPv6()
 		if o.Tctx.Simulation || err == nil {
@@ -377,7 +379,7 @@ func (o *PluginMDnsClient) OnCreate() {
 			o.socketIpv6, err = transportCtx.Dial("udp", Ipv6HostPort, o, ioctlMap, &Ipv6McastMacAddress, 5353)
 			if err != nil {
 				o.stats.invalidSocket++
-				return
+				return fmt.Errorf("could not create dialing IPv6 socket: %w", err)
 			}
 		}
 	}
@@ -393,6 +395,7 @@ func (o *PluginMDnsClient) OnCreate() {
 		o.domainName = []byte(o.params.DomainName)
 	}
 	o.txts = utils.BuildTxtsFromTxtEntries(o.params.Txt) // Convert Txt entries to []byte
+	return nil
 }
 
 // OnEvent callback of the mDNS client in case of events.
@@ -425,7 +428,7 @@ func (o *PluginMDnsClient) Query(queries []utils.DnsQueryParams, socket transpor
 
 	if len(questions) > 0 {
 		if socket == nil {
-			fmt.Errorf("Invalid Socket in Query!")
+			return fmt.Errorf("Invalid Socket in Query!")
 		}
 		transportErr, _ := socket.Write(o.dnsPktBuilder.BuildQueryPkt(questions, o.Tctx.Simulation))
 		if transportErr != transport.SeOK {
@@ -635,7 +638,7 @@ type MDnsNsParams struct {
 	AutoPlayParams *fastjson.RawMessage `json:"auto_play_params"` // Params for autoplay
 }
 
-//PluginMDnsNs represents the mDNS plugin in namespace level.
+// PluginMDnsNs represents the mDNS plugin in namespace level.
 type PluginMDnsNs struct {
 	core.PluginBase                              // Embed plugin base
 	params          MDnsNsParams                 // Namespace Paramaters
@@ -649,7 +652,7 @@ type PluginMDnsNs struct {
 }
 
 // NewMDnsNs creates a new mDNS namespace plugin.
-func NewMDnsNs(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
+func NewMDnsNs(ctx *core.PluginCtx, initJson []byte) (*core.PluginBase, error) {
 	o := new(PluginMDnsNs)
 	o.InitPluginBase(ctx, o)                             // Init the base plugin
 	o.RegisterEvents(ctx, []string{}, o)                 // No events to register in namespace level.
@@ -662,7 +665,7 @@ func NewMDnsNs(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
 	err := o.Tctx.UnmarshalValidate(initJson, &o.params)
 	if err != nil {
 		o.stats.invalidInitJson++
-		return &o.PluginBase
+		return nil, err
 	}
 	if o.params.AutoPlay {
 		// Set default values prior to unmarshal.
@@ -672,17 +675,17 @@ func NewMDnsNs(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
 		err = o.Tctx.UnmarshalValidate(*o.params.AutoPlayParams, &o.autoPlayParams)
 		if err != nil {
 			o.stats.invalidInitJson++
-			return &o.PluginBase
+			return nil, err
 		}
 		// Create a new DnsNsAutoPlay which will call SendQuery each time we need to send a query.
-		o.autoPlay = utils.NewDnsNsAutoPlay(o, o.Tctx.GetTimerCtx(), o.autoPlayParams.CommonDnsAutoPlayParams)
-		if o.autoPlay == nil {
+		o.autoPlay, err = utils.NewDnsNsAutoPlay(o, o.Tctx.GetTimerCtx(), o.autoPlayParams.CommonDnsAutoPlayParams)
+		if err != nil {
 			o.stats.invalidInitJson++
-			return &o.PluginBase
+			return nil, fmt.Errorf("could not crate MDNS autoplay, error: %w", err)
 		}
 	}
 
-	return &o.PluginBase
+	return &o.PluginBase, nil
 }
 
 // OnRemove when removing mDNS namespace plugin.
@@ -713,7 +716,7 @@ func (o *PluginMDnsNs) HandleRxMDnsQuestions(questions []layers.DNSQuestion, ipv
 		relevantClients[c] = true // Event it already exists
 	}
 	// all the clients in relevantClients can answer at least one question
-	for c, _ := range relevantClients {
+	for c := range relevantClients {
 		c.HandleRxMDnsQuestions(questions, ipv6)
 	}
 }
@@ -949,19 +952,23 @@ func HandleRxMDnsPacket(ps *core.ParserPacketState) int {
 	return mdnsPlug.HandleRxMDnsPacket(ps)
 }
 
-/*======================================================================================================
-											Generate Plugin
-======================================================================================================*/
+/*
+======================================================================================================
+
+	Generate Plugin
+
+======================================================================================================
+*/
 type PluginMDnsCReg struct{}
 type PluginMDnsNsReg struct{}
 
 // NewPlugin creates a new MDNsClient plugin.
-func (o PluginMDnsCReg) NewPlugin(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
+func (o PluginMDnsCReg) NewPlugin(ctx *core.PluginCtx, initJson []byte) (*core.PluginBase, error) {
 	return NewMDnsClient(ctx, initJson)
 }
 
 // NewPlugin creates a new MDnsNs plugin.
-func (o PluginMDnsNsReg) NewPlugin(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
+func (o PluginMDnsNsReg) NewPlugin(ctx *core.PluginCtx, initJson []byte) (*core.PluginBase, error) {
 	return NewMDnsNs(ctx, initJson)
 }
 

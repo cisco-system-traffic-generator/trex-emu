@@ -21,6 +21,7 @@ import (
 var monitor int
 
 type DhcpTestBase struct {
+	t            testing.TB
 	testname     string
 	dropAll      bool
 	monitor      bool
@@ -36,7 +37,7 @@ type DhcpTestBase struct {
 
 type IgmpTestCb func(tctx *core.CThreadCtx, test *DhcpTestBase) int
 
-func (o *DhcpTestBase) Run(t *testing.T) {
+func (o *DhcpTestBase) Run() {
 
 	var simVeth VethIgmpSim
 	simVeth.DropAll = o.dropAll
@@ -62,20 +63,20 @@ func (o *DhcpTestBase) Run(t *testing.T) {
 
 	ns := tctx.GetNs(&key)
 	if ns == nil {
-		t.Fatalf(" can't find ns")
+		o.t.Fatalf(" can't find ns")
 		return
 	}
 	c := ns.CLookupByMac(&core.MACKey{0, 0, 1, 0, 0, 1})
 	nsplg := c.PluginCtx.Get(DHCPV6_PLUG)
 	if nsplg == nil {
-		t.Fatalf(" can't find plugin")
+		o.t.Fatalf("can't find plugin")
 	}
 	dhcpPlug := nsplg.Ext.(*PluginDhcpClient)
 	dhcpPlug.cdbv.Dump()
 	tctx.GetCounterDbVec().Dump()
 
 	//tctx.SimRecordAppend(igmpPlug.cdb.MarshalValues(false))
-	tctx.SimRecordCompare(o.testname, t)
+	tctx.SimRecordCompare(o.testname, o.t)
 
 }
 
@@ -93,21 +94,28 @@ func createSimulationEnv(simRx *core.VethIFSim, num int, test *DhcpTestBase) (*c
 		core.Ipv6Key{},
 		dg)
 	ns.AddClient(client)
-	ns.PluginCtx.CreatePlugins([]string{"dhcpv6"}, [][]byte{})
+	emptyJsonObj := []byte("{}")
+	err := ns.PluginCtx.CreatePlugins([]string{"dhcpv6"}, [][]byte{emptyJsonObj})
+	if err != nil {
+		test.t.Fatal(err)
+	}
 	var inijson [][]byte
 	if test.options == nil {
-		inijson = [][]byte{}
+		inijson = [][]byte{emptyJsonObj}
 	} else {
 		inijson = [][]byte{test.options}
 	}
 
-	client.PluginCtx.CreatePlugins([]string{"dhcpv6"}, inijson)
+	err = client.PluginCtx.CreatePlugins([]string{"dhcpv6"}, inijson)
+	if err != nil {
+		test.t.Fatal(err)
+	}
 	ns.Dump()
 	tctx.RegisterParserCb("dhcpv6")
 
 	nsplg := ns.PluginCtx.Get(DHCPV6_PLUG)
 	if nsplg == nil {
-		panic(" can't find plugin")
+		test.t.Fatal("can't find plugin")
 	}
 	//nsPlug := nsplg.Ext.(*PluginDhcpNs)
 
@@ -195,6 +203,7 @@ func (o *VethIgmpSim) ProcessTxToRx(m *core.Mbuf) *core.Mbuf {
 
 func TestPluginDhcpv6_1(t *testing.T) {
 	a := &DhcpTestBase{
+		t:            t,
 		testname:     "dhcpv6_1",
 		dropAll:      false,
 		monitor:      false,
@@ -203,11 +212,12 @@ func TestPluginDhcpv6_1(t *testing.T) {
 		duration:     120 * time.Second,
 		clientsToSim: 1,
 	}
-	a.Run(t)
+	a.Run()
 }
 
 func TestPluginDhcpv6_2(t *testing.T) {
 	a := &DhcpTestBase{
+		t:            t,
 		testname:     "dhcpv6_2",
 		dropAll:      false,
 		monitor:      false,
@@ -216,11 +226,12 @@ func TestPluginDhcpv6_2(t *testing.T) {
 		duration:     120 * time.Second,
 		clientsToSim: 1,
 	}
-	a.Run(t)
+	a.Run()
 }
 
 func TestPluginDhcpv6_3(t *testing.T) {
 	a := &DhcpTestBase{
+		t:            t,
 		testname:     "dhcpv6_3",
 		dropAll:      false,
 		monitor:      false,
@@ -229,11 +240,12 @@ func TestPluginDhcpv6_3(t *testing.T) {
 		duration:     120 * time.Second,
 		clientsToSim: 1,
 	}
-	a.Run(t)
+	a.Run()
 }
 
 func TestPluginDhcpv6_4(t *testing.T) {
 	a := &DhcpTestBase{
+		t:            t,
 		testname:     "dhcpv6_4",
 		dropAll:      false,
 		monitor:      false,
@@ -244,11 +256,12 @@ func TestPluginDhcpv6_4(t *testing.T) {
 		// remove default class and remove or
 		options: []byte(`{"options": {"rm_or":true, "rm_vc":true, "sol": [[0, 6, 0, 17, 0, 23, 0, 24, 0, 39]], "req": [[0, 6, 0, 17, 0, 23, 0, 24, 0, 39]]} } `),
 	}
-	a.Run(t)
+	a.Run()
 }
 
 func TestPluginDhcpv6_5(t *testing.T) {
 	a := &DhcpTestBase{
+		t:            t,
 		testname:     "dhcpv6_5",
 		dropAll:      false,
 		monitor:      false,
@@ -273,7 +286,7 @@ func TestPluginDhcpv6_5(t *testing.T) {
 			} 
 		}`),
 	}
-	a.Run(t)
+	a.Run()
 }
 
 func getL2() []byte {

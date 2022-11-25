@@ -23,13 +23,11 @@ type PluginTransNs struct {
 	core.PluginBase
 }
 
-func NewTransNs(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
-
+func NewTransNs(ctx *core.PluginCtx, initJson []byte) (*core.PluginBase, error) {
 	o := new(PluginTransNs)
 	o.InitPluginBase(ctx, o)
 	o.RegisterEvents(ctx, []string{}, o)
-
-	return &o.PluginBase
+	return &o.PluginBase, nil
 }
 
 func (o *PluginTransNs) OnRemove(ctx *core.PluginCtx) {
@@ -49,7 +47,7 @@ type PluginTransClient struct {
 	ns       *PluginTransNs
 }
 
-func NewTransClient(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
+func NewTransClient(ctx *core.PluginCtx, initJson []byte) (*core.PluginBase, error) {
 	o := new(PluginTransClient)
 	o.InitPluginBase(ctx, o) /* init base object*/
 	o.RegisterEvents(ctx, []string{}, o)
@@ -57,7 +55,7 @@ func NewTransClient(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
 	o.ns = nsplg.Ext.(*PluginTransNs)
 
 	o.initJson = append(o.initJson, initJson...)
-	return &o.PluginBase
+	return &o.PluginBase, nil
 }
 
 func (o *PluginTransClient) OnEvent(msg string, a, b interface{}) {
@@ -132,11 +130,11 @@ func HandleRxTransPacket(ps *core.ParserPacketState) int {
 type PluginTransCReg struct{}
 type PluginTransNsReg struct{}
 
-func (o PluginTransCReg) NewPlugin(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
+func (o PluginTransCReg) NewPlugin(ctx *core.PluginCtx, initJson []byte) (*core.PluginBase, error) {
 	return NewTransClient(ctx, initJson)
 }
 
-func (o PluginTransNsReg) NewPlugin(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
+func (o PluginTransNsReg) NewPlugin(ctx *core.PluginCtx, initJson []byte) (*core.PluginBase, error) {
 	return NewTransNs(ctx, initJson)
 }
 

@@ -487,7 +487,7 @@ type DnsNsAutoPlay struct {
 }
 
 // NewMDnsNsAutoPlay creates a new MDnsNsAutoPlay object.
-func NewDnsNsAutoPlay(plugin DnsAutoPlayPluginIF, timerw *core.TimerCtx, autoPlayParams CommonDnsAutoPlayParams) *DnsNsAutoPlay {
+func NewDnsNsAutoPlay(plugin DnsAutoPlayPluginIF, timerw *core.TimerCtx, autoPlayParams CommonDnsAutoPlayParams) (*DnsNsAutoPlay, error) {
 	o := new(DnsNsAutoPlay)
 	o.plugin = plugin
 	o.timerw = timerw
@@ -495,14 +495,14 @@ func NewDnsNsAutoPlay(plugin DnsAutoPlayPluginIF, timerw *core.TimerCtx, autoPla
 	o.params = autoPlayParams
 	err := o.processCommonParams()
 	if err != nil {
-		return nil
+		return nil, err
 	}
 
 	duration := time.Duration(float32(time.Second) / o.params.Rate)
 	o.ticks, o.numPktsPerEvent = o.timerw.DurationToTicksBurst(duration) // Calculate ticks
 	o.timer.SetCB(o, 0, 0)                                               // Set callback for timer
 	o.timerw.StartTicks(&o.timer, o.ticks)                               // Start timer
-	return o
+	return o, nil
 }
 
 // processCommonParams processes the params that the user defines in Init Json.

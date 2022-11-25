@@ -36,9 +36,12 @@ func (o *PluginPPPClient) GetPPPServerMac() string {
 var pppEvents = []string{}
 
 // NewPPPClient create plugin
-func NewPPPClient(ctx *core.PluginCtx, initJSON []byte) *core.PluginBase {
+func NewPPPClient(ctx *core.PluginCtx, initJson []byte) (*core.PluginBase, error) {
 	var init PPPInit
-	err := fastjson.Unmarshal(initJSON, &init)
+	err := fastjson.Unmarshal(initJson, &init)
+	if err != nil {
+		return nil, err
+	}
 
 	o := new(PluginPPPClient)
 	o.InitPluginBase(ctx, o)            /* init base object*/
@@ -49,28 +52,25 @@ func NewPPPClient(ctx *core.PluginCtx, initJSON []byte) *core.PluginBase {
 	o.OnCreate()
 
 	// init JSON is provided and correctly parsed
-	if err == nil {
-
-		if len(init.UserID) > 0 {
-			o.userID = init.UserID
-		} else {
-			o.userID = "test"
-		}
-
-		if len(init.Password) > 0 {
-			o.password = init.Password
-		} else {
-			o.password = "test"
-		}
-
-		if init.Timeout > 0 {
-			o.timeout = init.Timeout
-		} else {
-			o.timeout = 3
-		}
+	if len(init.UserID) > 0 {
+		o.userID = init.UserID
+	} else {
+		o.userID = "test"
 	}
 
-	return &o.PluginBase
+	if len(init.Password) > 0 {
+		o.password = init.Password
+	} else {
+		o.password = "test"
+	}
+
+	if init.Timeout > 0 {
+		o.timeout = init.Timeout
+	} else {
+		o.timeout = 3
+	}
+
+	return &o.PluginBase, nil
 }
 
 // OnCreate is invoked at creation of client

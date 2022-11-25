@@ -15,10 +15,10 @@ import (
 	"github.com/intel-go/fastjson"
 )
 
-/* Thread Ctx includes
-   1. map of network namespace per Tunnel data tuple of [port,dot1q,QinQ]
-   2. instance of timerw for schedule events
-
+/*
+Thread Ctx includes
+ 1. map of network namespace per Tunnel data tuple of [port,dot1q,QinQ]
+ 2. instance of timerw for schedule events
 */
 const (
 	mBUFS_CACHE = 1024 /* number of mbuf cached per size */
@@ -304,7 +304,7 @@ func (o *CThreadCtx) SetZmqVeth(veth VethIF) {
 	o.cdbv.Add(o.Veth.GetCdb())
 }
 
-func (o *CThreadCtx) SimRecordCompare(filename string, t *testing.T) {
+func (o *CThreadCtx) SimRecordCompare(filename string, t testing.TB) {
 	expFilename := os.Getenv("GOPATH") + "/unit-test/exp/" + filename + ".json"
 	genFilename := os.Getenv("GOPATH") + "/unit-test/generated/" + filename + ".json"
 	o.SimRecordExport(genFilename)

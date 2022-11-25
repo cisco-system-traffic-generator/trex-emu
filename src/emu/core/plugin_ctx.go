@@ -16,14 +16,13 @@ type IPluginIf interface {
 	OnRemove(o *PluginCtx) // call before delete
 }
 
-/* PluginBase plugin base that should be included in any plugin
+/*
+PluginBase plugin base that should be included in any plugin
 
-type PluginArp struct {
-	PluginBase
-	arpEnable bool
-}
-
-
+	type PluginArp struct {
+		PluginBase
+		arpEnable bool
+	}
 */
 type PluginBase struct {
 	Client *CClient
@@ -46,7 +45,7 @@ func (o *PluginBase) RegisterEvents(ctx *PluginCtx, events []string, i IPluginIf
 }
 
 type IPluginRegister interface {
-	NewPlugin(c *PluginCtx, initJson []byte) *PluginBase // call to create a new plugin
+	NewPlugin(c *PluginCtx, initJson []byte) (*PluginBase, error) // call to create a new plugin
 }
 
 type PluginRegisterData struct {
@@ -149,13 +148,12 @@ func (o *PluginCtx) CreatePlugins(plugins []string, initJson [][]byte) error {
 	initlen := len(initJson)
 	for i, pl := range plugins {
 		var initobj []byte
-		initobj = nil
 		if i < initlen {
 			initobj = initJson[i]
 		}
-		l := o.addPlugin(pl, initobj)
-		if l != nil {
-			errstrings = append(errstrings, l.Error())
+		err := o.addPlugin(pl, initobj)
+		if err != nil {
+			errstrings = append(errstrings, err.Error())
 		}
 	}
 	if len(errstrings) == 0 {
@@ -199,9 +197,12 @@ func (o *PluginCtx) addPlugin(pl string, initJson []byte) error {
 	}
 	p := o.getRegLevel(&v)
 
-	nobj := p.NewPlugin(o, initJson)
+	nobj, err := p.NewPlugin(o, initJson)
+	if err != nil {
+		return fmt.Errorf("could not create plugin '%s', error: %w", pl, err)
+	}
 	if nobj == nil {
-		return nil
+		return fmt.Errorf("could not create plugin '%s'", pl)
 	}
 
 	_, ok = o.mapPlugins[pl]
@@ -228,8 +229,7 @@ func (o *PluginCtx) RemovePlugins(pl string) error {
 	return nil
 }
 
-//GetOrCreate if it wasn't created by RPC with default json, try to create a default with nil JSON data
-//
+// GetOrCreate if it wasn't created by RPC with default json, try to create a default with nil JSON data
 func (o *PluginCtx) GetOrCreate(pl string) *PluginBase {
 	obj, ok := o.mapPlugins[pl]
 	if !ok {

@@ -66,7 +66,7 @@ func (o *PluginCdpClientTimer) OnEvent(a, b interface{}) {
 	pi.onTimerEvent()
 }
 
-//PluginCdpClient information per client
+// PluginCdpClient information per client
 type PluginCdpClient struct {
 	core.PluginBase
 	cdpNsPlug   *PluginCdpNs
@@ -85,10 +85,13 @@ type PluginCdpClient struct {
 var cdpEvents = []string{}
 
 /*NewCdpClient create plugin */
-func NewCdpClient(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
+func NewCdpClient(ctx *core.PluginCtx, initJson []byte) (*core.PluginBase, error) {
 
 	o := new(PluginCdpClient)
-	fastjson.Unmarshal(initJson, &o.init)
+	err := fastjson.Unmarshal(initJson, &o.init)
+	if err != nil {
+		return nil, err
+	}
 
 	o.InitPluginBase(ctx, o)            /* init base object*/
 	o.RegisterEvents(ctx, cdpEvents, o) /* register events, only if exits*/
@@ -96,7 +99,7 @@ func NewCdpClient(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
 	o.cdpNsPlug = nsplg.Ext.(*PluginCdpNs)
 	o.OnCreate()
 
-	return &o.PluginBase
+	return &o.PluginBase, nil
 }
 
 func (o *PluginCdpClient) OnCreate() {
@@ -195,7 +198,7 @@ func (o *PluginCdpClient) restartTimer(sec uint32) {
 	o.timerw.Start(&o.timer, time.Duration(sec)*time.Second)
 }
 
-//onTimerEvent on timer event callback
+// onTimerEvent on timer event callback
 func (o *PluginCdpClient) onTimerEvent() {
 	o.SendCdp()
 }
@@ -206,13 +209,11 @@ type PluginCdpNs struct {
 	stats CdpStats
 }
 
-func NewCdpNs(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
-
+func NewCdpNs(ctx *core.PluginCtx, initJson []byte) (*core.PluginBase, error) {
 	o := new(PluginCdpNs)
 	o.InitPluginBase(ctx, o)
 	o.RegisterEvents(ctx, []string{}, o)
-
-	return &o.PluginBase
+	return &o.PluginBase, nil
 }
 
 func (o *PluginCdpNs) OnRemove(ctx *core.PluginCtx) {
@@ -232,11 +233,11 @@ func (o *PluginCdpNs) SetTruncated() {
 type PluginCdpCReg struct{}
 type PluginCdpNsReg struct{}
 
-func (o PluginCdpCReg) NewPlugin(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
+func (o PluginCdpCReg) NewPlugin(ctx *core.PluginCtx, initJson []byte) (*core.PluginBase, error) {
 	return NewCdpClient(ctx, initJson)
 }
 
-func (o PluginCdpNsReg) NewPlugin(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
+func (o PluginCdpNsReg) NewPlugin(ctx *core.PluginCtx, initJson []byte) (*core.PluginBase, error) {
 	return NewCdpNs(ctx, initJson)
 }
 

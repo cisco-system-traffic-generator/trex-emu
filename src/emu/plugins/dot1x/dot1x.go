@@ -234,7 +234,7 @@ type Dot1xClientInfo struct {
 	EapVer         uint8 `json:"eap_version"`
 }
 
-//PluginDot1xClient information per client
+// PluginDot1xClient information per client
 type PluginDot1xClient struct {
 	core.PluginBase
 	nsPlug  *PluginDot1xNs
@@ -262,24 +262,25 @@ type PluginDot1xClient struct {
 var dot1xEvents = []string{}
 
 /*Dot1x create plugin */
-func NewDot1xClient(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
-
+func NewDot1xClient(ctx *core.PluginCtx, initJson []byte) (*core.PluginBase, error) {
 	o := new(PluginDot1xClient)
 	o.InitPluginBase(ctx, o)              /* init base object*/
 	o.RegisterEvents(ctx, dot1xEvents, o) /* register events, only if exits*/
 	nsplg := o.Ns.PluginCtx.GetOrCreate(DOT1X_PLUG)
 	o.nsPlug = nsplg.Ext.(*PluginDot1xNs)
-	o.LoadCfg(initJson)
+	err := o.LoadCfg(initJson)
+	if err != nil {
+		return nil, err
+	}
 	o.OnCreate()
 
-	return &o.PluginBase
+	return &o.PluginBase, nil
 }
 
-func (o *PluginDot1xClient) LoadCfg(initJson []byte) {
-
+func (o *PluginDot1xClient) LoadCfg(initJson []byte) error {
 	o.cfg.TimeoutSec = TIMEOUT_TIMER_SEC
 	o.cfg.MaxStart = MAX_STARTS_CNT
-	fastjson.Unmarshal(initJson, &o.cfg)
+	return fastjson.Unmarshal(initJson, &o.cfg)
 }
 
 func (o *PluginDot1xClient) OnCreate() {
@@ -420,7 +421,7 @@ func (o *PluginDot1xClient) restartTimer() {
 	o.timerw.Start(&o.timer, time.Duration(o.cfg.TimeoutSec)*time.Second)
 }
 
-//onTimerEvent on timer event callback
+// onTimerEvent on timer event callback
 func (o *PluginDot1xClient) onTimerEvent() {
 
 	if (o.smState == EAP_DONE_OK) ||
@@ -602,13 +603,11 @@ type PluginDot1xNs struct {
 	core.PluginBase
 }
 
-func NewDot1xNs(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
-
+func NewDot1xNs(ctx *core.PluginCtx, initJson []byte) (*core.PluginBase, error) {
 	o := new(PluginDot1xNs)
 	o.InitPluginBase(ctx, o)
 	o.RegisterEvents(ctx, []string{}, o)
-
-	return &o.PluginBase
+	return &o.PluginBase, nil
 }
 
 func (o *PluginDot1xNs) OnRemove(ctx *core.PluginCtx) {
@@ -671,11 +670,11 @@ func HandleRxDot1xPacket(ps *core.ParserPacketState) int {
 type PluginDot1xCReg struct{}
 type PluginDot1xNsReg struct{}
 
-func (o PluginDot1xCReg) NewPlugin(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
+func (o PluginDot1xCReg) NewPlugin(ctx *core.PluginCtx, initJson []byte) (*core.PluginBase, error) {
 	return NewDot1xClient(ctx, initJson)
 }
 
-func (o PluginDot1xNsReg) NewPlugin(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
+func (o PluginDot1xNsReg) NewPlugin(ctx *core.PluginCtx, initJson []byte) (*core.PluginBase, error) {
 	return NewDot1xNs(ctx, initJson)
 }
 

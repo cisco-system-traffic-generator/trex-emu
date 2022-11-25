@@ -34,7 +34,7 @@ type FieldEngineCounters struct {
 	badEngineType          uint64 // bad engine type provided by the user
 }
 
-//Creates a database of engine counters
+// Creates a database of engine counters
 func NewFECountersDb(o *FieldEngineCounters) *core.CCounterDb {
 	db := core.NewCCounterDb("field_engine")
 	db.Add(&core.CCounterRec{
@@ -161,7 +161,7 @@ type FieldEngineManager struct {
 
 // NewEngineManager creates and returns a new engine manager. The manager will always be non nil,
 // but before trying to use it's engines make sure to verify the counters don't contain errors.
-func NewEngineManager(ctx interface{}, data *fastjson.RawMessage) *FieldEngineManager {
+func NewEngineManager(ctx interface{}, data *fastjson.RawMessage) (*FieldEngineManager, error) {
 	o := new(FieldEngineManager)
 	o.tctx = ctx.(*core.CThreadCtx)
 	o.engines = make(map[string]FieldEngineIF)
@@ -173,33 +173,24 @@ func NewEngineManager(ctx interface{}, data *fastjson.RawMessage) *FieldEngineMa
 	err := fastjson.Unmarshal(*data, &o.requests)
 	if err != nil {
 		o.counters.invalidJson++
-		return o
+		return nil, err
 	}
 
 	// create a field engine for each request
-	for _, request := range o.requests {
-		cb, err := getFieldEngineCB(request.EngineType)
+	for i := range o.requests {
+		cb, err := getFieldEngineCB(o.requests[i].EngineType)
 		if err != nil {
 			o.counters.badEngineType++
-			// clean the map by making a new one.
-			o.engines = make(map[string]FieldEngineIF)
-			return o
+			return nil, fmt.Errorf("could not create engine '%s': %w", o.requests[i].EngineName, err)
 		}
-		eng, err := cb(request.Params, o)
+		eng, err := cb(o.requests[i].Params, o)
 		if err != nil {
 			o.counters.failedBuildingEngine++
-			// clean the map by making a new one.
-			o.engines = make(map[string]FieldEngineIF)
-			return o
+			return nil, fmt.Errorf("could not create engine '%s': %w", o.requests[i].EngineName, err)
 		}
-		o.engines[request.EngineName] = eng
+		o.engines[o.requests[i].EngineName] = eng
 	}
-	return o
-}
-
-func (o *FieldEngineManager) WasCreatedSuccessfully() bool {
-	res := o.counters.invalidJson | o.counters.badEngineType | o.counters.failedBuildingEngine
-	return res == 0
+	return o, nil
 }
 
 // GetFEManagerCounters returns the Field Engine Manager counters.
@@ -232,12 +223,12 @@ var fieldEngineDB FieldEngineDB
 
 // getFieldEngineCB returns the CB of a field engine given its typ.e
 func getFieldEngineCB(fe string) (FieldEngineCB, error) {
-	_, ok := fieldEngineDB.M[fe]
-	if !ok {
+	engineCb := fieldEngineDB.M[fe]
+	if engineCb == nil {
 		// This *can't* panic, it is called with user input.
-		return nil, fmt.Errorf("Field engine %s is not registered.", fe)
+		return nil, fmt.Errorf("field engine %s is not registered.", fe)
 	}
-	return fieldEngineDB.M[fe], nil
+	return engineCb, nil
 }
 
 // fieldEngineRegister registers a field engine and its callback to the database.

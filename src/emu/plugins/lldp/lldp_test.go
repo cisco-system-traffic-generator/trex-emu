@@ -18,6 +18,7 @@ import (
 var monitor int
 
 type LldpTestBase struct {
+	t            testing.TB
 	testname     string
 	dropAll      bool
 	monitor      bool
@@ -33,7 +34,7 @@ type LldpTestBase struct {
 
 type LldpTestCb func(tctx *core.CThreadCtx, test *LldpTestBase) int
 
-func (o *LldpTestBase) Run(t *testing.T) {
+func (o *LldpTestBase) Run() {
 
 	var simVeth VethIgmpSim
 	simVeth.DropAll = o.dropAll
@@ -59,20 +60,20 @@ func (o *LldpTestBase) Run(t *testing.T) {
 
 	ns := tctx.GetNs(&key)
 	if ns == nil {
-		t.Fatalf(" can't find ns")
+		o.t.Fatalf(" can't find ns")
 		return
 	}
 	c := ns.CLookupByMac(&core.MACKey{0, 0, 1, 0, 0, 1})
 	nsplg := c.PluginCtx.Get(LLDP_PLUG)
 	if nsplg == nil {
-		t.Fatalf(" can't find plugin")
+		o.t.Fatalf(" can't find plugin")
 	}
 	lldpPlug := nsplg.Ext.(*PluginLldpClient)
 	lldpPlug.cdbv.Dump()
 	tctx.GetCounterDbVec().Dump()
 
 	//tctx.SimRecordAppend(igmpPlug.cdb.MarshalValues(false))
-	tctx.SimRecordCompare(o.testname, t)
+	tctx.SimRecordCompare(o.testname, o.t)
 
 }
 
@@ -89,17 +90,28 @@ func createSimulationEnv(simRx *core.VethIFSim, num int, test *LldpTestBase) (*c
 		core.Ipv4Key{0, 0, 0, 0},
 		core.Ipv6Key{},
 		dg)
-	ns.AddClient(client)
-	ns.PluginCtx.CreatePlugins([]string{"lldp"}, [][]byte{})
+	err := ns.AddClient(client)
+	if err != nil {
+		test.t.Fatal(err)
+	}
+	emptyJsonObj := []byte("{}")
+	err = ns.PluginCtx.CreatePlugins([]string{"lldp"}, [][]byte{emptyJsonObj})
+	if err != nil {
+		test.t.Fatal(err)
+	}
 
 	var inijson [][]byte
 	if test.options == nil {
-		inijson = [][]byte{}
+		inijson = [][]byte{emptyJsonObj}
 	} else {
 		inijson = [][]byte{test.options}
 	}
 
-	client.PluginCtx.CreatePlugins([]string{"lldp"}, inijson)
+	err = client.PluginCtx.CreatePlugins([]string{"lldp"}, inijson)
+	if err != nil {
+		test.t.Fatal(err)
+	}
+
 	ns.Dump()
 	//tctx.RegisterParserCb("dhcp")
 
@@ -132,6 +144,7 @@ func (o *VethIgmpSim) ProcessTxToRx(m *core.Mbuf) *core.Mbuf {
 
 func TestPluginLldp1(t *testing.T) {
 	a := &LldpTestBase{
+		t:            t,
 		testname:     "lldp1",
 		dropAll:      false,
 		monitor:      false,
@@ -140,7 +153,7 @@ func TestPluginLldp1(t *testing.T) {
 		duration:     120 * time.Second,
 		clientsToSim: 1,
 	}
-	a.Run(t)
+	a.Run()
 }
 
 func TestPluginLldp2(t *testing.T) {
@@ -150,6 +163,7 @@ func TestPluginLldp2(t *testing.T) {
 	l := &LldpInit{Options: &LldpOptionsT{Raw: &hex}}
 	jsonData2, _ := json.Marshal(l)
 	a := &LldpTestBase{
+		t:            t,
 		testname:     "lldp2",
 		dropAll:      false,
 		monitor:      false,
@@ -159,7 +173,7 @@ func TestPluginLldp2(t *testing.T) {
 		clientsToSim: 1,
 		options:      jsonData2,
 	}
-	a.Run(t)
+	a.Run()
 }
 
 func init() {

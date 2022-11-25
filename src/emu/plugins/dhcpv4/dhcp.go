@@ -205,7 +205,7 @@ func (o *PluginDhcpClientTimer) OnEvent(a, b interface{}) {
 	pi.onTimerEvent()
 }
 
-//PluginDhcpClient information per client
+// PluginDhcpClient information per client
 type PluginDhcpClient struct {
 	core.PluginBase
 	dhcpNsPlug                 *PluginDhcpNs
@@ -241,10 +241,12 @@ type PluginDhcpClient struct {
 var dhcpEvents = []string{}
 
 /*NewDhcpClient create plugin */
-func NewDhcpClient(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
-
+func NewDhcpClient(ctx *core.PluginCtx, initJson []byte) (*core.PluginBase, error) {
 	o := new(PluginDhcpClient)
 	err := fastjson.Unmarshal(initJson, &o.init)
+	if err != nil {
+		return nil, err
+	}
 
 	o.InitPluginBase(ctx, o)             /* init base object*/
 	o.RegisterEvents(ctx, dhcpEvents, o) /* register events, only if exits*/
@@ -252,17 +254,15 @@ func NewDhcpClient(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
 	o.dhcpNsPlug = nsplg.Ext.(*PluginDhcpNs)
 	o.OnCreate()
 
-	if err == nil {
-		/* init json was provided */
-		if o.init.TimerDiscoverSec > 0 {
-			o.timerDiscoverRetransmitSec = o.init.TimerDiscoverSec
-		}
-		if o.init.TimerOfferSec > 0 {
-			o.timerOfferRetransmitSec = o.init.TimerOfferSec
-		}
-
+	/* init json was provided */
+	if o.init.TimerDiscoverSec > 0 {
+		o.timerDiscoverRetransmitSec = o.init.TimerDiscoverSec
 	}
-	return &o.PluginBase
+	if o.init.TimerOfferSec > 0 {
+		o.timerOfferRetransmitSec = o.init.TimerOfferSec
+	}
+
+	return &o.PluginBase, nil
 }
 
 func (o *PluginDhcpClient) OnCreate() {
@@ -670,7 +670,7 @@ func (o *PluginDhcpClient) getT1InSec(p *layers.DHCPOption) uint32 {
 	return uint32(p.Data[0])<<24 | uint32(p.Data[1])<<16 | uint32(p.Data[2])<<8 | uint32(p.Data[3])
 }
 
-//onTimerEvent on timer event callback
+// onTimerEvent on timer event callback
 func (o *PluginDhcpClient) onTimerEvent() {
 	switch o.state {
 	case DHCP_STATE_INIT:
@@ -841,13 +841,11 @@ type PluginDhcpNs struct {
 	stats DhcpStats
 }
 
-func NewDhcpNs(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
-
+func NewDhcpNs(ctx *core.PluginCtx, initJson []byte) (*core.PluginBase, error) {
 	o := new(PluginDhcpNs)
 	o.InitPluginBase(ctx, o)
 	o.RegisterEvents(ctx, []string{}, o)
-
-	return &o.PluginBase
+	return &o.PluginBase, nil
 }
 
 func (o *PluginDhcpNs) OnRemove(ctx *core.PluginCtx) {
@@ -943,11 +941,11 @@ func HandleRxDhcpPacket(ps *core.ParserPacketState) int {
 type PluginDhcpCReg struct{}
 type PluginDhcpNsReg struct{}
 
-func (o PluginDhcpCReg) NewPlugin(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
+func (o PluginDhcpCReg) NewPlugin(ctx *core.PluginCtx, initJson []byte) (*core.PluginBase, error) {
 	return NewDhcpClient(ctx, initJson)
 }
 
-func (o PluginDhcpNsReg) NewPlugin(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
+func (o PluginDhcpNsReg) NewPlugin(ctx *core.PluginCtx, initJson []byte) (*core.PluginBase, error) {
 	return NewDhcpNs(ctx, initJson)
 }
 

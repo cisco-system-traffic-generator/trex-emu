@@ -314,7 +314,7 @@ func (o *TdlTimerCallback) OnEvent(a, b interface{}) {
 var tdlEvents = []string{core.MSG_DG_MAC_RESOLVED}
 
 // NewTdlClient creates a new Tdl client.
-func NewTdlClient(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
+func NewTdlClient(ctx *core.PluginCtx, initJson []byte) (*core.PluginBase, error) {
 
 	o := new(PluginTdlClient)
 	o.InitPluginBase(ctx, o)            // Init base object
@@ -326,14 +326,14 @@ func NewTdlClient(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
 
 	if err != nil {
 		o.stats.badOrNoInitJson++
-		return &o.PluginBase
+		return nil, err
 	}
 
 	// Init Json was provided and successfully decoded into params.
 	var host string
 	if host, _, err = net.SplitHostPort(params.Dst); err != nil {
 		o.stats.invalidDst++
-		return &o.PluginBase
+		return nil, err
 	}
 	o.isIpv6 = strings.Contains(host, ":")
 	o.dstAddress = params.Dst
@@ -348,7 +348,7 @@ func NewTdlClient(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
 	o.metaDataMgr, err = NewTdlMetaDataMgr(o, params.Meta)
 	if err != nil {
 		o.stats.failedBuildingMetaDataMgr++
-		return &o.PluginBase
+		return nil, err
 	}
 	RegisterPrimitiveLuid(o)     // Register primitive types
 	o.metaDataMgr.registerLuid() // Register meta data types
@@ -357,7 +357,7 @@ func NewTdlClient(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
 	err = o.buildObjectInstance(params.Object)
 	if err != nil {
 		o.stats.failedBuildingTdlType++
-		return &o.PluginBase
+		return nil, err
 	}
 
 	// build the map
@@ -365,10 +365,10 @@ func NewTdlClient(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
 
 	// Create Engine Manager
 	if params.Engines != nil {
-		o.engineMgr = engines.NewEngineManager(o.Tctx, params.Engines)
-		if !o.engineMgr.WasCreatedSuccessfully() {
+		o.engineMgr, err = engines.NewEngineManager(o.Tctx, params.Engines)
+		if err != nil {
 			o.stats.failedBuildingEngineMgr++
-			return &o.PluginBase
+			return nil, fmt.Errorf("could not create engine manager: %w", err)
 		}
 		o.engineMap = o.engineMgr.GetEngineMap()
 	}
@@ -377,7 +377,7 @@ func NewTdlClient(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
 	for engineName := range o.engineMap {
 		if _, ok := o.unconstructedTypes[engineName]; !ok {
 			o.stats.failedBuildingEngineMgr++
-			return &o.PluginBase
+			return nil, fmt.Errorf("Got engine for unexisting field %s", engineName)
 		}
 	}
 
@@ -385,14 +385,14 @@ func NewTdlClient(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
 	err = o.setInitialValues(params.InitValues)
 	if err != nil {
 		o.stats.invalidInitValues++
-		return &o.PluginBase
+		return nil, err
 	}
 
 	if o.simulation {
 		o.formattedJson = BuildJson(o.unconstructedTypes)
 	}
 
-	return &o.PluginBase
+	return &o.PluginBase, nil
 }
 
 // OnCreate is called upon creating a new Tdl client.
@@ -520,9 +520,12 @@ func (o *PluginTdlClient) registerLuid(luid LUID, typeName string) {
 	o.luidTypeMap[luid] = typeName
 }
 
-/* buildObjectInstance builds the object we are trying to send.
+/*
+	buildObjectInstance builds the object we are trying to send.
+
 1. If the object is a primitive type then we have a trivial case.
-2. Otherwise, the object is defined in metadata and shall be build using the instance constructor. */
+2. Otherwise, the object is defined in metadata and shall be build using the instance constructor.
+*/
 func (o *PluginTdlClient) buildObjectInstance(obj TdlObject) error {
 	if IsPrimitiveTdlType(obj.Type) {
 		// primitive type
@@ -623,24 +626,32 @@ func (o *PluginTdlClient) DumpFormattedJson() {
 	o.Tctx.SimRecordAppend(copyMap)
 }
 
-/*======================================================================================================
-											Generate Plugin
-======================================================================================================*/
+/*
+======================================================================================================
+
+	Generate Plugin
+
+======================================================================================================
+*/
 type PluginTdlCReg struct{}
 type PluginTdlNsReg struct{}
 
-func (o PluginTdlCReg) NewPlugin(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
+func (o PluginTdlCReg) NewPlugin(ctx *core.PluginCtx, initJson []byte) (*core.PluginBase, error) {
 	return NewTdlClient(ctx, initJson)
 }
 
-func (o PluginTdlNsReg) NewPlugin(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
+func (o PluginTdlNsReg) NewPlugin(ctx *core.PluginCtx, initJson []byte) (*core.PluginBase, error) {
 	// No Ns plugin for now.
-	return nil
+	return nil, nil
 }
 
-/*======================================================================================================
-											RPC Methods
-======================================================================================================*/
+/*
+======================================================================================================
+
+	RPC Methods
+
+======================================================================================================
+*/
 type (
 	ApiTdlClientCntHandler struct{}
 )

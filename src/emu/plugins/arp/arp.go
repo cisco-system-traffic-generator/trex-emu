@@ -349,8 +349,10 @@ func (o *ArpFlowTable) OnDeleteFlow(flow *ArpFlow) {
 	}
 }
 
-/*AssociateWithClient  associate the flow with a client
-and return if this is the first and require to send GARP and Query*/
+/*
+AssociateWithClient  associate the flow with a client
+and return if this is the first and require to send GARP and Query
+*/
 func (o *ArpFlowTable) AssociateWithClient(flow *ArpFlow) bool {
 	if flow.state == stateLearned {
 		if flow.refc != 0 {
@@ -640,21 +642,22 @@ func (o *PluginArpClient) preparePacketTemplate() {
 }
 
 /*NewArpClient create plugin */
-func NewArpClient(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
+func NewArpClient(ctx *core.PluginCtx, initJson []byte) (*core.PluginBase, error) {
 	var init ArpCInit
 	err := fastjson.Unmarshal(initJson, &init)
+	if err != nil {
+		return nil, err
+	}
 
 	o := new(PluginArpClient)
 	o.timerSec = 60
 
-	if err == nil {
-		/* init json was provided */
-		if init.Timer > 0 {
-			o.timerSec = init.Timer
-		}
-		if init.TimerDisable {
-			o.timerSec = 0
-		}
+	/* init json was provided */
+	if init.Timer > 0 {
+		o.timerSec = init.Timer
+	}
+	if init.TimerDisable {
+		o.timerSec = 0
 	}
 
 	o.arpEnable = true
@@ -667,7 +670,7 @@ func NewArpClient(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
 
 	o.OnCreate()
 
-	return &o.PluginBase
+	return &o.PluginBase, nil
 }
 
 /*OnEvent support event change of IP  */
@@ -796,7 +799,7 @@ type PluginArpNs struct {
 	cdbv      *core.CCounterDbVec
 }
 
-func NewArpNs(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
+func NewArpNs(ctx *core.PluginCtx, initJson []byte) (*core.PluginBase, error) {
 	o := new(PluginArpNs)
 	o.InitPluginBase(ctx, o)
 	o.RegisterEvents(ctx, []string{}, o)
@@ -806,7 +809,7 @@ func NewArpNs(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
 	o.cdb = NewArpNsStatsDb(&o.stats)
 	o.cdbv = core.NewCCounterDbVec("arp")
 	o.cdbv.Add(o.cdb)
-	return &o.PluginBase
+	return &o.PluginBase, nil
 }
 
 func (o *PluginArpNs) OnRemove(ctx *core.PluginCtx) {
@@ -850,11 +853,13 @@ func (o *PluginArpNs) DisassociateClient(arpc *PluginArpClient,
 	arpc.Client.DGW = nil
 }
 
-/*AssociateClient associate a new client object with a ArpFlow
-  client object should be with valid source ipv4 and valid default gateway
-  1. if object ArpFlow exists move it's state to complete and add ref counter
-  2. if object ArpFlow does not exsits create new with ref=1 and return it
-  3. if this is the first, generate GARP and
+/*
+AssociateClient associate a new client object with a ArpFlow
+
+	client object should be with valid source ipv4 and valid default gateway
+	1. if object ArpFlow exists move it's state to complete and add ref counter
+	2. if object ArpFlow does not exsits create new with ref=1 and return it
+	3. if this is the first, generate GARP and
 */
 func (o *PluginArpNs) AssociateClient(arpc *PluginArpClient) {
 	if arpc.Client.Ipv4.IsZero() || arpc.Client.DgIpv4.IsZero() {
@@ -895,7 +900,7 @@ func (o *PluginArpNs) ArpLearn(arpHeader *layers.ArpHeader) {
 	}
 }
 
-//HandleRxArpPacket there is no need to free  buffer
+// HandleRxArpPacket there is no need to free  buffer
 func (o *PluginArpNs) HandleRxArpPacket(m *core.Mbuf, l3 uint16) {
 	if m.PktLen() < uint32(layers.ARPHeaderSize+l3) {
 		o.stats.pktRxErrTooShort++
@@ -969,11 +974,11 @@ func HandleRxArpPacket(ps *core.ParserPacketState) int {
 type PluginArpCReg struct{}
 type PluginArpNsReg struct{}
 
-func (o PluginArpCReg) NewPlugin(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
+func (o PluginArpCReg) NewPlugin(ctx *core.PluginCtx, initJson []byte) (*core.PluginBase, error) {
 	return NewArpClient(ctx, initJson)
 }
 
-func (o PluginArpNsReg) NewPlugin(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
+func (o PluginArpNsReg) NewPlugin(ctx *core.PluginCtx, initJson []byte) (*core.PluginBase, error) {
 	return NewArpNs(ctx, initJson)
 }
 

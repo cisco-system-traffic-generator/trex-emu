@@ -62,7 +62,7 @@ func (o *PluginLldpClientTimer) OnEvent(a, b interface{}) {
 	pi.onTimerEvent()
 }
 
-//PluginLldpClient information per client
+// PluginLldpClient information per client
 type PluginLldpClient struct {
 	core.PluginBase
 	lldpNsPlug  *PluginLldpNs
@@ -81,10 +81,13 @@ type PluginLldpClient struct {
 var lldpEvents = []string{}
 
 /*NewLldpClient create plugin */
-func NewLldpClient(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
+func NewLldpClient(ctx *core.PluginCtx, initJson []byte) (*core.PluginBase, error) {
 
 	o := new(PluginLldpClient)
-	fastjson.Unmarshal(initJson, &o.init)
+	err := fastjson.Unmarshal(initJson, &o.init)
+	if err != nil {
+		return nil, err
+	}
 
 	o.InitPluginBase(ctx, o)             /* init base object*/
 	o.RegisterEvents(ctx, lldpEvents, o) /* register events, only if exits*/
@@ -92,7 +95,7 @@ func NewLldpClient(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
 	o.lldpNsPlug = nsplg.Ext.(*PluginLldpNs)
 	o.OnCreate()
 
-	return &o.PluginBase
+	return &o.PluginBase, nil
 }
 
 func (o *PluginLldpClient) OnCreate() {
@@ -168,7 +171,7 @@ func (o *PluginLldpClient) restartTimer(sec uint32) {
 	o.timerw.Start(&o.timer, time.Duration(sec)*time.Second)
 }
 
-//onTimerEvent on timer event callback
+// onTimerEvent on timer event callback
 func (o *PluginLldpClient) onTimerEvent() {
 	o.SendLldp()
 }
@@ -179,13 +182,11 @@ type PluginLldpNs struct {
 	stats LldpStats
 }
 
-func NewLldpNs(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
-
+func NewLldpNs(ctx *core.PluginCtx, initJson []byte) (*core.PluginBase, error) {
 	o := new(PluginLldpNs)
 	o.InitPluginBase(ctx, o)
 	o.RegisterEvents(ctx, []string{}, o)
-
-	return &o.PluginBase
+	return &o.PluginBase, nil
 }
 
 func (o *PluginLldpNs) OnRemove(ctx *core.PluginCtx) {
@@ -205,11 +206,11 @@ func (o *PluginLldpNs) SetTruncated() {
 type PluginLldpCReg struct{}
 type PluginLldpNsReg struct{}
 
-func (o PluginLldpCReg) NewPlugin(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
+func (o PluginLldpCReg) NewPlugin(ctx *core.PluginCtx, initJson []byte) (*core.PluginBase, error) {
 	return NewLldpClient(ctx, initJson)
 }
 
-func (o PluginLldpNsReg) NewPlugin(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
+func (o PluginLldpNsReg) NewPlugin(ctx *core.PluginCtx, initJson []byte) (*core.PluginBase, error) {
 	return NewLldpNs(ctx, initJson)
 }
 

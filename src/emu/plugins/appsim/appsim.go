@@ -726,7 +726,6 @@ func (o *appL7Sim) nextCmd() bool {
 	return false
 }
 
-//////////////////////////////////////////////
 // transport events - start
 func (o *appL7Sim) OnRxEvent(event transport.SocketEventType) {
 	o.udp_keepalive = false
@@ -848,7 +847,7 @@ func (o *appL7Sim) getCurCmd() map[string]interface{} {
 type PluginAppsimClientTimer struct {
 }
 
-//PluginAppsimClient information per client
+// PluginAppsimClient information per client
 type PluginAppsimClient struct {
 	core.PluginBase
 	appsimNsPlug      *PluginAppsimNs
@@ -872,12 +871,11 @@ func (o *PluginAppsimClientTimer) OnEvent(a, b interface{}) {
 }
 
 /*NewAppSimClient create plugin */
-func NewAppSimClient(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
-
+func NewAppSimClient(ctx *core.PluginCtx, initJson []byte) (*core.PluginBase, error) {
 	o := new(PluginAppsimClient)
 	err := fastjson.Unmarshal(initJson, &o.init)
 	if err != nil {
-		fmt.Printf(" %v \n", err)
+		return nil, err
 	}
 	o.InitPluginBase(ctx, o)               /* init base object*/
 	o.RegisterEvents(ctx, appsimEvents, o) /* register events, only if exits*/
@@ -892,7 +890,7 @@ func NewAppSimClient(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
 		o.OnResolve(true)
 	}
 
-	return &o.PluginBase
+	return &o.PluginBase, nil
 }
 
 func (o *PluginAppsimClient) getGlobalProgram() map[string]interface{} {
@@ -1046,8 +1044,7 @@ type PluginAppsimNs struct {
 	program map[string]interface{} // pointer to the global program
 }
 
-func NewAppSimNs(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
-
+func NewAppSimNs(ctx *core.PluginCtx, initJson []byte) (*core.PluginBase, error) {
 	o := new(PluginAppsimNs)
 	o.InitPluginBase(ctx, o)
 	o.RegisterEvents(ctx, []string{}, o)
@@ -1056,11 +1053,11 @@ func NewAppSimNs(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
 	o.cdbv.Add(o.cdb)
 
 	// load the global program
-	err1 := IsValidAppSimJson((*fastjson.RawMessage)(&initJson), &o.program)
-	if err1 != nil {
+	err := IsValidAppSimJson((*fastjson.RawMessage)(&initJson), &o.program)
+	if err != nil {
 		o.stats.errLoadApp++
 	}
-	return &o.PluginBase
+	return &o.PluginBase, err
 }
 
 func (o *PluginAppsimNs) OnRemove(ctx *core.PluginCtx) {
@@ -1080,11 +1077,11 @@ func (o *PluginAppsimNs) SetTruncated() {
 type PluginAppsimCReg struct{}
 type PluginAppsimNsReg struct{}
 
-func (o PluginAppsimCReg) NewPlugin(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
+func (o PluginAppsimCReg) NewPlugin(ctx *core.PluginCtx, initJson []byte) (*core.PluginBase, error) {
 	return NewAppSimClient(ctx, initJson)
 }
 
-func (o PluginAppsimNsReg) NewPlugin(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
+func (o PluginAppsimNsReg) NewPlugin(ctx *core.PluginCtx, initJson []byte) (*core.PluginBase, error) {
 	return NewAppSimNs(ctx, initJson)
 }
 

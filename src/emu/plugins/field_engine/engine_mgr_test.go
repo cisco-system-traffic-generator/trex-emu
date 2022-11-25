@@ -4,6 +4,7 @@ import (
 	"emu/core"
 	"encoding/hex"
 	"math/rand"
+	"regexp"
 	"sort"
 	"testing"
 
@@ -11,6 +12,8 @@ import (
 )
 
 type EngineManagerTestBase struct {
+	t            testing.TB
+	expCreateErr string
 	testname     string              // the name of the test which will be used for generated file
 	monitor      bool                // boolean if we are monitoring the data or not
 	bufferSize   int                 // buffer size to create in bytes
@@ -21,7 +24,23 @@ type EngineManagerTestBase struct {
 	seed         int64               // seed for deterministic generation
 }
 
-func (o *EngineManagerTestBase) Run(t *testing.T, compare bool) {
+func expErrCheck(t testing.TB, expErrStr string, err error) {
+	if err == nil {
+		if expErrStr == "" {
+			return
+		}
+		t.Fatalf("Did not get expected error: %s", expErrStr)
+	}
+	if expErrStr == "" {
+		t.Fatalf("Got unexpected error: %v", err)
+	}
+	expErrRe := regexp.MustCompile(expErrStr)
+	if !expErrRe.MatchString(err.Error()) {
+		t.Fatalf("Expected error '%s', got: '%v'", expErrStr, err)
+	}
+}
+
+func (o *EngineManagerTestBase) Run(compare bool) {
 	var simrx core.VethIFSim
 	tctx := core.NewThreadCtx(0, 4510, true, &simrx)
 	defer tctx.Delete()
@@ -30,10 +49,13 @@ func (o *EngineManagerTestBase) Run(t *testing.T, compare bool) {
 		rand.Seed(o.seed)
 	}
 
-	feMgr := NewEngineManager(tctx, &o.inputJson)
+	feMgr, err := NewEngineManager(tctx, &o.inputJson)
+	expErrCheck(o.t, o.expCreateErr, err)
+	if err != nil {
+		return
+	}
 	if len(feMgr.engines) != o.engineNumber {
 		o.monitor = false
-
 	}
 
 	b := make([]byte, o.bufferSize)
@@ -66,11 +88,10 @@ func (o *EngineManagerTestBase) Run(t *testing.T, compare bool) {
 	tctx.SimRecordAppend(feMgr.cdb.MarshalValues(true))
 	if compare {
 		if o.monitor {
-			tctx.SimRecordCompare(o.testname, t)
+			tctx.SimRecordCompare(o.testname, o.t)
 		} else {
 			if o.counters != *feMgr.counters {
-				t.Errorf("Bad counters, want %+v, have %+v.\n", o.counters, feMgr.counters)
-				t.FailNow()
+				o.t.Fatalf("Bad counters, want %+v, have %+v.", o.counters, feMgr.counters)
 			}
 		}
 	}
@@ -78,12 +99,9 @@ func (o *EngineManagerTestBase) Run(t *testing.T, compare bool) {
 
 func TestEngineManagerNeg1(t *testing.T) {
 	a := &EngineManagerTestBase{
-		testname:     "feNeg1",
-		monitor:      false,
-		bufferSize:   2,
-		iterNumber:   0,
-		engineNumber: 1,
-		inputJson: fastjson.RawMessage([]byte(`[
+		t:            t,
+		expCreateErr: "Unsupported operation aa",
+		inputJson: []byte(`[
 			{
 			"engine_type": "uint",
 			"engine_name": "Emu",
@@ -96,20 +114,16 @@ func TestEngineManagerNeg1(t *testing.T) {
 					"op": "aa",
 				}
 			 }
-		 ]`)),
-		counters: FieldEngineCounters{badOperation: 1, failedBuildingEngine: 1},
+		 ]`),
 	}
-	a.Run(t, true)
+	a.Run(true)
 }
 
 func TestEngineManagerNeg2(t *testing.T) {
 	a := &EngineManagerTestBase{
-		testname:     "feNeg2",
-		monitor:      false,
-		bufferSize:   2,
-		iterNumber:   0,
-		engineNumber: 1,
-		inputJson: fastjson.RawMessage([]byte(`[
+		t:            t,
+		expCreateErr: "invalid character",
+		inputJson: []byte(`[
 			{
 			"engine_type": "uint,
 			"engine_name": "Emu",
@@ -122,20 +136,16 @@ func TestEngineManagerNeg2(t *testing.T) {
 					"op": "aa",
 				}
 			 }
-		 ]`)),
-		counters: FieldEngineCounters{invalidJson: 1},
+		 ]`),
 	}
-	a.Run(t, true)
+	a.Run(true)
 }
 
 func TestEngineManager6Neg3(t *testing.T) {
 	a := &EngineManagerTestBase{
-		testname:     "feNeg3",
-		monitor:      false,
-		bufferSize:   2,
-		iterNumber:   0,
-		engineNumber: 1,
-		inputJson: fastjson.RawMessage([]byte(`[
+		t:            t,
+		expCreateErr: "Invalid size 5",
+		inputJson: []byte(`[
 			{
 			"engine_type": "uint",
 			"engine_name": "Emu",
@@ -145,23 +155,19 @@ func TestEngineManager6Neg3(t *testing.T) {
 					"offset": 0,
 					"min": 0,
 					"max": 5,
-					"op": "aa",
+					"op": "inc",
 				}
 			 }
-		 ]`)),
-		counters: FieldEngineCounters{badOperation: 1, invalidSize: 1, failedBuildingEngine: 1},
+		 ]`),
 	}
-	a.Run(t, true)
+	a.Run(true)
 }
 
 func TestEngineManagerNeg4(t *testing.T) {
 	a := &EngineManagerTestBase{
-		testname:     "feNeg4",
-		monitor:      false,
-		bufferSize:   2,
-		iterNumber:   0,
-		engineNumber: 1,
-		inputJson: fastjson.RawMessage([]byte(`[
+		t:            t,
+		expCreateErr: "Max value 69999 cannot be represented with size 2",
+		inputJson: []byte(`[
 			{
 			"engine_type": "uint",
 			"engine_name": "Emu",
@@ -174,20 +180,16 @@ func TestEngineManagerNeg4(t *testing.T) {
 					"op": "inc",
 				}
 			 }
-		 ]`)),
-		counters: FieldEngineCounters{sizeTooSmall: 1, maxSmallerThanMin: 1, failedBuildingEngine: 1},
+		 ]`),
 	}
-	a.Run(t, true)
+	a.Run(true)
 }
 
 func TestEngineManagerNeg5(t *testing.T) {
 	a := &EngineManagerTestBase{
-		testname:     "feNeg5",
-		monitor:      false,
-		bufferSize:   2,
-		iterNumber:   0,
-		engineNumber: 1,
-		inputJson: fastjson.RawMessage([]byte(`[
+		t:            t,
+		expCreateErr: "field engine uint32 is not registered",
+		inputJson: []byte(`[
 			{
 			"engine_type": "uint32",
 			"engine_name": "Emu",
@@ -200,20 +202,16 @@ func TestEngineManagerNeg5(t *testing.T) {
 					"op": "inc",
 				}
 			 }
-		 ]`)),
-		counters: FieldEngineCounters{badEngineType: 1},
+		 ]`),
 	}
-	a.Run(t, true)
+	a.Run(true)
 }
 
 func TestEngineManagerNeg6(t *testing.T) {
 	a := &EngineManagerTestBase{
-		testname:     "feNeg6",
-		monitor:      false,
-		bufferSize:   4,
-		iterNumber:   0,
-		engineNumber: 1,
-		inputJson: fastjson.RawMessage([]byte(`[
+		t:            t,
+		expCreateErr: "Random distribution array contains only 0",
+		inputJson: []byte(`[
 			{
 				"engine_type": "histogram_uint",
 				"engine_name": "TRex",
@@ -234,20 +232,16 @@ func TestEngineManagerNeg6(t *testing.T) {
 					]
 				}
 			 }
-		 ]`)),
-		counters: FieldEngineCounters{generatorCreationError: 1, failedBuildingEngine: 1},
+		 ]`),
 	}
-	a.Run(t, true)
+	a.Run(true)
 }
 
 func TestEngineManagerNeg7(t *testing.T) {
 	a := &EngineManagerTestBase{
-		testname:     "feNeg7",
-		monitor:      false,
-		bufferSize:   4,
-		iterNumber:   0,
-		engineNumber: 1,
-		inputJson: fastjson.RawMessage([]byte(`[
+		t:            t,
+		expCreateErr: "The distributions sum to more than MaxUint32",
+		inputJson: []byte(`[
 			{
 				"engine_type": "histogram_uint",
 				"engine_name": "TRex",
@@ -268,20 +262,16 @@ func TestEngineManagerNeg7(t *testing.T) {
 					]
 				}
 			 }
-		 ]`)),
-		counters: FieldEngineCounters{generatorCreationError: 1, failedBuildingEngine: 1},
+		 ]`),
 	}
-	a.Run(t, true)
+	a.Run(true)
 }
 
 func TestEngineManagerNeg8(t *testing.T) {
 	a := &EngineManagerTestBase{
-		testname:     "feNeg8",
-		monitor:      false,
-		bufferSize:   4,
-		iterNumber:   0,
-		engineNumber: 1,
-		inputJson: fastjson.RawMessage([]byte(`[
+		t:            t,
+		expCreateErr: "Entry .+ contains an empty list",
+		inputJson: []byte(`[
 			{
 				"engine_type": "histogram_uint_list",
 				"engine_name": "TRex",
@@ -302,20 +292,21 @@ func TestEngineManagerNeg8(t *testing.T) {
 					]
 				}
 			 }
-		 ]`)),
-		counters: FieldEngineCounters{emptyList: 1, failedBuildingEngine: 1},
+		 ]`),
 	}
-	a.Run(t, true)
+	a.Run(true)
 }
 
 func TestEngineManagerNeg9(t *testing.T) {
 	a := &EngineManagerTestBase{
+		t:            t,
+		expCreateErr: "Min 5 bigger than max 3",
 		testname:     "feNeg9",
 		monitor:      false,
 		bufferSize:   4,
 		iterNumber:   0,
 		engineNumber: 1,
-		inputJson: fastjson.RawMessage([]byte(`[
+		inputJson: []byte(`[
 			{
 				"engine_type": "histogram_uint_range",
 				"engine_name": "TRex",
@@ -338,20 +329,17 @@ func TestEngineManagerNeg9(t *testing.T) {
 					]
 				}
 			 }
-		 ]`)),
+		 ]`),
 		counters: FieldEngineCounters{maxSmallerThanMin: 1, failedBuildingEngine: 1},
 	}
-	a.Run(t, true)
+	a.Run(true)
 }
 
 func TestEngineManagerNeg10(t *testing.T) {
 	a := &EngineManagerTestBase{
-		testname:     "feNeg10",
-		monitor:      false,
-		bufferSize:   4,
-		iterNumber:   0,
-		engineNumber: 1,
-		inputJson: fastjson.RawMessage([]byte(`[
+		t:            t,
+		expCreateErr: "Invalid size 4 with this type of engine",
+		inputJson: []byte(`[
 			{
 				"engine_type": "histogram_uint64_range",
 				"engine_name": "TRex",
@@ -374,20 +362,16 @@ func TestEngineManagerNeg10(t *testing.T) {
 					]
 				}
 			 }
-		 ]`)),
-		counters: FieldEngineCounters{failedBuildingEngine: 1, invalidSize: 1},
+		 ]`),
 	}
-	a.Run(t, true)
+	a.Run(true)
 }
 
 func TestEngineManagerNeg11(t *testing.T) {
 	a := &EngineManagerTestBase{
-		testname:     "feNeg11",
-		monitor:      false,
-		bufferSize:   2,
-		iterNumber:   0,
-		engineNumber: 1,
-		inputJson: fastjson.RawMessage([]byte(`[
+		t:            t,
+		expCreateErr: "Max 70000 can't be represented with 2 bytes",
+		inputJson: []byte(`[
 			{
 				"engine_type": "histogram_uint_range",
 				"engine_name": "TRex",
@@ -410,20 +394,16 @@ func TestEngineManagerNeg11(t *testing.T) {
 					]
 				}
 			 }
-		 ]`)),
-		counters: FieldEngineCounters{invalidSize: 1, failedBuildingEngine: 1},
+		 ]`),
 	}
-	a.Run(t, true)
+	a.Run(true)
 }
 
 func TestEngineManagerNeg12(t *testing.T) {
 	a := &EngineManagerTestBase{
-		testname:     "feNeg12",
-		monitor:      false,
-		bufferSize:   2,
-		iterNumber:   0,
-		engineNumber: 1,
-		inputJson: fastjson.RawMessage([]byte(`[
+		t:            t,
+		expCreateErr: "List value 256 can't be represented with 1 bytes",
+		inputJson: []byte(`[
 			{
 				"engine_type": "histogram_uint_list",
 				"engine_name": "TRex",
@@ -444,20 +424,16 @@ func TestEngineManagerNeg12(t *testing.T) {
 					]
 				}
 			 }
-		 ]`)),
-		counters: FieldEngineCounters{invalidSize: 1, failedBuildingEngine: 1},
+		 ]`),
 	}
-	a.Run(t, true)
+	a.Run(true)
 }
 
 func TestEngineManagerNeg13(t *testing.T) {
 	a := &EngineManagerTestBase{
-		testname:     "feNeg13",
-		monitor:      false,
-		bufferSize:   2,
-		iterNumber:   0,
-		engineNumber: 1,
-		inputJson: fastjson.RawMessage([]byte(`[
+		t:            t,
+		expCreateErr: "List value 256 cannot be represented with size 1",
+		inputJson: []byte(`[
 			{
 				"engine_type": "uint_list",
 				"engine_name": "TRex",
@@ -471,20 +447,16 @@ func TestEngineManagerNeg13(t *testing.T) {
 					"op": "a"
 				}
 			 }
-		 ]`)),
-		counters: FieldEngineCounters{badOperation: 1, badInitValue: 1, sizeTooSmall: 1, failedBuildingEngine: 1},
+		 ]`),
 	}
-	a.Run(t, true)
+	a.Run(true)
 }
 
 func TestEngineManagerNeg14(t *testing.T) {
 	a := &EngineManagerTestBase{
-		testname:     "feNeg14",
-		monitor:      false,
-		bufferSize:   20,
-		iterNumber:   0,
-		engineNumber: 1,
-		inputJson: fastjson.RawMessage([]byte(`[
+		t:            t,
+		expCreateErr: "Schemes list can't be empty",
+		inputJson: []byte(`[
 			{
 				"engine_type": "histogram_url",
 				"engine_name": "URL",
@@ -501,20 +473,16 @@ func TestEngineManagerNeg14(t *testing.T) {
 					]
 				}
 			 }
-		 ]`)),
-		counters: FieldEngineCounters{emptyList: 1, invalidHistogramEntry: 1, failedBuildingEngine: 1},
+		 ]`),
 	}
-	a.Run(t, true)
+	a.Run(true)
 }
 
 func TestEngineManagerNeg15(t *testing.T) {
 	a := &EngineManagerTestBase{
-		testname:     "feNeg15",
-		monitor:      false,
-		bufferSize:   20,
-		iterNumber:   0,
-		engineNumber: 1,
-		inputJson: fastjson.RawMessage([]byte(`[
+		t:            t,
+		expCreateErr: "Hosts list can't be empty",
+		inputJson: []byte(`[
 			{
 				"engine_type": "histogram_url",
 				"engine_name": "URL",
@@ -531,20 +499,16 @@ func TestEngineManagerNeg15(t *testing.T) {
 					]
 				}
 			 }
-		 ]`)),
-		counters: FieldEngineCounters{emptyList: 1, invalidHistogramEntry: 1, failedBuildingEngine: 1},
+		 ]`),
 	}
-	a.Run(t, true)
+	a.Run(true)
 }
 
 func TestEngineManagerNeg16(t *testing.T) {
 	a := &EngineManagerTestBase{
-		testname:     "feNeg16",
-		monitor:      false,
-		bufferSize:   20,
-		iterNumber:   0,
-		engineNumber: 1,
-		inputJson: fastjson.RawMessage([]byte(`[
+		t:            t,
+		expCreateErr: "Size 10 is not enough to encode the longest URL",
+		inputJson: []byte(`[
 			{
 				"engine_type": "histogram_url",
 				"engine_name": "URL",
@@ -561,20 +525,16 @@ func TestEngineManagerNeg16(t *testing.T) {
 					]
 				}
 			 }
-		 ]`)),
-		counters: FieldEngineCounters{sizeTooSmall: 1, failedBuildingEngine: 1},
+		 ]`),
 	}
-	a.Run(t, true)
+	a.Run(true)
 }
 
 func TestEngineManagerNeg17(t *testing.T) {
 	a := &EngineManagerTestBase{
-		testname:     "feNeg17",
-		monitor:      false,
-		bufferSize:   20,
-		iterNumber:   0,
-		engineNumber: 1,
-		inputJson: fastjson.RawMessage([]byte(`[
+		t:            t,
+		expCreateErr: "Can't have a list of queries and random queries set together",
+		inputJson: []byte(`[
 			{
 				"engine_type": "histogram_url",
 				"engine_name": "URL",
@@ -593,20 +553,16 @@ func TestEngineManagerNeg17(t *testing.T) {
 					]
 				}
 			 }
-		 ]`)),
-		counters: FieldEngineCounters{invalidHistogramEntry: 1, failedBuildingEngine: 1},
+		 ]`),
 	}
-	a.Run(t, true)
+	a.Run(true)
 }
 
 func TestEngineManagerNeg18(t *testing.T) {
 	a := &EngineManagerTestBase{
-		testname:     "feNeg18",
-		monitor:      false,
-		bufferSize:   20,
-		iterNumber:   0,
-		engineNumber: 1,
-		inputJson: fastjson.RawMessage([]byte(`[
+		t:            t,
+		expCreateErr: "Field validation for 'Size' failed",
+		inputJson: []byte(`[
 			{
 				"engine_type": "float",
 				"engine_name": "float32",
@@ -618,20 +574,20 @@ func TestEngineManagerNeg18(t *testing.T) {
 					"max": 10
 				}
 			 }
-		 ]`)),
-		counters: FieldEngineCounters{invalidJson: 1, failedBuildingEngine: 1},
+		 ]`),
 	}
-	a.Run(t, true)
+	a.Run(true)
 }
 
 func TestEngineManager1(t *testing.T) {
 	a := &EngineManagerTestBase{
+		t:            t,
 		testname:     "fe1",
 		monitor:      true,
 		bufferSize:   1,
 		iterNumber:   100,
 		engineNumber: 1,
-		inputJson: fastjson.RawMessage([]byte(`[
+		inputJson: []byte(`[
 					{
 						"engine_type": "uint",
 						"engine_name": "uint8",
@@ -646,19 +602,20 @@ func TestEngineManager1(t *testing.T) {
 							"op": "inc"
 						}
 					 }
-					]`)),
+					]`),
 	}
-	a.Run(t, true)
+	a.Run(true)
 }
 
 func TestEngineManager2(t *testing.T) {
 	a := &EngineManagerTestBase{
+		t:            t,
 		testname:     "fe2",
 		monitor:      true,
 		bufferSize:   15,
 		iterNumber:   100,
 		engineNumber: 5,
-		inputJson: fastjson.RawMessage([]byte(`[
+		inputJson: []byte(`[
 			{
 				"engine_type": "uint",
 				"engine_name": "uint8",
@@ -736,20 +693,21 @@ func TestEngineManager2(t *testing.T) {
 					 ]
 				 }
 			 }
-		 ]`)),
+		 ]`),
 	}
-	a.Run(t, true)
+	a.Run(true)
 }
 
 func TestEngineManager3(t *testing.T) {
 	a := &EngineManagerTestBase{
+		t:            t,
 		testname:     "fe3",
 		monitor:      true,
 		bufferSize:   8,
 		iterNumber:   100,
 		engineNumber: 3,
 		seed:         0xbe5be5,
-		inputJson: fastjson.RawMessage([]byte(`[
+		inputJson: []byte(`[
 			{
 				"engine_type": "uint",
 				"engine_name": "Increase",
@@ -790,20 +748,21 @@ func TestEngineManager3(t *testing.T) {
 					}
 
 			}
-		 ]`)),
+		 ]`),
 	}
-	a.Run(t, true)
+	a.Run(true)
 }
 
 func TestEngineManager4(t *testing.T) {
 	a := &EngineManagerTestBase{
+		t:            t,
 		testname:     "fe4",
 		monitor:      true,
 		bufferSize:   18,
 		iterNumber:   200,
 		engineNumber: 7,
 		seed:         0xc15c0,
-		inputJson: fastjson.RawMessage([]byte(`[
+		inputJson: []byte(`[
 			{
 				"engine_type": "uint",
 				"engine_name": "IncreaseUint8",
@@ -922,20 +881,21 @@ func TestEngineManager4(t *testing.T) {
 							]
 					}
 			}
-		 ]`)),
+		 ]`),
 	}
-	a.Run(t, true)
+	a.Run(true)
 }
 
 func TestEngineManager5(t *testing.T) {
 	a := &EngineManagerTestBase{
+		t:            t,
 		testname:     "fe5",
 		monitor:      true,
 		bufferSize:   22,
 		iterNumber:   200,
 		engineNumber: 5,
 		seed:         0xdeadbeef,
-		inputJson: fastjson.RawMessage([]byte(`[
+		inputJson: []byte(`[
 			{
 				"engine_type": "histogram_uint",
 				"engine_name": "histogram_uint",
@@ -1043,20 +1003,21 @@ func TestEngineManager5(t *testing.T) {
 							]
 					}
 			}
-		 ]`)),
+		 ]`),
 	}
-	a.Run(t, true)
+	a.Run(true)
 }
 
 func TestEngineManager6(t *testing.T) {
 	a := &EngineManagerTestBase{
+		t:            t,
 		testname:     "fe6",
 		monitor:      true,
 		bufferSize:   16,
 		iterNumber:   200,
 		engineNumber: 4,
 		seed:         0xc15c0c15c0be5be,
-		inputJson: fastjson.RawMessage([]byte(`[
+		inputJson: []byte(`[
 			{
 				"engine_type": "uint_list",
 				"engine_name": "uint_list_inc",
@@ -1105,20 +1066,21 @@ func TestEngineManager6(t *testing.T) {
 						"init_index": 3
 					}
 			}
-		 ]`)),
+		 ]`),
 	}
-	a.Run(t, true)
+	a.Run(true)
 }
 
 func TestEngineManager7(t *testing.T) {
 	a := &EngineManagerTestBase{
+		t:            t,
 		testname:     "fe7",
 		monitor:      true,
 		bufferSize:   120,
 		iterNumber:   200,
 		engineNumber: 4,
 		seed:         0xc15c0c15c0be5be,
-		inputJson: fastjson.RawMessage([]byte(`[
+		inputJson: []byte(`[
 			{
 				"engine_type": "string_list",
 				"engine_name": "string_list_inc",
@@ -1169,9 +1131,9 @@ func TestEngineManager7(t *testing.T) {
 						"padding": 255,
 					}
 			}
-		 ]`)),
+		 ]`),
 	}
-	a.Run(t, true)
+	a.Run(true)
 }
 
 func TestEngineManager8(t *testing.T) {
@@ -1181,13 +1143,14 @@ func TestEngineManager8(t *testing.T) {
 	before time_end engines, we make sure their names are smaller (lexicographically)
 	than time_end engines*/
 	a := &EngineManagerTestBase{
+		t:            t,
 		testname:     "fe8",
 		monitor:      true,
 		bufferSize:   24,
 		iterNumber:   200,
 		engineNumber: 4,
 		seed:         0xbe51be51,
-		inputJson: fastjson.RawMessage([]byte(`[
+		inputJson: []byte(`[
 			{
 				"engine_type": "time_start",
 				"engine_name": "a",
@@ -1237,20 +1200,21 @@ func TestEngineManager8(t *testing.T) {
 						"duration_max": 100000
 					}
 			}
-		 ]`)),
+		 ]`),
 	}
-	a.Run(t, true)
+	a.Run(true)
 }
 
 func TestEngineManager9(t *testing.T) {
 	a := &EngineManagerTestBase{
+		t:            t,
 		testname:     "fe9",
 		monitor:      true,
 		bufferSize:   60,
 		iterNumber:   500,
 		engineNumber: 1,
 		seed:         0x12344321,
-		inputJson: fastjson.RawMessage([]byte(`[
+		inputJson: []byte(`[
 			{
 				"engine_type": "histogram_url",
 				"engine_name": "URL",
@@ -1298,20 +1262,21 @@ func TestEngineManager9(t *testing.T) {
 						]
 					}
 			}
-		 ]`)),
+		 ]`),
 	}
-	a.Run(t, true)
+	a.Run(true)
 }
 
 func TestEngineManager10(t *testing.T) {
 	a := &EngineManagerTestBase{
+		t:            t,
 		testname:     "fe10",
 		monitor:      true,
 		bufferSize:   12,
 		iterNumber:   21,
 		engineNumber: 1,
 		seed:         0xc15c0be5,
-		inputJson: fastjson.RawMessage([]byte(`[
+		inputJson: []byte(`[
 			{
 				"engine_type": "histogram_string",
 				"engine_name": "Strings",
@@ -1333,20 +1298,21 @@ func TestEngineManager10(t *testing.T) {
 						]
 					}
 			}
-		 ]`)),
+		 ]`),
 	}
-	a.Run(t, true)
+	a.Run(true)
 }
 
 func TestEngineManager11(t *testing.T) {
 	a := &EngineManagerTestBase{
+		t:            t,
 		testname:     "fe11",
 		monitor:      true,
 		bufferSize:   10,
 		iterNumber:   21,
 		engineNumber: 1,
 		seed:         0xdeadbeef,
-		inputJson: fastjson.RawMessage([]byte(`[
+		inputJson: []byte(`[
 			{
 				"engine_type": "histogram_string",
 				"engine_name": "Strings",
@@ -1368,20 +1334,21 @@ func TestEngineManager11(t *testing.T) {
 						]
 					}
 			}
-		 ]`)),
+		 ]`),
 	}
-	a.Run(t, true)
+	a.Run(true)
 }
 
 func TestEngineManager12(t *testing.T) {
 	a := &EngineManagerTestBase{
+		t:            t,
 		testname:     "fe12",
 		monitor:      true,
 		bufferSize:   8,
 		iterNumber:   100,
 		engineNumber: 1,
 		seed:         0xc15c0be5,
-		inputJson: fastjson.RawMessage([]byte(`[
+		inputJson: []byte(`[
 					{
 						"engine_type": "int",
 						"engine_name": "int64",
@@ -1394,20 +1361,21 @@ func TestEngineManager12(t *testing.T) {
 							"op": "rand"
 						}
 					 }
-					]`)),
+					]`),
 	}
-	a.Run(t, true)
+	a.Run(true)
 }
 
 func TestEngineManager13(t *testing.T) {
 	a := &EngineManagerTestBase{
+		t:            t,
 		testname:     "fe13",
 		monitor:      true,
 		bufferSize:   4,
 		iterNumber:   100,
 		engineNumber: 3,
 		seed:         0xc15c0c15c0be5be,
-		inputJson: fastjson.RawMessage([]byte(`[
+		inputJson: []byte(`[
 			{
 				"engine_type": "int_list",
 				"engine_name": "int_list_inc",
@@ -1443,20 +1411,21 @@ func TestEngineManager13(t *testing.T) {
 						"op": "rand"
 					}
 			}
-		 ]`)),
+		 ]`),
 	}
-	a.Run(t, true)
+	a.Run(true)
 }
 
 func TestEngineManager14(t *testing.T) {
 	a := &EngineManagerTestBase{
+		t:            t,
 		testname:     "fe14",
 		monitor:      true,
 		bufferSize:   30,
 		iterNumber:   200,
 		engineNumber: 6,
 		seed:         0xdeadbeef,
-		inputJson: fastjson.RawMessage([]byte(`[
+		inputJson: []byte(`[
 			{
 				"engine_type": "histogram_int",
 				"engine_name": "histogram_int",
@@ -1586,20 +1555,21 @@ func TestEngineManager14(t *testing.T) {
 							]
 					}
 			}
-		 ]`)),
+		 ]`),
 	}
-	a.Run(t, true)
+	a.Run(true)
 }
 
 func TestEngineManager15(t *testing.T) {
 	a := &EngineManagerTestBase{
+		t:            t,
 		testname:     "fe15",
 		monitor:      true,
 		bufferSize:   12,
 		iterNumber:   100,
 		engineNumber: 2,
 		seed:         0xbe5be5,
-		inputJson: fastjson.RawMessage([]byte(`[
+		inputJson: []byte(`[
 			{
 				"engine_type": "float",
 				"engine_name": "float64",
@@ -1622,20 +1592,21 @@ func TestEngineManager15(t *testing.T) {
 						"max": 2000,
 					}
 			}
-		 ]`)),
+		 ]`),
 	}
-	a.Run(t, true)
+	a.Run(true)
 }
 
 func TestEngineManager16(t *testing.T) {
 	a := &EngineManagerTestBase{
+		t:            t,
 		testname:     "fe16",
 		monitor:      true,
 		bufferSize:   16,
 		iterNumber:   100,
 		engineNumber: 3,
 		seed:         0xc15c0c15c0be5be,
-		inputJson: fastjson.RawMessage([]byte(`[
+		inputJson: []byte(`[
 			{
 				"engine_type": "float_list",
 				"engine_name": "float_inc",
@@ -1671,7 +1642,7 @@ func TestEngineManager16(t *testing.T) {
 						"op": "rand"
 					}
 			}
-		 ]`)),
+		 ]`),
 	}
-	a.Run(t, true)
+	a.Run(true)
 }

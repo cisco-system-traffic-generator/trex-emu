@@ -12,7 +12,7 @@ func verifyBinGenerator(expected, received int, errPerc float64, t *testing.T) {
 	lowBound := int((1 - errFloat) * float64(expected))
 	highBound := int((1 + errFloat) * float64(expected))
 	if received < lowBound || received > highBound {
-		t.Errorf("Error in binary generation, have %v, expected in [%v - %v] domain.\n", received, lowBound, highBound)
+		t.Errorf("Error in binary generation, have %v, expected in [%v - %v] domain.", received, lowBound, highBound)
 	}
 }
 
@@ -49,23 +49,23 @@ func verifyDistribution(expected, received []uint32, iterNumber uint32, errPerc 
 		sumHistogram += received[i]
 	}
 	if sumHistogram != iterNumber {
-		t.Errorf("Didn't generate correctly, generated %v, want %v.\n", sumHistogram, iterNumber)
+		t.Errorf("Didn't generate correctly\ngenerated: %v\nwant: %v", sumHistogram, iterNumber)
 	}
 }
 
 // TestNonUniRandGenNegative
 func TestNonUniRandGenNegative(t *testing.T) {
 	distributions := []uint32{0, 0}
-	exp := "This array contains only 0.\n"
+	exp := "Random distribution array contains only 0."
 	_, err := NewNonUniformRandGen(distributions)
 	if err.Error() != exp {
-		t.Errorf("Didn't raise correct error, have %v, want %v.\n", err.Error(), exp)
+		t.Errorf("Didn't raise correct error\nhave: %v\nwant: %v", err.Error(), exp)
 	}
 	distributions = []uint32{math.MaxUint32, math.MaxUint32}
-	exp = "The distributions sum to more than MaxUint32 (1), can't scale them.\n"
+	exp = "The distributions sum to more than MaxUint32 (1), can't scale them."
 	_, err = NewNonUniformRandGen(distributions)
 	if err.Error() != exp {
-		t.Errorf("Didn't raise correct error, have %v, want %v.\n", err.Error(), exp)
+		t.Errorf("Didn't raise correct error\nhave: %v\nwant: %v", err.Error(), exp)
 	}
 }
 
@@ -117,7 +117,7 @@ func TestBinaryDistribution(t *testing.T) {
 		} else if res == 7 {
 			sevens++
 		} else {
-			t.Errorf("Generated invalid value %v, should generate only %v or %v.\n", res, 5, 7)
+			t.Errorf("Generated invalid value %v, should generate only %v or %v.", res, 5, 7)
 		}
 	}
 	verifyBinGenerator(expectedFives, fives, 2, t)
@@ -133,8 +133,7 @@ func TestNonUniRandGenBin(t *testing.T) {
 	var res int
 	gen, err := NewNonUniformRandGen(dist)
 	if err != nil {
-		t.Errorf("Failed building generator with input %v.\n %v\n", dist, err.Error())
-		t.FailNow()
+		t.Fatalf("Failed building generator with input %v.\n %v", dist, err.Error())
 	}
 
 	for i := 0; i < iterNumber; i++ {
@@ -147,8 +146,7 @@ func TestNonUniRandGenBin(t *testing.T) {
 	res = 0
 	gen, err = NewNonUniformRandGen(dist)
 	if err != nil {
-		t.Errorf("Failed building generator with input %v.\n %v\n", dist, err.Error())
-		t.FailNow()
+		t.Fatalf("Failed building generator with input %v.\n %v", dist, err.Error())
 	}
 
 	for i := 0; i < iterNumber; i++ {
@@ -161,8 +159,7 @@ func TestNonUniRandGenBin(t *testing.T) {
 	res = 0
 	gen, err = NewNonUniformRandGen(dist)
 	if err != nil {
-		t.Errorf("Failed building generator with input %v.\n %v\n", dist, err.Error())
-		t.FailNow()
+		t.Fatalf("Failed building generator with input %v.\n %v", dist, err.Error())
 	}
 
 	for i := 0; i < iterNumber; i++ {
@@ -175,8 +172,7 @@ func TestNonUniRandGenBin(t *testing.T) {
 	res = 0
 	gen, err = NewNonUniformRandGen(dist)
 	if err != nil {
-		t.Errorf("Failed building generator with input %v.\n %v\n", dist, err.Error())
-		t.FailNow()
+		t.Fatalf("Failed building generator with input %v.\n %v", dist, err.Error())
 	}
 	for i := 0; i < iterNumber; i++ {
 		res += gen.Generate()
@@ -188,8 +184,7 @@ func TestNonUniRandGenBin(t *testing.T) {
 	res = 0
 	gen, err = NewNonUniformRandGen(dist)
 	if err != nil {
-		t.Errorf("Failed building generator with input %v.\n %v\n", dist, err.Error())
-		t.FailNow()
+		t.Fatalf("Failed building generator with input %v.\n %v", dist, err.Error())
 	}
 	for i := 0; i < iterNumber; i++ {
 		res += gen.Generate()
@@ -207,8 +202,7 @@ func TestNonUniRandGen(t *testing.T) {
 	var histogram []uint32
 	gen, err := NewNonUniformRandGen(dist)
 	if err != nil {
-		t.Errorf("Failed building generator with input %v.\n %v\n", dist, err.Error())
-		t.FailNow()
+		t.Fatalf("Failed building generator with input %v.\n %v", dist, err.Error())
 	}
 	histogram = make([]uint32, len(dist))
 	for i := 0; i < int(iterNumber); i++ {
@@ -220,8 +214,7 @@ func TestNonUniRandGen(t *testing.T) {
 	dist = []uint32{1, 5, 3}
 	gen, err = NewNonUniformRandGen(dist)
 	if err != nil {
-		t.Errorf("Failed building generator with input %v.\n %v\n", dist, err.Error())
-		t.FailNow()
+		t.Fatalf("Failed building generator with input %v.\n %v", dist, err.Error())
 	}
 	histogram = make([]uint32, len(dist))
 	for i := 0; i < int(iterNumber); i++ {
@@ -234,8 +227,7 @@ func TestNonUniRandGen(t *testing.T) {
 	dist = []uint32{1, 10000, 5000}
 	gen, err = NewNonUniformRandGen(dist)
 	if err != nil {
-		t.Errorf("Failed building generator with input %v.\n %v\n", dist, err.Error())
-		t.FailNow()
+		t.Fatalf("Failed building generator with input %v.\n %v", dist, err.Error())
 	}
 	histogram = make([]uint32, len(dist))
 	for i := 0; i < int(iterNumber); i++ {
@@ -247,8 +239,7 @@ func TestNonUniRandGen(t *testing.T) {
 	dist = []uint32{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20}
 	gen, err = NewNonUniformRandGen(dist)
 	if err != nil {
-		t.Errorf("Failed building generator with input %v.\n %v\n", dist, err.Error())
-		t.FailNow()
+		t.Fatalf("Failed building generator with input %v.\n %v", dist, err.Error())
 	}
 	histogram = make([]uint32, len(dist))
 	for i := 0; i < int(iterNumber); i++ {
@@ -260,8 +251,7 @@ func TestNonUniRandGen(t *testing.T) {
 	dist = []uint32{0, 1, 1}
 	gen, err = NewNonUniformRandGen(dist)
 	if err != nil {
-		t.Errorf("Failed building generator with input %v.\n %v\n", dist, err.Error())
-		t.FailNow()
+		t.Fatalf("Failed building generator with input %v.\n %v", dist, err.Error())
 	}
 	histogram = make([]uint32, len(dist))
 	for i := 0; i < int(iterNumber); i++ {
@@ -277,8 +267,7 @@ func TestNonUniRandGen(t *testing.T) {
 	}
 	gen, err = NewNonUniformRandGen(dist)
 	if err != nil {
-		t.Errorf("Failed building generator with input %v.\n %v\n", dist, err.Error())
-		t.FailNow()
+		t.Fatalf("Failed building generator with input %v.\n %v", dist, err.Error())
 	}
 	histogram = make([]uint32, len(dist))
 	for i := 0; i < int(iterNumber); i++ {
@@ -290,14 +279,13 @@ func TestNonUniRandGen(t *testing.T) {
 	dist = []uint32{2}
 	gen, err = NewNonUniformRandGen(dist)
 	if err != nil {
-		t.Errorf("Failed building generator with input %v.\n %v\n", dist, err.Error())
-		t.FailNow()
+		t.Fatalf("Failed building generator with input %v.\n %v", dist, err.Error())
 	}
 	histogram = make([]uint32, len(dist))
 	for i := 0; i < int(iterNumber); i++ {
 		histogram[gen.Generate()]++
 	}
 	if histogram[0] != iterNumber {
-		t.Errorf("Failed generating with only one distribution, want %v, have %v.\n", iterNumber, histogram[0])
+		t.Errorf("Failed generating with only one distribution, want %v, have %v.", iterNumber, histogram[0])
 	}
 }

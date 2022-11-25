@@ -122,14 +122,14 @@ type PluginIcmpClient struct {
 var icmpEvents = []string{}
 
 /*NewIcmpClient create plugin */
-func NewIcmpClient(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
+func NewIcmpClient(ctx *core.PluginCtx, initJson []byte) (*core.PluginBase, error) {
 	o := new(PluginIcmpClient)
 	o.InitPluginBase(ctx, o)             /* init base object*/
 	o.RegisterEvents(ctx, icmpEvents, o) /* register events, only if exits*/
 	nsplg := o.Ns.PluginCtx.GetOrCreate(ICMP_PLUG)
 	o.icmpNsPlug = nsplg.Ext.(*PluginIcmpNs)
 	o.OnCreate()
-	return &o.PluginBase
+	return &o.PluginBase, nil
 }
 
 /*OnEvent support event change of IP  */
@@ -146,7 +146,7 @@ func (o *PluginIcmpClient) OnRemove(ctx *core.PluginCtx) {
 func (o *PluginIcmpClient) OnCreate() {
 }
 
-//StartPing creates a ping object in case there isn't any.
+// StartPing creates a ping object in case there isn't any.
 func (o *PluginIcmpClient) StartPing(data *ApiIcmpClientStartPingHandler) bool {
 	if o.ping != nil {
 		return false
@@ -176,7 +176,7 @@ func (o *PluginIcmpClient) GetPingCounters(params *fastjson.RawMessage) (interfa
 	return o.ping.GetPingCounters(params)
 }
 
-//handleEchoReply passes the packet to handle to Ping in case it is has an active Ping.
+// handleEchoReply passes the packet to handle to Ping in case it is has an active Ping.
 func (o *PluginIcmpClient) handleEchoReply(seq, id uint16, payload []byte) bool {
 	stats := o.icmpNsPlug.stats
 	if len(payload) < 16 {
@@ -192,7 +192,7 @@ func (o *PluginIcmpClient) handleEchoReply(seq, id uint16, payload []byte) bool 
 	}
 }
 
-//handleDestinationUnreachable passes the packet to handle to Ping in case it is has an active Ping.
+// handleDestinationUnreachable passes the packet to handle to Ping in case it is has an active Ping.
 func (o *PluginIcmpClient) handleDestinationUnreachable(id uint16) bool {
 	if o.ping != nil {
 		o.ping.HandleDestinationUnreachable(id)
@@ -242,8 +242,8 @@ func (o *PluginIcmpClient) UpdateTxIcmpQuery(pktSent uint64) {
 
 }
 
-//OnPingRemove implements ping.PingClientIF.OnPingRemove by updating the ping
-//corresponding fields when a ping is finishing or is stopped..
+// OnPingRemove implements ping.PingClientIF.OnPingRemove by updating the ping
+// corresponding fields when a ping is finishing or is stopped..
 func (o *PluginIcmpClient) OnPingRemove() {
 	o.ping = nil
 	o.pingData = nil
@@ -257,14 +257,14 @@ type PluginIcmpNs struct {
 	cdbv  *core.CCounterDbVec
 }
 
-func NewIcmpNs(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
+func NewIcmpNs(ctx *core.PluginCtx, initJson []byte) (*core.PluginBase, error) {
 	o := new(PluginIcmpNs)
 	o.InitPluginBase(ctx, o)
 	o.RegisterEvents(ctx, []string{}, o)
 	o.cdb = NewIcmpNsStatsDb(&o.stats)
 	o.cdbv = core.NewCCounterDbVec("icmp")
 	o.cdbv.Add(o.cdb)
-	return &o.PluginBase
+	return &o.PluginBase, nil
 }
 
 func (o *PluginIcmpNs) OnRemove(ctx *core.PluginCtx) {
@@ -324,7 +324,7 @@ func (o *PluginIcmpNs) HandleEcho(ps *core.ParserPacketState, ts bool) {
 	o.Tctx.Veth.Send(mc)
 }
 
-//HandleEchoReply handles an ICMP Echo-Reply that is received in the ICMP namespace.
+// HandleEchoReply handles an ICMP Echo-Reply that is received in the ICMP namespace.
 func (o *PluginIcmpNs) HandleEchoReply(ps *core.ParserPacketState) int {
 	p := ps.M.GetData()
 	eth := layers.EthernetHeader(p[0:12])
@@ -357,7 +357,7 @@ func (o *PluginIcmpNs) HandleEchoReply(ps *core.ParserPacketState) int {
 	}
 }
 
-//HandleDestinationUnreachable handles an ICMP Destination Unreachable that is received in the ICMP namespace.
+// HandleDestinationUnreachable handles an ICMP Destination Unreachable that is received in the ICMP namespace.
 func (o *PluginIcmpNs) HandleDestinationUnreachable(ps *core.ParserPacketState) int {
 	p := ps.M.GetData()
 	eth := layers.EthernetHeader(p[0:12])
@@ -461,7 +461,7 @@ func (o *PluginIcmpNs) HandleRxIcmpPacket(ps *core.ParserPacketState) int {
 	return 0
 }
 
-//GetIcmpClientByMac is a method of the ICMP Namespace that returns the Icmp Client given its MAC address.
+// GetIcmpClientByMac is a method of the ICMP Namespace that returns the Icmp Client given its MAC address.
 func (o *PluginIcmpNs) GetIcmpClientByMac(mackey core.MACKey) (*PluginIcmpClient, error) {
 
 	client := o.Ns.CLookupByMac(&mackey)
@@ -501,11 +501,11 @@ func HandleRxIcmpPacket(ps *core.ParserPacketState) int {
 type PluginIcmpCReg struct{}
 type PluginIcmpNsReg struct{}
 
-func (o PluginIcmpCReg) NewPlugin(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
+func (o PluginIcmpCReg) NewPlugin(ctx *core.PluginCtx, initJson []byte) (*core.PluginBase, error) {
 	return NewIcmpClient(ctx, initJson)
 }
 
-func (o PluginIcmpNsReg) NewPlugin(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
+func (o PluginIcmpNsReg) NewPlugin(ctx *core.PluginCtx, initJson []byte) (*core.PluginBase, error) {
 	return NewIcmpNs(ctx, initJson)
 }
 
@@ -564,8 +564,11 @@ func getClient(ctx interface{}, params *fastjson.RawMessage) (*PluginIcmpClient,
 	return icmpClient, nil
 }
 
-/* ServeJSONRPC for ApiIcmpClientStartPingHandler starts a Ping instance.
-Returns True if it successfully started the ping, else False. */
+/*
+	ServeJSONRPC for ApiIcmpClientStartPingHandler starts a Ping instance.
+
+Returns True if it successfully started the ping, else False.
+*/
 func (h ApiIcmpClientStartPingHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
 
 	tctx := ctx.(*core.CThreadCtx)
@@ -595,8 +598,11 @@ func (h ApiIcmpClientStartPingHandler) ServeJSONRPC(ctx interface{}, params *fas
 	return ok, nil
 }
 
-/* ServeJSONRPC for ApiIcmpClientStopPingHandler stops an ongoing ping.
-Returns True if it successfully stopped the ping, else False. */
+/*
+	ServeJSONRPC for ApiIcmpClientStopPingHandler stops an ongoing ping.
+
+Returns True if it successfully stopped the ping, else False.
+*/
 func (h ApiIcmpClientStopPingHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
 
 	icmpClient, err := getClient(ctx, params)
@@ -613,8 +619,11 @@ func (h ApiIcmpClientStopPingHandler) ServeJSONRPC(ctx interface{}, params *fast
 	return ok, nil
 }
 
-/* ServeJSONRPC for ApiIcmpClientGetPingStatsHandler returns the statistics of an ongoing ping. If there is no ongoing ping
-it will return an error */
+/*
+	ServeJSONRPC for ApiIcmpClientGetPingStatsHandler returns the statistics of an ongoing ping. If there is no ongoing ping
+
+it will return an error
+*/
 func (h ApiIcmpClientGetPingStatsHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
 
 	icmpClient, err := getClient(ctx, params)

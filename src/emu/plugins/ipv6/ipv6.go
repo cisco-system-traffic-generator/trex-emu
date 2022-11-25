@@ -128,7 +128,7 @@ var icmpEvents = []string{core.MSG_UPDATE_IPV6_ADDR,
 	core.MSG_UPDATE_DIPV6_ADDR}
 
 /*NewIpv6Client create plugin */
-func NewIpv6Client(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
+func NewIpv6Client(ctx *core.PluginCtx, initJson []byte) (*core.PluginBase, error) {
 	o := new(PluginIpv6Client)
 	o.InitPluginBase(ctx, o)             /* init base object*/
 	o.RegisterEvents(ctx, icmpEvents, o) /* register events, only if exits*/
@@ -136,7 +136,7 @@ func NewIpv6Client(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
 	o.ipv6NsPlug = nsplg.Ext.(*PluginIpv6Ns)
 	o.nd.Init(o, &o.ipv6NsPlug.nd, o.Tctx, &o.ipv6NsPlug.mld, initJson)
 	o.OnCreate()
-	return &o.PluginBase
+	return &o.PluginBase, nil
 }
 
 /*OnEvent support event change of IP  */
@@ -154,7 +154,7 @@ func (o *PluginIpv6Client) OnRemove(ctx *core.PluginCtx) {
 func (o *PluginIpv6Client) OnCreate() {
 }
 
-//StartPing creates a ping object in case there isn't any.
+// StartPing creates a ping object in case there isn't any.
 func (o *PluginIpv6Client) StartPing(data *ApiIpv6StartPingHandler) bool {
 	if o.ping != nil {
 		return false
@@ -184,7 +184,7 @@ func (o *PluginIpv6Client) GetPingCounters(params *fastjson.RawMessage) (interfa
 	return o.ping.GetPingCounters(params)
 }
 
-//handleEchoReply passes the packet to handle to Ping in case it is has an active Ping.
+// handleEchoReply passes the packet to handle to Ping in case it is has an active Ping.
 func (o *PluginIpv6Client) handleEchoReply(seq, id uint16, payload []byte) bool {
 	stats := o.ipv6NsPlug.stats
 	if len(payload) < 16 {
@@ -200,7 +200,7 @@ func (o *PluginIpv6Client) handleEchoReply(seq, id uint16, payload []byte) bool 
 	}
 }
 
-//handleDestinationUnreachable passes the packet to handle to Ping in case it is has an active Ping.
+// handleDestinationUnreachable passes the packet to handle to Ping in case it is has an active Ping.
 func (o *PluginIpv6Client) handleDestinationUnreachable(id uint16) bool {
 	if o.ping != nil {
 		o.ping.HandleDestinationUnreachable(id)
@@ -284,7 +284,7 @@ type PluginIpv6Ns struct {
 	nd    NdNsCtx
 }
 
-func NewIpv6Ns(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
+func NewIpv6Ns(ctx *core.PluginCtx, initJson []byte) (*core.PluginBase, error) {
 	o := new(PluginIpv6Ns)
 	o.InitPluginBase(ctx, o)
 	o.RegisterEvents(ctx, []string{}, o)
@@ -296,7 +296,7 @@ func NewIpv6Ns(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
 	o.cdbv.Add(o.cdb)
 	o.cdbv.Add(o.mld.cdb)
 	o.cdbv.Add(o.nd.cdb)
-	return &o.PluginBase
+	return &o.PluginBase, nil
 }
 
 func (o *PluginIpv6Ns) OnRemove(ctx *core.PluginCtx) {
@@ -356,7 +356,7 @@ func (o *PluginIpv6Ns) HandleEcho(ps *core.ParserPacketState, ts bool) {
 	o.Tctx.Veth.Send(mc)
 }
 
-//HandleEchoReply handles an ICMP Echo-Reply that is received in the ICMP namespace.
+// HandleEchoReply handles an ICMP Echo-Reply that is received in the ICMP namespace.
 func (o *PluginIpv6Ns) HandleEchoReply(ps *core.ParserPacketState) int {
 	p := ps.M.GetData()
 	eth := layers.EthernetHeader(p[0:12])
@@ -405,7 +405,7 @@ func (o *PluginIpv6Ns) HandleEchoReply(ps *core.ParserPacketState) int {
 	}
 }
 
-//HandleDestinationUnreachable handles an ICMP Destination Unreachable that is received in the ICMP namespace.
+// HandleDestinationUnreachable handles an ICMP Destination Unreachable that is received in the ICMP namespace.
 func (o *PluginIpv6Ns) HandleDestinationUnreachable(ps *core.ParserPacketState) int {
 	p := ps.M.GetData()
 	eth := layers.EthernetHeader(p[0:12])
@@ -555,7 +555,7 @@ func HandleRxIcmpv6Packet(ps *core.ParserPacketState) int {
 	return icmpPlug.HandleRxIpv6Packet(ps)
 }
 
-//GetIcmpClientByMac is a method of the ICMP Namespace that returns the Icmp Client given its MAC address.
+// GetIcmpClientByMac is a method of the ICMP Namespace that returns the Icmp Client given its MAC address.
 func (o *PluginIpv6Ns) GetIcmpClientByMac(mackey core.MACKey) (*PluginIpv6Client, error) {
 
 	client := o.Ns.CLookupByMac(&mackey)
@@ -578,11 +578,11 @@ func (o *PluginIpv6Ns) GetIcmpClientByMac(mackey core.MACKey) (*PluginIpv6Client
 type PluginIpv6CReg struct{}
 type PluginIpv6NsReg struct{}
 
-func (o PluginIpv6CReg) NewPlugin(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
+func (o PluginIpv6CReg) NewPlugin(ctx *core.PluginCtx, initJson []byte) (*core.PluginBase, error) {
 	return NewIpv6Client(ctx, initJson)
 }
 
-func (o PluginIpv6NsReg) NewPlugin(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
+func (o PluginIpv6NsReg) NewPlugin(ctx *core.PluginCtx, initJson []byte) (*core.PluginBase, error) {
 	return NewIpv6Ns(ctx, initJson)
 }
 
@@ -975,8 +975,11 @@ func (h ApiNdNsIterHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMe
 	return &res, nil
 }
 
-/* ServeJSONRPC for ApiIpv6StartPingHandler starts a Ping instance.
-Returns True if it successfully started the ping, else False. */
+/*
+	ServeJSONRPC for ApiIpv6StartPingHandler starts a Ping instance.
+
+Returns True if it successfully started the ping, else False.
+*/
 func (h ApiIpv6StartPingHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
 
 	tctx := ctx.(*core.CThreadCtx)
@@ -1021,8 +1024,11 @@ func (h ApiIpv6StartPingHandler) ServeJSONRPC(ctx interface{}, params *fastjson.
 	return ok, nil
 }
 
-/* ServeJSONRPC for ApiIpv6StopPingHandler stops an ongoing ping.
-Returns True if it successfully stopped the ping, else False. */
+/*
+	ServeJSONRPC for ApiIpv6StopPingHandler stops an ongoing ping.
+
+Returns True if it successfully stopped the ping, else False.
+*/
 func (h ApiIpv6StopPingHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
 
 	c, err := getClient(ctx, params)
@@ -1039,8 +1045,11 @@ func (h ApiIpv6StopPingHandler) ServeJSONRPC(ctx interface{}, params *fastjson.R
 	return ok, nil
 }
 
-/* ServeJSONRPC for ApiIpv6GetPingStatsHandler returns the statistics of an ongoing ping. If there is no ongoing ping
-it will return an error */
+/*
+	ServeJSONRPC for ApiIpv6GetPingStatsHandler returns the statistics of an ongoing ping. If there is no ongoing ping
+
+it will return an error
+*/
 func (h ApiIpv6GetPingStatsHandler) ServeJSONRPC(ctx interface{}, params *fastjson.RawMessage) (interface{}, *jsonrpc.Error) {
 
 	c, err := getClient(ctx, params)
