@@ -858,11 +858,11 @@ func (p *FileExporter) rotatedFileName(name string) string {
 
 	var creation_timestamp string
 	if p.creationTime.Nanosecond() == 0 {
-		creation_timestamp = currentTime().Format(rotatedFileTimeFormat)
+		creation_timestamp = currentTime().UTC().Format(rotatedFileTimeFormat)
 	} else {
-		creation_timestamp = p.creationTime.Format(rotatedFileTimeFormat)
+		creation_timestamp = p.creationTime.UTC().Format(rotatedFileTimeFormat)
 	}
-	current_timestamp := currentTime().Format(rotatedFileTimeFormat)
+	current_timestamp := currentTime().UTC().Format(rotatedFileTimeFormat)
 
 	rotatedFileName := filepath.Join(dir, fmt.Sprintf("%s_%v.%s-%s%s",
 		p.namePrefix, p.index, creation_timestamp, current_timestamp, p.nameExt))

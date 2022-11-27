@@ -550,7 +550,7 @@ func (o *IPFixGen) fixPayload(pkt []byte) {
 	}
 	ipFixHeader.SetFlowSeq(o.ipfixPlug.flowSeqNum)
 	if !Simulation {
-		ipFixHeader.SetTimestamp(uint32(o.ipfixPlug.unixTimeNow))
+		ipFixHeader.SetTimestamp(uint32(o.ipfixPlug.unixUtcTimeNow))
 	}
 }
 
@@ -1131,7 +1131,7 @@ type PluginIPFixClient struct {
 	isIpv6          bool                          // Is destination address IPv6 or IPv4 address
 	sysStartTime    time.Time                     // Start time of the system in order to calculate uptime.
 	sysUpTime       uint32                        // System Up Time (Only in Ver 9) in resolution of milliseconds.
-	unixTimeNow     int64                         // Unix Time Now for Unix Time in Header, should be on resolution of seconds.
+	unixUtcTimeNow  int64                         // Unix Time Now for Unix Time in Header, should be on resolution of seconds.
 	domainID        uint32                        // Observation Domain ID
 	autoStart       bool                          // Start exporting this client when plugin is loaded (default: true)
 	maxTime         time.Duration                 // Maximum time to export
@@ -1298,7 +1298,7 @@ func (o *PluginIPFixClient) Pause(pause bool) {
 
 func (o *PluginIPFixClient) Enable(enable bool) {
 	if o.enabled == false && enable == true {
-		o.enabledTime = time.Now()
+		o.enabledTime = currentTime()
 		o.enabled = enable
 
 		if o.exporter != nil {
@@ -1333,8 +1333,8 @@ func (o *PluginIPFixClient) OnCreate() {
 	}
 	// Timers
 	o.timerw = o.Tctx.GetTimerCtx()
-	o.sysStartTime = time.Now()
-	o.unixTimeNow = o.sysStartTime.Unix()
+	o.sysStartTime = currentTime()
+	o.unixUtcTimeNow = o.sysStartTime.UTC().Unix()
 	o.timer.SetCB(&o.timerCb, o, 0)
 	// Every one tick update the time in order to have a good time difference.
 	o.timerw.StartTicks(&o.timer, 1)
@@ -1417,11 +1417,11 @@ func (o *IPFixTimerCallback) OnEvent(a, b interface{}) {
 	// a should be a pointer to the client plugin
 	ipfixPlug := a.(*PluginIPFixClient)
 	// Get the time now.
-	timeNow := time.Now()
+	timeNow := currentTime()
 	// Calculate the uptime
 	ipfixPlug.sysUpTime = uint32(timeNow.Sub(ipfixPlug.sysStartTime).Milliseconds())
 	// Calculate the unix time
-	ipfixPlug.unixTimeNow = timeNow.Unix()
+	ipfixPlug.unixUtcTimeNow = timeNow.UTC().Unix()
 	// Restart call
 	ipfixPlug.timerw.StartTicks(&ipfixPlug.timer, 1)
 }

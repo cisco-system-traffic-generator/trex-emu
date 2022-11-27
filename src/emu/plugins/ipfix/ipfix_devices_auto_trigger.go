@@ -138,7 +138,7 @@ func NewDevicesAutoTrigger(ipfixNsPlugin *IpfixNsPlugin, initJson *fastjson.RawM
 	p.counters.devicesToTrigger = p.devicesNum
 	p.counters.rampupTime = uint64(p.rampupTime.Seconds())
 
-	p.startTime = time.Now()
+	p.startTime = currentTime()
 	p.timerCtx.Start(&p.timer, rampupTimerInterval)
 
 	log.Info("\nIPFIX DevicesAutoTrigger object created with the following parameters: ",
@@ -262,7 +262,7 @@ func (p *DevicesAutoTrigger) triggerDevice() {
 
 	deviceInfo := new(DevicesAutoTriggerDeviceInfo)
 	deviceInfo.index = p.triggeredDevicesNum
-	deviceInfo.timestamp = time.Now()
+	deviceInfo.timestamp = currentTime()
 	deviceInfo.mac = mac
 	deviceInfo.ipv4 = ipv4
 	deviceInfo.deviceId = p.currDeviceId
