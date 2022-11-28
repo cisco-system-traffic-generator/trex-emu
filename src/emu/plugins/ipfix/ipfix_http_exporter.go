@@ -149,6 +149,14 @@ const (
 	headerExpFilename  = "x-exporter-filename"
 	headerExpTimestamp = "x-exporter-timestamp"
 	headerExpVersion   = "x-exporter-version"
+
+	// Dst URL template strings and escape characters
+	dstUrlTenantIdTemplateStr = "%t"
+	dstUrlTenantIdEscapeChar  = "円"
+	dstUrlSiteIdTemplateStr   = "%s"
+	dstUrlSiteIdEscapeChar    = "冇"
+	dstUrlDeviceIdTemplateStr = "%d"
+	dstUrlDeviceIdEscapeChar  = "冈"
 )
 
 func NewHttpExporter(client *PluginIPFixClient, params *HttpExporterParams) (*HttpExporter, error) {
@@ -724,10 +732,8 @@ func (p *HttpExporter) updateUrlPath(client *PluginIPFixClient) {
 	// If host is 'localhost' replace it with '127.0.0.1' (in some cases using localhost will not work)
 	p.url.Host = strings.Replace(p.url.Host, "localhost", "127.0.0.1", 1)
 
-	// If client is auto-triggered, update the tenantId and deviceId in the URL:
-	//   Replace '$t' with tenantId
-	//   Replace '$s' with siteId
-	//   Replace '$d' with deviceId
+	// If client is auto-triggered, replace escape characters with corresponding
+	// tenantId, siteId, and deviceId.
 	if client.autoTriggered {
 		tenantId = strconv.FormatUint(uint64(client.trgDeviceInfo.tenantId), 10)
 		siteId = strconv.FormatUint(uint64(client.trgDeviceInfo.siteId), 10)
@@ -737,7 +743,8 @@ func (p *HttpExporter) updateUrlPath(client *PluginIPFixClient) {
 		siteId = "0"
 		deviceId = "0"
 	}
-	p.url.Path = strings.Replace(p.url.Path, "$t", tenantId, 1)
-	p.url.Path = strings.Replace(p.url.Path, "$s", siteId, 1)
-	p.url.Path = strings.Replace(p.url.Path, "$d", deviceId, 1)
+
+	p.url.Path = strings.Replace(p.url.Path, dstUrlTenantIdEscapeChar, tenantId, 1)
+	p.url.Path = strings.Replace(p.url.Path, dstUrlSiteIdEscapeChar, siteId, 1)
+	p.url.Path = strings.Replace(p.url.Path, dstUrlDeviceIdEscapeChar, deviceId, 1)
 }
