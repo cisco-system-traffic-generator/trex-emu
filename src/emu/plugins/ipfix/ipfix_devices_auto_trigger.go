@@ -157,6 +157,7 @@ func NewDevicesAutoTrigger(ipfixNsPlugin *IpfixNsPlugin, initJson *fastjson.RawM
 		"\n\ttotalRatePps -", p.totalRatePps,
 		"\n\tdeviceTriggersPerTimerTick -", p.deviceTriggersPerTimerTick,
 		"\n\ttimerTicksTriggerPeriod -", p.timerTicksTriggerPeriod,
+		"\n\tratePerDevicePps -", p.GetRatePerDevicePps(),
 	)
 
 	p.init = true
@@ -166,6 +167,10 @@ func NewDevicesAutoTrigger(ipfixNsPlugin *IpfixNsPlugin, initJson *fastjson.RawM
 
 func (p *DevicesAutoTrigger) Delete() {
 	p.init = false
+}
+
+func (p *DevicesAutoTrigger) GetRatePerDevicePps() float32 {
+	return float32(p.totalRatePps) / float32(p.devicesNum)
 }
 
 func (p *DevicesAutoTrigger) GetTriggeredDeviceInfo(client *core.CClient) (*DevicesAutoTriggerDeviceInfo, error) {

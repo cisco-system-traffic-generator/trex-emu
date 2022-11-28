@@ -809,8 +809,8 @@ func (o *IPFixGen) SetDataRate(rate float32) {
 	// Restart the timer.
 	if o.dataTimer.IsRunning() {
 		o.timerw.Stop(&o.dataTimer)
+		o.timerw.StartTicks(&o.dataTimer, o.dataTicks)
 	}
-	o.timerw.StartTicks(&o.dataTimer, o.dataTicks)
 }
 
 // SetTemplateRate sets a new template rate through RPC.
@@ -826,8 +826,8 @@ func (o *IPFixGen) SetTemplateRate(rate float32) {
 	// Restart the timer.
 	if o.templateTimer.IsRunning() {
 		o.timerw.Stop(&o.templateTimer)
+		o.timerw.StartTicks(&o.templateTimer, o.templateTicks)
 	}
-	o.timerw.StartTicks(&o.templateTimer, o.templateTicks)
 }
 
 // GetInfo gets the generator information through RPC.
@@ -1204,6 +1204,47 @@ func parseDstField(dstField string) (*url.URL, bool, error) {
 	return dstUrl, isIpv6, nil
 }
 
+// Get total generators rate of non-option templates data flows
+func (o *PluginIPFixClient) getTotalGenDataRatePps() float32 {
+	var totalGenDataRatePps float32
+
+	for _, gen := range o.generators {
+		if !gen.optionsTemplate {
+			totalGenDataRatePps += gen.dataRate
+		}
+	}
+
+	return totalGenDataRatePps
+}
+
+func (o *PluginIPFixClient) updateGenDataRate() {
+	if !o.autoTriggered {
+		return
+	}
+
+	var ratePerDevicePps float32
+	var totalGenDataRatePps float32
+	var normRatePerDevicePps float32
+
+	dat := o.IpfixNsPlugin.devicesAutoTrigger
+	ratePerDevicePps = dat.GetRatePerDevicePps()
+	totalGenDataRatePps = o.getTotalGenDataRatePps()
+	if ratePerDevicePps > 0 && totalGenDataRatePps > 0 {
+		normRatePerDevicePps = ratePerDevicePps / totalGenDataRatePps
+	}
+
+	for _, gen := range o.generators {
+		if !gen.optionsTemplate {
+			gen.SetDataRate(normRatePerDevicePps * gen.dataRate)
+		}
+	}
+
+	log.Info("Updated generators data rate as follows: ")
+	log.Info(" - Rate per device (PPS) - ", ratePerDevicePps)
+	log.Info(" - Total generators data rate (PPS) - ", totalGenDataRatePps)
+	log.Info(" - Normalization data rate factor - ", normRatePerDevicePps)
+}
+
 // NewIPFixClient creates an IPFix client plugin. An IPFix client can own multiple generators
 // (exporting processes).
 func NewIPFixClient(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
@@ -1261,6 +1302,8 @@ func NewIPFixClient(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
 		return &o.PluginBase
 	}
 
+	o.cdbv.AddVec(o.exporter.GetCountersDbVec())
+
 	if len(init.Generators) > 0 {
 		o.generatorsMap = make(map[string]*IPFixGen, len(init.Generators))
 		o.templateIDSet = make(map[uint16]bool, len(init.Generators))
@@ -1274,9 +1317,9 @@ func NewIPFixClient(ctx *core.PluginCtx, initJson []byte) *core.PluginBase {
 				o.stats.failedCreatingGen++
 			}
 		}
-	}
 
-	o.cdbv.AddVec(o.exporter.GetCountersDbVec())
+		o.updateGenDataRate()
+	}
 
 	if o.exporter.GetKernelMode() {
 		o.RegisterEvents(ctx, []string{}, o)

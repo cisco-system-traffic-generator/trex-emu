@@ -726,6 +726,7 @@ func (p *HttpExporter) updateUrlPath(client *PluginIPFixClient) {
 
 	// If client is auto-triggered, update the tenantId and deviceId in the URL:
 	//   Replace '$t' with tenantId
+	//   Replace '$s' with siteId
 	//   Replace '$d' with deviceId
 	if client.autoTriggered {
 		tenantId = strconv.FormatUint(uint64(client.trgDeviceInfo.tenantId), 10)
