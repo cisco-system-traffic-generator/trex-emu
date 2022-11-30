@@ -1182,6 +1182,7 @@ func parseDstField(dstField string) (*url.URL, bool, error) {
 	dstField = strings.Replace(dstField, dstUrlTenantIdTemplateStr, dstUrlTenantIdEscapeChar, 1)
 	dstField = strings.Replace(dstField, dstUrlSiteIdTemplateStr, dstUrlSiteIdEscapeChar, 1)
 	dstField = strings.Replace(dstField, dstUrlDeviceIdTemplateStr, dstUrlDeviceIdEscapeChar, 1)
+	dstField = strings.Replace(dstField, dstUrlDeviceGuidTemplateStr, dstUrlDeviceGuidEscapeChar, 1)
 
 	if dstUrl, err = url.Parse(dstField); err == nil {
 		// dstField is a valid URL with a scheme

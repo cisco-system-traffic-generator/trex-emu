@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/intel-go/fastjson"
 )
 
@@ -63,13 +65,14 @@ type DevicesAutoTriggerCounters struct {
 }
 
 type DevicesAutoTriggerDeviceInfo struct {
-	index     uint32       `json:"index"`
-	timestamp time.Time    `json:"timestamp"`
-	mac       core.MACKey  `json:"mac"`
-	ipv4      core.Ipv4Key `json:"ipv4"`
-	tenantId  uint32       `json:"tenant_id"`
-	siteId    uint32       `json:"site_id"`
-	deviceId  uint32       `json:"device_id"`
+	index      uint32       `json:"index"`
+	timestamp  time.Time    `json:"timestamp"`
+	mac        core.MACKey  `json:"mac"`
+	ipv4       core.Ipv4Key `json:"ipv4"`
+	tenantId   string       `json:"tenant_id"`
+	siteId     string       `json:"site_id"`
+	deviceId   string       `json:"device_id"`
+	deviceGuid string       `json:"device_guid"`
 }
 
 func (p *DevicesAutoTriggerDeviceInfo) String() string {
@@ -80,6 +83,7 @@ func (p *DevicesAutoTriggerDeviceInfo) String() string {
 	s += fmt.Sprintln("\ttenantId -", p.tenantId)
 	s += fmt.Sprintln("\tsiteId -", p.siteId)
 	s += fmt.Sprintln("\tdeviceId -", p.deviceId)
+	s += fmt.Sprintln("\tdeviceGuid -", p.deviceGuid)
 	return s
 }
 
@@ -277,9 +281,11 @@ func (p *DevicesAutoTrigger) triggerDevice() {
 	deviceInfo.timestamp = currentTime()
 	deviceInfo.mac = mac
 	deviceInfo.ipv4 = ipv4
-	deviceInfo.tenantId = p.currTenantId
-	deviceInfo.siteId = p.currSiteId
-	deviceInfo.deviceId = p.currDeviceId
+
+	deviceInfo.tenantId = strconv.FormatUint(uint64(p.currTenantId), 10)
+	deviceInfo.siteId = strconv.FormatUint(uint64(p.currSiteId), 10)
+	deviceInfo.deviceId = strconv.FormatUint(uint64(p.currDeviceId), 10)
+	deviceInfo.deviceGuid = fmt.Sprintf("%v-%v", uuid.NewString(), p.currDeviceId)
 
 	p.triggeredDevicesDb[client] = deviceInfo
 

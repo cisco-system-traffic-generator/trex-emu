@@ -151,12 +151,14 @@ const (
 	headerExpVersion   = "x-exporter-version"
 
 	// Dst URL template strings and escape characters
-	dstUrlTenantIdTemplateStr = "%t"
-	dstUrlTenantIdEscapeChar  = "円"
-	dstUrlSiteIdTemplateStr   = "%s"
-	dstUrlSiteIdEscapeChar    = "冇"
-	dstUrlDeviceIdTemplateStr = "%d"
-	dstUrlDeviceIdEscapeChar  = "冈"
+	dstUrlTenantIdTemplateStr   = "%t"
+	dstUrlTenantIdEscapeChar    = "円"
+	dstUrlSiteIdTemplateStr     = "%s"
+	dstUrlSiteIdEscapeChar      = "冇"
+	dstUrlDeviceIdTemplateStr   = "%d"
+	dstUrlDeviceIdEscapeChar    = "冈"
+	dstUrlDeviceGuidTemplateStr = "%u"
+	dstUrlDeviceGuidEscapeChar  = "冉"
 )
 
 func NewHttpExporter(client *PluginIPFixClient, params *HttpExporterParams) (*HttpExporter, error) {
@@ -725,26 +727,25 @@ func (p *HttpExporter) sendFile(filePath string, tempRecordsNum uint32, dataReco
 }
 
 func (p *HttpExporter) updateUrlPath(client *PluginIPFixClient) {
-	var tenantId string
-	var siteId string
-	var deviceId string
+	var tenantId string = "0"
+	var siteId string = "0"
+	var deviceId string = "0"
+	var deviceGuid string = "0"
 
 	// If host is 'localhost' replace it with '127.0.0.1' (in some cases using localhost will not work)
 	p.url.Host = strings.Replace(p.url.Host, "localhost", "127.0.0.1", 1)
 
 	// If client is auto-triggered, replace escape characters with corresponding
-	// tenantId, siteId, and deviceId.
+	// tenantId, siteId, deviceId, and deviceGuid.
 	if client.autoTriggered {
-		tenantId = strconv.FormatUint(uint64(client.trgDeviceInfo.tenantId), 10)
-		siteId = strconv.FormatUint(uint64(client.trgDeviceInfo.siteId), 10)
-		deviceId = strconv.FormatUint(uint64(client.trgDeviceInfo.deviceId), 10)
-	} else {
-		tenantId = "0"
-		siteId = "0"
-		deviceId = "0"
+		tenantId = client.trgDeviceInfo.tenantId
+		siteId = client.trgDeviceInfo.siteId
+		deviceId = client.trgDeviceInfo.deviceId
+		deviceGuid = client.trgDeviceInfo.deviceGuid
 	}
 
 	p.url.Path = strings.Replace(p.url.Path, dstUrlTenantIdEscapeChar, tenantId, 1)
 	p.url.Path = strings.Replace(p.url.Path, dstUrlSiteIdEscapeChar, siteId, 1)
 	p.url.Path = strings.Replace(p.url.Path, dstUrlDeviceIdEscapeChar, deviceId, 1)
+	p.url.Path = strings.Replace(p.url.Path, dstUrlDeviceGuidEscapeChar, deviceGuid, 1)
 }
