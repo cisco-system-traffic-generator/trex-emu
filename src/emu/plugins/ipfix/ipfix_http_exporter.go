@@ -12,7 +12,6 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 )
@@ -150,15 +149,12 @@ const (
 	headerExpTimestamp = "x-exporter-timestamp"
 	headerExpVersion   = "x-exporter-version"
 
-	// Dst URL template strings and escape characters
-	dstUrlTenantIdTemplateStr   = "%t"
-	dstUrlTenantIdEscapeChar    = "円"
-	dstUrlSiteIdTemplateStr     = "%s"
-	dstUrlSiteIdEscapeChar      = "冇"
-	dstUrlDeviceIdTemplateStr   = "%d"
-	dstUrlDeviceIdEscapeChar    = "冈"
-	dstUrlDeviceGuidTemplateStr = "%u"
-	dstUrlDeviceGuidEscapeChar  = "冉"
+	// Dst URL specifiers: a specifier in DST URL init JSON will be replaced with its corresponding
+	// Id (example: device-%d --> device-76)
+	dstUrlTenantIdSpecifier   = "%t"
+	dstUrlSiteIdSpecifier     = "%s"
+	dstUrlDeviceIdSpecifier   = "%d"
+	dstUrlDeviceGuidSpecifier = "%u"
 )
 
 func NewHttpExporter(client *PluginIPFixClient, params *HttpExporterParams) (*HttpExporter, error) {
@@ -202,8 +198,6 @@ func NewHttpExporter(client *PluginIPFixClient, params *HttpExporterParams) (*Ht
 	p.httpRespTimeout = defaultHttpRespTimeout
 	p.maxPosts = params.MaxPosts
 	p.counters.maxPosts = p.maxPosts
-
-	p.updateUrlPath(client)
 
 	err = p.createHttpClient()
 	if err != nil {
@@ -724,28 +718,4 @@ func (p *HttpExporter) sendFile(filePath string, tempRecordsNum uint32, dataReco
 	}
 
 	return nil
-}
-
-func (p *HttpExporter) updateUrlPath(client *PluginIPFixClient) {
-	var tenantId string = "0"
-	var siteId string = "0"
-	var deviceId string = "0"
-	var deviceGuid string = "0"
-
-	// If host is 'localhost' replace it with '127.0.0.1' (in some cases using localhost will not work)
-	p.url.Host = strings.Replace(p.url.Host, "localhost", "127.0.0.1", 1)
-
-	// If client is auto-triggered, replace escape characters with corresponding
-	// tenantId, siteId, deviceId, and deviceGuid.
-	if client.autoTriggered {
-		tenantId = client.trgDeviceInfo.tenantId
-		siteId = client.trgDeviceInfo.siteId
-		deviceId = client.trgDeviceInfo.deviceId
-		deviceGuid = client.trgDeviceInfo.deviceGuid
-	}
-
-	p.url.Path = strings.Replace(p.url.Path, dstUrlTenantIdEscapeChar, tenantId, 1)
-	p.url.Path = strings.Replace(p.url.Path, dstUrlSiteIdEscapeChar, siteId, 1)
-	p.url.Path = strings.Replace(p.url.Path, dstUrlDeviceIdEscapeChar, deviceId, 1)
-	p.url.Path = strings.Replace(p.url.Path, dstUrlDeviceGuidEscapeChar, deviceGuid, 1)
 }

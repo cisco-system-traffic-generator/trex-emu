@@ -1171,18 +1171,36 @@ func isSupportedUrlScheme(scheme string) bool {
 	return false
 }
 
+func (p *PluginIPFixClient) updateInitDstField(dstField string) string {
+	var tenantId string = "0"
+	var siteId string = "0"
+	var deviceId string = "0"
+	var deviceGuid string = "0"
+
+	// If client is auto-triggered, replace specifiers with corresponding
+	// tenantId, siteId, deviceId, and deviceGuid.
+	if p.autoTriggered {
+		tenantId = p.trgDeviceInfo.tenantId
+		siteId = p.trgDeviceInfo.siteId
+		deviceId = p.trgDeviceInfo.deviceId
+		deviceGuid = p.trgDeviceInfo.deviceGuid
+	}
+
+	// It is assumed that each specifier type appears at most once in the URL.
+	dstField = strings.Replace(dstField, dstUrlTenantIdSpecifier, tenantId, 1)
+	dstField = strings.Replace(dstField, dstUrlSiteIdSpecifier, siteId, 1)
+	dstField = strings.Replace(dstField, dstUrlDeviceIdSpecifier, deviceId, 1)
+	dstField = strings.Replace(dstField, dstUrlDeviceGuidSpecifier, deviceGuid, 1)
+
+	return dstField
+}
+
 func parseDstField(dstField string) (*url.URL, bool, error) {
 	var err error
 	var dstUrl *url.URL
 	var isHostPort = false
 	var isUrl = false
 	var isIpv6 = false
-
-	// Replace template strings with valid escape characters.
-	dstField = strings.Replace(dstField, dstUrlTenantIdTemplateStr, dstUrlTenantIdEscapeChar, 1)
-	dstField = strings.Replace(dstField, dstUrlSiteIdTemplateStr, dstUrlSiteIdEscapeChar, 1)
-	dstField = strings.Replace(dstField, dstUrlDeviceIdTemplateStr, dstUrlDeviceIdEscapeChar, 1)
-	dstField = strings.Replace(dstField, dstUrlDeviceGuidTemplateStr, dstUrlDeviceGuidEscapeChar, 1)
 
 	if dstUrl, err = url.Parse(dstField); err == nil {
 		// dstField is a valid URL with a scheme
@@ -1207,6 +1225,9 @@ func parseDstField(dstField string) (*url.URL, bool, error) {
 	if !isSupportedUrlScheme(dstUrl.Scheme) {
 		return nil, false, fmt.Errorf("Invalid dst URL scheme '%s' in init JSON (should be emu-udp, udp, file, http or https)", dstUrl.Scheme)
 	}
+
+	// If host is 'localhost' replace it with '127.0.0.1' (in some cases using localhost will not work)
+	dstUrl.Host = strings.Replace(dstUrl.Host, "localhost", "127.0.0.1", 1)
 
 	host, _, _ := net.SplitHostPort(dstUrl.Host)
 	isIpv6 = strings.Contains(host, ":")
@@ -1284,6 +1305,9 @@ func NewIPFixClient(ctx *core.PluginCtx, initJson []byte) (*core.PluginBase, err
 	}
 
 	// Init Json was provided and successfully unmarshalled.
+
+	// Pre-process JSON DST URL field
+	init.Dst = o.updateInitDstField(init.Dst)
 
 	// Parse dst URL field
 	dstUrl, isIpv6, err := parseDstField(init.Dst)
