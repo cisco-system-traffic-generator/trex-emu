@@ -1258,19 +1258,29 @@ func (o *PluginIPFixClient) updateGenDataRate() {
 	var normRatePerDevicePps float32
 
 	dat := o.IpfixNsPlugin.devicesAutoTrigger
+
 	ratePerDevicePps = dat.GetRatePerDevicePps()
-	totalGenDataRatePps = o.getTotalGenDataRatePps()
-	if ratePerDevicePps > 0 && totalGenDataRatePps > 0 {
-		normRatePerDevicePps = ratePerDevicePps / totalGenDataRatePps
+	if ratePerDevicePps <= 0 {
+		log.Info("Auto-triggered device data rate update is skipped since total_rate_pps was not provided")
+		return
 	}
 
+	totalGenDataRatePps = o.getTotalGenDataRatePps()
+	if ratePerDevicePps <= 0 {
+		log.Info("Auto-triggered device data rate update is skipped since total generators data rate is zero")
+		return
+	}
+
+	normRatePerDevicePps = ratePerDevicePps / totalGenDataRatePps
+
+	// Update generators data rate according to normalization factor.
 	for _, gen := range o.generators {
 		if !gen.optionsTemplate {
 			gen.SetDataRate(normRatePerDevicePps * gen.dataRate)
 		}
 	}
 
-	log.Info("Updated generators data rate as follows: ")
+	log.Info("Auto-triggered device generators data rate was updated as follows: ")
 	log.Info(" - Rate per device (PPS) - ", ratePerDevicePps)
 	log.Info(" - Total generators data rate (PPS) - ", totalGenDataRatePps)
 	log.Info(" - Normalization data rate factor - ", normRatePerDevicePps)
