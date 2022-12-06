@@ -17,17 +17,17 @@ import (
 )
 
 type HttpExporterParams struct {
-	Name             string   `json:"name"`
-	Url              string   `json:"url"`
-	Dir              string   `json:"dir"`
-	MaxSize          int      `json:"max_size"`
-	MaxInterval      Duration `json:"max_interval"`
-	MaxFiles         int      `json:"max_files"`
-	MaxPosts         uint64   `json:"max_posts"` // Max number of posts to send (0 - no limit)
-	Compress         bool     `json:"compress"`
-	TlsCertFile      string   `json:"tls_cert_file"`
-	TlsKeyFile       string   `json:"tls_key_file"`
-	removeDirOnClose bool
+	Name                     string   `json:"name"`
+	Url                      string   `json:"url"`
+	Dir                      string   `json:"dir"`
+	MaxSize                  int      `json:"max_size"`
+	MaxInterval              Duration `json:"max_interval"`
+	MaxFiles                 int      `json:"max_files"`
+	MaxPosts                 uint64   `json:"max_posts"` // Max number of posts to send (0 - no limit)
+	Compress                 bool     `json:"compress"`
+	TlsCertFile              string   `json:"tls_cert_file"`
+	TlsKeyFile               string   `json:"tls_key_file"`
+	StoreExportedFilesOnDisk bool     `json:"store_exported_files_on_disk"`
 }
 
 type HttpExporterStats struct {
@@ -53,29 +53,30 @@ type HttpExporterStats struct {
 }
 
 type HttpExporter struct {
-	url                    url.URL
-	tlsCertFile            string
-	tlsKeyFile             string
-	maxPosts               uint64
-	httpRespTimeout        time.Duration
-	removeDirOnClose       bool
-	enabled                bool
-	init                   bool
-	fileExporter           *FileExporter
-	fileExporterEvQueue    chan FileExporterEvent
-	retryTimer             *time.Timer
-	done                   chan bool
-	wg                     sync.WaitGroup
-	httpClient             *http.Client
-	counters               HttpExporterStats
-	countersDb             *core.CCounterDb
-	retryWaitState         bool
-	currFileToSend         string
-	currFileTempRecordsNum uint32
-	currFileDataRecordsNum uint32
-	currPostsNum           uint64 // Number of posts attempts made until now
-	fileInfoDb             []*HttpExporterFileInfo
-	currFileInfo           *HttpExporterFileInfo
+	url                      url.URL
+	tlsCertFile              string
+	tlsKeyFile               string
+	maxPosts                 uint64
+	httpRespTimeout          time.Duration
+	removeDirOnClose         bool
+	storeExportedFilesOnDisk bool
+	enabled                  bool
+	init                     bool
+	fileExporter             *FileExporter
+	fileExporterEvQueue      chan FileExporterEvent
+	retryTimer               *time.Timer
+	done                     chan bool
+	wg                       sync.WaitGroup
+	httpClient               *http.Client
+	counters                 HttpExporterStats
+	countersDb               *core.CCounterDb
+	retryWaitState           bool
+	currFileToSend           string
+	currFileTempRecordsNum   uint32
+	currFileDataRecordsNum   uint32
+	currPostsNum             uint64 // Number of posts attempts made until now
+	fileInfoDb               []*HttpExporterFileInfo
+	currFileInfo             *HttpExporterFileInfo
 }
 
 type HttpExporterFileInfo struct {
@@ -194,7 +195,7 @@ func NewHttpExporter(client *PluginIPFixClient, params *HttpExporterParams) (*Ht
 	p.url = *url
 	p.tlsCertFile = params.TlsCertFile
 	p.tlsKeyFile = params.TlsKeyFile
-	p.removeDirOnClose = params.removeDirOnClose
+	p.storeExportedFilesOnDisk = params.StoreExportedFilesOnDisk
 	p.httpRespTimeout = defaultHttpRespTimeout
 	p.maxPosts = params.MaxPosts
 	p.counters.maxPosts = p.maxPosts
@@ -227,8 +228,8 @@ func NewHttpExporter(client *PluginIPFixClient, params *HttpExporterParams) (*Ht
 		"\n\tmaxInterval - ", p.fileExporter.GetMaxInterval(),
 		"\n\tcompress - ", p.fileExporter.GetCompress(),
 		"\n\tmaxFiles - ", p.fileExporter.GetMaxFiles(),
-		"\n\tmax_posts - ", p.maxPosts,
-		"\n\tremoveDirOnClose - ", p.removeDirOnClose)
+		"\n\tmaxPosts - ", p.maxPosts,
+		"\n\tstoreExportedFilesOnDisk - ", p.storeExportedFilesOnDisk)
 
 	return p, nil
 }
@@ -464,7 +465,7 @@ func (p *HttpExporter) Close() error {
 		return err
 	}
 
-	if p.removeDirOnClose {
+	if !p.storeExportedFilesOnDisk {
 		err = os.RemoveAll(p.fileExporter.GetDir())
 		if err != nil {
 			return err
@@ -629,7 +630,7 @@ func (p *HttpExporter) preSendFile(filePath string, tempRecordsNum uint32, dataR
 
 func (p *HttpExporter) postSendFile() {
 	p.endFileInfo()
-	if !p.retryWaitState {
+	if !p.retryWaitState && !p.storeExportedFilesOnDisk {
 		os.Remove(p.currFileToSend)
 	}
 }

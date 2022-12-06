@@ -165,9 +165,6 @@ func createHttpExporter(client *PluginIPFixClient, dstUrl *url.URL, initJson *fa
 	// Create unique directory per EMU client in the user given dir
 	params.Dir = getClientDirExporterName(params.Dir, params.Name, client.Client)
 
-	// The directory used to cache files for the HTTP exporter is removed when the exporter is closed
-	params.removeDirOnClose = true
-
 	fileExporter, err := NewHttpExporter(client, params)
 	if err != nil {
 		return nil, err
