@@ -142,6 +142,7 @@ type BaseNumericEngineParams struct {
 	Size   uint16 `json:"size"`   // Size of the uint variable in bytes
 	Offset uint16 `json:"offset"` // Offset in which to write in the packet
 	Op     string `json:"op"`     // Operation which provides the generation, can be {inc, dec, rand}
+	Repeat uint16 `json:"repeat"` // Number of times to repeat current value. Default = 1.
 	Step   uint64 `json:"step"`   // Step to decrement or increment, rand will be ignored. Default=1.
 }
 
@@ -174,6 +175,7 @@ type UIntEngine struct {
 	*UIntEngineParams                     // Pointer to params as provided by the caller
 	currValue         uint64              // Current value in the generator
 	domainLen         uint64              // Domain length
+	repeatCount       uint16              // Number of times current value was repeated
 	mgr               *FieldEngineManager // Field engine manager
 }
 
@@ -308,11 +310,17 @@ func (o *UIntEngine) Update(b []byte) (int, error) {
 		// errors already set
 		return 0, err
 	}
-	err = o.PerformOp()
-	if err != nil {
-		// errors already set and value already put
-		return int(o.Size), err
+
+	o.repeatCount += 1
+	if o.repeatCount >= o.Repeat {
+		o.repeatCount = 0
+		err = o.PerformOp()
+		if err != nil {
+			// errors already set and value already put
+			return int(o.Size), err
+		}
 	}
+
 	return int(o.Size), nil
 }
 
@@ -335,6 +343,7 @@ type IntEngine struct {
 	*IntEngineParams                     // Pointer to params as provided by the caller
 	currValue        int64               // Current value in the generator
 	domainLen        uint64              // Domain length
+	repeatCount      uint16              // Number of times current value was repeated
 	mgr              *FieldEngineManager // Field engine manager
 }
 
@@ -468,11 +477,17 @@ func (o *IntEngine) Update(b []byte) (int, error) {
 		// errors already set
 		return 0, err
 	}
-	err = o.PerformOp()
-	if err != nil {
-		// errors already set and value already put
-		return int(o.Size), err
+
+	o.repeatCount += 1
+	if o.repeatCount >= o.Repeat {
+		o.repeatCount = 0
+		err = o.PerformOp()
+		if err != nil {
+			// errors already set and value already put
+			return int(o.Size), err
+		}
 	}
+
 	return int(o.Size), nil
 }
 

@@ -13,14 +13,15 @@ import (
 )
 
 type DevicesAutoTrigger struct {
-	deviceMac      core.MACKey
-	deviceIpv4     core.Ipv4Key
-	devicesNum     uint32
-	rampupTime     time.Duration
-	sitesPerTenant uint32
-	devicesPerSite uint32
-	totalRatePps   uint32
-	deviceInit     *fastjson.RawMessage
+	deviceMac        core.MACKey
+	deviceIpv4       core.Ipv4Key
+	devicesNum       uint32
+	rampupTime       time.Duration
+	sitesPerTenant   uint32
+	devicesPerSite   uint32
+	totalRatePps     uint32
+	clientsGenParams *ClientsGenParams
+	deviceInit       *fastjson.RawMessage
 
 	init                       bool                                            // Indicates wether this module is initialized
 	triggeredDevicesDb         map[*core.CClient]*DevicesAutoTriggerDeviceInfo // DB of triggered devices
@@ -47,14 +48,15 @@ const (
 )
 
 type DevicesAutoTriggerParams struct {
-	DeviceMac      core.MACKey          `json:"device_mac" validate:"required"`
-	DeviceIpv4     core.Ipv4Key         `json:"device_ipv4" validate:"required"`
-	DevicesNum     uint32               `json:"devices_num" validate:"required"`
-	RampupTime     Duration             `json:"rampup_time"`
-	SitesPerTenant uint32               `json:"sites_per_tenant"`
-	DevicesPerSite uint32               `json:"devices_per_site"`
-	TotalRatePps   uint32               `json:"total_rate_pps"`
-	DeviceInit     *fastjson.RawMessage `json:"device_init" validate:"required"`
+	DeviceMac        core.MACKey          `json:"device_mac" validate:"required"`
+	DeviceIpv4       core.Ipv4Key         `json:"device_ipv4" validate:"required"`
+	DevicesNum       uint32               `json:"devices_num" validate:"required"`
+	RampupTime       Duration             `json:"rampup_time"`
+	SitesPerTenant   uint32               `json:"sites_per_tenant"`
+	DevicesPerSite   uint32               `json:"devices_per_site"`
+	TotalRatePps     uint32               `json:"total_rate_pps"`
+	ClientsGenerator *fastjson.RawMessage `json:"clients_generator"`
+	DeviceInit       *fastjson.RawMessage `json:"device_init" validate:"required"`
 }
 
 type DevicesAutoTriggerCounters struct {
@@ -65,14 +67,15 @@ type DevicesAutoTriggerCounters struct {
 }
 
 type DevicesAutoTriggerDeviceInfo struct {
-	index      uint32       `json:"index"`
-	timestamp  time.Time    `json:"timestamp"`
-	mac        core.MACKey  `json:"mac"`
-	ipv4       core.Ipv4Key `json:"ipv4"`
-	tenantId   string       `json:"tenant_id"`
-	siteId     string       `json:"site_id"`
-	deviceId   string       `json:"device_id"`
-	deviceGuid string       `json:"device_guid"`
+	index            uint32
+	timestamp        time.Time
+	mac              core.MACKey
+	ipv4             core.Ipv4Key
+	tenantId         string
+	siteId           string
+	deviceId         string
+	deviceGuid       string
+	clientsGenParams *ClientsGenParams
 }
 
 func (p *DevicesAutoTriggerDeviceInfo) String() string {
@@ -84,6 +87,11 @@ func (p *DevicesAutoTriggerDeviceInfo) String() string {
 	s += fmt.Sprintln("\tsiteId -", p.siteId)
 	s += fmt.Sprintln("\tdeviceId -", p.deviceId)
 	s += fmt.Sprintln("\tdeviceGuid -", p.deviceGuid)
+
+	if p.clientsGenParams != nil {
+		s += p.clientsGenParams.String()
+	}
+
 	return s
 }
 
@@ -128,6 +136,13 @@ func NewDevicesAutoTrigger(ipfixNsPlugin *IpfixNsPlugin, initJson *fastjson.RawM
 		p.rampupTime = time.Second
 	}
 
+	if params.ClientsGenerator != nil {
+		p.clientsGenParams, err = UnmarshalClientsGenParams(ipfixNsPlugin, params.ClientsGenerator)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	p.timerCtx = ipfixNsPlugin.Tctx.GetTimerCtx()
 	p.timer.SetCB(p, 0, 0)
 
@@ -163,6 +178,10 @@ func NewDevicesAutoTrigger(ipfixNsPlugin *IpfixNsPlugin, initJson *fastjson.RawM
 		"\n\ttimerTicksTriggerPeriod -", p.timerTicksTriggerPeriod,
 		"\n\tratePerDevicePps -", p.GetRatePerDevicePps(),
 	)
+
+	if p.clientsGenParams != nil {
+		log.Info("\nIPFIX DevicesAutoTrigger clients generator parameters: \n", p.clientsGenParams.String())
+	}
 
 	p.init = true
 
@@ -267,11 +286,11 @@ func (p *DevicesAutoTrigger) triggerDevices(numDevices uint32) {
 func (p *DevicesAutoTrigger) triggerDevice() {
 	var mac core.MACKey
 	var ipv4 core.Ipv4Key
-	var device_init [][]byte
+	var deviceInit [][]byte
 
 	mac.SetUint64(p.deviceMac.Uint64() + uint64(p.triggeredDevicesNum))
 	ipv4.SetUint32(p.deviceIpv4.Uint32() + p.triggeredDevicesNum)
-	device_init = [][]byte{*p.deviceInit}
+	deviceInit = [][]byte{*p.deviceInit}
 
 	client := core.NewClient(p.ipfixNsPlugin.Ns, mac, ipv4, core.Ipv6Key{}, core.Ipv4Key{0, 0, 0, 0})
 	p.ipfixNsPlugin.Ns.AddClient(client)
@@ -287,10 +306,22 @@ func (p *DevicesAutoTrigger) triggerDevice() {
 	deviceInfo.deviceId = strconv.FormatUint(uint64(p.currDeviceId), 10)
 	deviceInfo.deviceGuid = fmt.Sprintf("%v-%v", uuid.NewString(), p.currDeviceId)
 
+	if p.clientsGenParams != nil {
+		var clientIpv4 core.Ipv4Key
+		params := p.clientsGenParams
+		// Each triggered device will be assigned a different range of client IPs
+		clientIpv4.SetUint32(params.ClientIpv4.Uint32() + p.triggeredDevicesNum*params.ClientsPerDevice)
+		deviceInfo.clientsGenParams = &ClientsGenParams{
+			ClientIpv4FieldName:  params.ClientIpv4FieldName,
+			ClientIpv4:           clientIpv4,
+			ClientsPerDevice:     params.ClientsPerDevice,
+			DataRecordsPerClient: params.DataRecordsPerClient}
+	}
+
 	p.triggeredDevicesDb[client] = deviceInfo
 
 	// Create client IPFIX plugin. This must be done after device info was inserted to the DB.
-	client.PluginCtx.CreatePlugins([]string{IPFIX_PLUG}, device_init)
+	client.PluginCtx.CreatePlugins([]string{IPFIX_PLUG}, deviceInit)
 
 	p.triggeredDevicesNum++
 	p.currDeviceId++

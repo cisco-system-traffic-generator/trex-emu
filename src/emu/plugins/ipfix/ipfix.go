@@ -194,9 +194,29 @@ func NewIPFixGen(ipfix *PluginIPFixClient, initJson *fastjson.RawMessage) (*IPFi
 		o.engineMap = o.engineMgr.GetEngineMap()
 	}
 
+	var clientsGen *ClientsGen
+	// For auto-triggered devices, if clients generator is configured - create a ClientsGen objects based
+	// on the current device config.
+	if ipfix.autoTriggered {
+		trgDeviceInfo := o.ipfixPlug.trgDeviceInfo
+		if trgDeviceInfo.clientsGenParams != nil {
+			clientsGen, err = NewClientsGen(ipfix, trgDeviceInfo.clientsGenParams)
+			if err != nil {
+				fmt.Println(err)
+				panic("Failed to create NewClientsGen")
+			}
+		}
+	}
+
 	o.fieldNames = make(map[string]bool, len(o.fields))
 	// Build Template Fields and Data Buffer.
-	for _, field := range o.fields {
+	for i, field := range o.fields {
+		// If clients generator was created, replace the corresponding field engine definitions.
+		if (clientsGen != nil) && (field.Name == clientsGen.GetClientIpv4FieldName()) {
+			o.fields[i] = clientsGen.GetField()
+			o.engineMap[field.Name] = clientsGen.GetEngine()
+		}
+
 		if o.ipfixPlug.ver == 9 && field.isEnterprise() {
 			o.ipfixPlug.stats.enterpriseFieldv9++
 			return nil, fmt.Errorf("NetFlow version 9 does not support enterprise field %s", field.Name)
