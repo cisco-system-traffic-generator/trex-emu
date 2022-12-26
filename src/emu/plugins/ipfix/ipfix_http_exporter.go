@@ -612,7 +612,9 @@ func (p *HttpExporter) createHttpPostRequest(url *url.URL, filePath string) (*ht
 
 	r, _ := http.NewRequest("POST", url.String(), body)
 	r.Header.Add(headerContType, writer.FormDataContentType())
-	r.Header.Add(headerContEncoding, "gzip")
+	if p.fileExporter.GetCompress() {
+		r.Header.Add(headerContEncoding, "gzip")
+	}
 	r.Header.Add(headerExpFilename, filename)
 	r.Header.Add(headerExpTimestamp, "20200116111214") // does not matter
 	r.Header.Add(headerExpVersion, "1")
