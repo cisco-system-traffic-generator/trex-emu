@@ -2,6 +2,7 @@ package ipfix
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
 	"emu/core"
 	"fmt"
@@ -77,6 +78,7 @@ type HttpExporter struct {
 	currPostsNum             uint64 // Number of posts attempts made until now
 	fileInfoDb               []*HttpExporterFileInfo
 	currFileInfo             *HttpExporterFileInfo
+	currCancelFunc           context.CancelFunc
 }
 
 type HttpExporterFileInfo struct {
@@ -433,11 +435,11 @@ func (p *HttpExporter) GetInfoJson() interface{} {
 }
 
 func (p *HttpExporter) Write(b []byte, tempRecordsNum uint32, dataRecordsNum uint32) (int, error) {
-	if p.init == false {
+	if !p.init {
 		return 0, fmt.Errorf("Failed to write - http exporter object is uninitialized")
 	}
 
-	if p.enabled == false {
+	if !p.enabled {
 		return 0, nil
 	}
 
@@ -452,9 +454,11 @@ func (p *HttpExporter) Write(b []byte, tempRecordsNum uint32, dataRecordsNum uin
 }
 
 func (p *HttpExporter) Close() error {
-	if p.init == false {
+	if !p.init {
 		return nil
 	}
+
+	p.init = false
 
 	p.retryTimer.Stop()
 
@@ -472,12 +476,14 @@ func (p *HttpExporter) Close() error {
 		}
 	}
 
+	if p.currCancelFunc != nil {
+		p.currCancelFunc()
+	}
+
 	p.done <- true
 	p.wg.Wait()
 	close(p.done)
 	close(p.fileExporterEvQueue)
-
-	p.init = false
 
 	return err
 }
@@ -520,7 +526,7 @@ func (p *HttpExporter) cmdThread() {
 		case false:
 			select {
 			case event := <-p.fileExporterEvQueue:
-				if p.enabled == false {
+				if !p.enabled || !p.init {
 					break
 				}
 
@@ -532,7 +538,7 @@ func (p *HttpExporter) cmdThread() {
 		case true:
 			select {
 			case <-p.retryTimer.C:
-				if p.enabled == false {
+				if !p.enabled || !p.init {
 					break
 				}
 
@@ -580,18 +586,18 @@ func (p *HttpExporter) createHttpClient() error {
 	return err
 }
 
-func (p *HttpExporter) createHttpPostRequest(url *url.URL, filePath string) (*http.Request, error) {
+func (p *HttpExporter) createHttpPostRequest(url *url.URL, filePath string) (*http.Request, context.Context, context.CancelFunc, error) {
 	file, err := os.Open(filePath)
 	if err != nil {
-		return nil, err
+		return nil, nil, nil, err
 	}
 	fileContents, err := ioutil.ReadAll(file)
 	if err != nil {
-		return nil, err
+		return nil, nil, nil, err
 	}
 	fi, err := file.Stat()
 	if err != nil {
-		return nil, err
+		return nil, nil, nil, err
 	}
 	file.Close()
 
@@ -601,16 +607,18 @@ func (p *HttpExporter) createHttpPostRequest(url *url.URL, filePath string) (*ht
 	writer := multipart.NewWriter(body)
 	part, err := writer.CreateFormFile("sendfile", filename)
 	if err != nil {
-		return nil, err
+		return nil, nil, nil, err
 	}
 	part.Write(fileContents)
 
 	err = writer.Close()
 	if err != nil {
-		return nil, err
+		return nil, nil, nil, err
 	}
 
+	ctx, cancel := context.WithCancel(context.Background())
 	r, _ := http.NewRequest("POST", url.String(), body)
+	r = r.WithContext(ctx)
 	r.Header.Add(headerContType, writer.FormDataContentType())
 	if p.fileExporter.GetCompress() {
 		r.Header.Add(headerContEncoding, "gzip")
@@ -619,13 +627,14 @@ func (p *HttpExporter) createHttpPostRequest(url *url.URL, filePath string) (*ht
 	r.Header.Add(headerExpTimestamp, "20200116111214") // does not matter
 	r.Header.Add(headerExpVersion, "1")
 
-	return r, nil
+	return r, ctx, cancel, nil
 }
 
 func (p *HttpExporter) preSendFile(filePath string, tempRecordsNum uint32, dataRecordsNum uint32) {
 	p.currFileToSend = filePath
 	p.currFileTempRecordsNum = tempRecordsNum
 	p.currFileDataRecordsNum = dataRecordsNum
+	p.currCancelFunc = nil
 	p.currPostsNum++
 	p.beginFileInfo(filePath)
 }
@@ -659,7 +668,7 @@ func (p *HttpExporter) sendFile(filePath string, tempRecordsNum uint32, dataReco
 	p.counters.txTempRecords += uint64(tempRecordsNum)
 	p.counters.txDataRecords += uint64(dataRecordsNum)
 
-	req, err := p.createHttpPostRequest(&p.url, filePath)
+	req, ctx, cancel, err := p.createHttpPostRequest(&p.url, filePath)
 	if err != nil {
 		p.counters.filesExportFailed++
 		p.counters.failedToCreateRequest++
@@ -668,7 +677,32 @@ func (p *HttpExporter) sendFile(filePath string, tempRecordsNum uint32, dataReco
 		return err
 	}
 
-	resp, err := p.httpClient.Do(req)
+	p.currCancelFunc = cancel
+
+	errCh := make(chan error)
+	respCh := make(chan *http.Response)
+
+	go func() {
+		resp, err := p.httpClient.Do(req)
+		select {
+		case <-ctx.Done():
+			errCh <- ctx.Err()
+		default:
+			if err != nil {
+				errCh <- err
+			} else {
+				respCh <- resp
+			}
+		}
+	}()
+
+	var resp *http.Response
+
+	select {
+	case err = <-errCh:
+	case resp = <-respCh:
+	}
+
 	if err != nil {
 		p.counters.filesExportFailed++
 		p.counters.failedToSendRequest++
