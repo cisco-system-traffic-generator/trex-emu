@@ -586,18 +586,18 @@ func (p *HttpExporter) createHttpClient() error {
 	return err
 }
 
-func (p *HttpExporter) createHttpPostRequest(url *url.URL, filePath string) (*http.Request, context.Context, context.CancelFunc, error) {
+func (p *HttpExporter) createHttpPostRequest(url *url.URL, filePath string) (*http.Request, context.CancelFunc, error) {
 	file, err := os.Open(filePath)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 	fileContents, err := ioutil.ReadAll(file)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 	fi, err := file.Stat()
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 	file.Close()
 
@@ -607,18 +607,20 @@ func (p *HttpExporter) createHttpPostRequest(url *url.URL, filePath string) (*ht
 	writer := multipart.NewWriter(body)
 	part, err := writer.CreateFormFile("sendfile", filename)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 	part.Write(fileContents)
 
 	err = writer.Close()
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	r, _ := http.NewRequest("POST", url.String(), body)
-	r = r.WithContext(ctx)
+	r, err := http.NewRequestWithContext(ctx, "POST", url.String(), body)
+	if err != nil {
+		return nil, nil, err
+	}
 	r.Header.Add(headerContType, writer.FormDataContentType())
 	if p.fileExporter.GetCompress() {
 		r.Header.Add(headerContEncoding, "gzip")
@@ -627,7 +629,7 @@ func (p *HttpExporter) createHttpPostRequest(url *url.URL, filePath string) (*ht
 	r.Header.Add(headerExpTimestamp, "20200116111214") // does not matter
 	r.Header.Add(headerExpVersion, "1")
 
-	return r, ctx, cancel, nil
+	return r, cancel, nil
 }
 
 func (p *HttpExporter) preSendFile(filePath string, tempRecordsNum uint32, dataRecordsNum uint32) {
@@ -668,7 +670,7 @@ func (p *HttpExporter) sendFile(filePath string, tempRecordsNum uint32, dataReco
 	p.counters.txTempRecords += uint64(tempRecordsNum)
 	p.counters.txDataRecords += uint64(dataRecordsNum)
 
-	req, ctx, cancel, err := p.createHttpPostRequest(&p.url, filePath)
+	req, cancel, err := p.createHttpPostRequest(&p.url, filePath)
 	if err != nil {
 		p.counters.filesExportFailed++
 		p.counters.failedToCreateRequest++
@@ -679,30 +681,7 @@ func (p *HttpExporter) sendFile(filePath string, tempRecordsNum uint32, dataReco
 
 	p.currCancelFunc = cancel
 
-	errCh := make(chan error)
-	respCh := make(chan *http.Response)
-
-	go func() {
-		resp, err := p.httpClient.Do(req)
-		select {
-		case <-ctx.Done():
-			errCh <- ctx.Err()
-		default:
-			if err != nil {
-				errCh <- err
-			} else {
-				respCh <- resp
-			}
-		}
-	}()
-
-	var resp *http.Response
-
-	select {
-	case err = <-errCh:
-	case resp = <-respCh:
-	}
-
+	resp, err := p.httpClient.Do(req)
 	if err != nil {
 		p.counters.filesExportFailed++
 		p.counters.failedToSendRequest++
