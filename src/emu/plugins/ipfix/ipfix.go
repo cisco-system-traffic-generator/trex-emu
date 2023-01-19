@@ -1363,6 +1363,7 @@ func NewIPFixClient(ctx *core.PluginCtx, initJson []byte) (*core.PluginBase, err
 		if err == ErrExporterWrongKernelMode {
 			o.stats.failedCreatingExporterWrongKernelMode++
 		}
+		log.Error("Failed to create exporter, err: ", err)
 		return nil, err
 	}
 
@@ -1460,6 +1461,7 @@ func (o *PluginIPFixClient) OnResolve() {
 		o.exporter, err = CreateExporter(o, &o.dstUrl, nil)
 		if err != nil {
 			o.stats.failedCreatingExporter++
+			log.Error("Failed to create exporter, err: ", err)
 			return
 		}
 	}

@@ -16,6 +16,10 @@ type UdpExporterParams struct {
 	// Default value is 'false'.
 	// The non-default mode requires EMU server to run as root. Otherwise, IPFIX plugin creation will fail.
 	UseEmuClientIpAddr bool `json:"use_emu_client_ip_addr"`
+
+	// Name of the interface to use to bind raw-sockets when use_emu_client_ip_addr is enabled.
+	// If not defined, the UDP exporter will use the localhost interface ("lo").
+	RawSocketInterfaceName string `json:"raw_socket_interface_name"`
 }
 
 type UdpExporterCounters struct {
@@ -133,7 +137,7 @@ func NewUdpExporter(client *PluginIPFixClient, params *UdpExporterParams) (*UdpE
 
 	var conn WriteOnlyUdpConn
 
-	conn, err = WriteOnlyUdpConnDial(srcUdpAddr, *dstUdpAddr)
+	conn, err = WriteOnlyUdpConnDial(srcUdpAddr, *dstUdpAddr, params.RawSocketInterfaceName)
 	if err != nil {
 		return nil, errors.New("Failed to create UDP socket")
 	}
@@ -147,7 +151,8 @@ func NewUdpExporter(client *PluginIPFixClient, params *UdpExporterParams) (*UdpE
 
 	log.Info("\nIPFIX UDP exporter created with the following parameters: ",
 		"\n\thostport - ", params.hostport,
-		"\n\tuse_emu_client_ip_addr - ", params.UseEmuClientIpAddr)
+		"\n\tuse_emu_client_ip_addr - ", params.UseEmuClientIpAddr,
+		"\n\traw_socket_interface_name - ", params.RawSocketInterfaceName)
 
 	return p, nil
 }

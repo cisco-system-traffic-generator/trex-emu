@@ -11,8 +11,7 @@ import (
 )
 
 const (
-	rawWriteOnlyUdpConnIfName    = "lo"
-	rawWriteOnlyUdpConnHeaderLen = 8
+	defRawWriteOnlyUdpConnIfName = "lo"
 )
 
 type WriteOnlyUdpConn interface {
@@ -20,7 +19,7 @@ type WriteOnlyUdpConn interface {
 	Close() error
 }
 
-func WriteOnlyUdpConnDial(srcUdpAddr *net.UDPAddr, dstUdpAddr net.UDPAddr) (WriteOnlyUdpConn, error) {
+func WriteOnlyUdpConnDial(srcUdpAddr *net.UDPAddr, dstUdpAddr net.UDPAddr, rawSocketInterfaceName string) (WriteOnlyUdpConn, error) {
 	var err error
 	var p WriteOnlyUdpConn
 
@@ -36,7 +35,7 @@ func WriteOnlyUdpConnDial(srcUdpAddr *net.UDPAddr, dstUdpAddr net.UDPAddr) (Writ
 	} else {
 		var conn *RawWriteOnlyUdpConn
 		conn = new(RawWriteOnlyUdpConn)
-		err = conn.Init(*srcUdpAddr, dstUdpAddr)
+		err = conn.Init(*srcUdpAddr, dstUdpAddr, rawSocketInterfaceName)
 		if err != nil {
 			return nil, err
 		}
@@ -84,19 +83,25 @@ func (p *GoNetWriteOnlyUdpConn) Close() error {
 
 // RawWriteOnlyUdpConn //
 type RawWriteOnlyUdpConn struct {
-	isInit    bool
-	conn      net.PacketConn
-	srcIpAddr *net.IPAddr
-	dstIpAddr *net.IPAddr
-	srcPort   uint16
-	dstPort   uint16
+	isInit        bool
+	conn          net.PacketConn
+	srcIpAddr     *net.IPAddr
+	dstIpAddr     *net.IPAddr
+	srcPort       uint16
+	dstPort       uint16
+	interfaceName string
 }
 
 const (
 	defUdpConnSrcUdpPort = 12345
 )
 
-func (p *RawWriteOnlyUdpConn) Init(srcUdpAddr net.UDPAddr, dstUdpAddr net.UDPAddr) error {
+func (p *RawWriteOnlyUdpConn) Init(srcUdpAddr net.UDPAddr, dstUdpAddr net.UDPAddr, interfaceName string) error {
+	p.interfaceName = defRawWriteOnlyUdpConnIfName
+	if len(interfaceName) > 0 {
+		p.interfaceName = interfaceName
+	}
+
 	conn, err := p.createPacketConn()
 	if err != nil {
 		return err
@@ -149,12 +154,12 @@ func (p *RawWriteOnlyUdpConn) createPacketConn() (net.PacketConn, error) {
 	}
 	syscall.SetsockoptInt(fd, syscall.IPPROTO_IP, syscall.IP_HDRINCL, 1)
 
-	if rawWriteOnlyUdpConnIfName != "" {
-		_, err := net.InterfaceByName(rawWriteOnlyUdpConnIfName)
+	if p.interfaceName != "" {
+		_, err := net.InterfaceByName(p.interfaceName)
 		if err != nil {
-			return nil, fmt.Errorf("Failed to find interface: %s: %s", rawWriteOnlyUdpConnIfName, err)
+			return nil, fmt.Errorf("Failed to find interface: %s: %s", p.interfaceName, err)
 		}
-		syscall.SetsockoptString(fd, syscall.SOL_SOCKET, syscall.SO_BINDTODEVICE, rawWriteOnlyUdpConnIfName)
+		syscall.SetsockoptString(fd, syscall.SOL_SOCKET, syscall.SO_BINDTODEVICE, p.interfaceName)
 	}
 
 	conn, err := net.FilePacketConn(os.NewFile(uintptr(fd), fmt.Sprintf("fd %d", fd)))
