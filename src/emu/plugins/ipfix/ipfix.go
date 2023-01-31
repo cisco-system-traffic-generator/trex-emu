@@ -1191,6 +1191,18 @@ func isSupportedUrlScheme(scheme string) bool {
 	return false
 }
 
+func (p *PluginIPFixClient) updateInitDomainIdField(domainID uint32) uint32 {
+	var newDomainID uint32 = domainID
+
+	// If client is auto-triggered, update domainID so as to give each triggered device
+	// a different Id.
+	if p.autoTriggered {
+		newDomainID = domainID + p.trgDeviceInfo.index
+	}
+
+	return newDomainID
+}
+
 func (p *PluginIPFixClient) updateInitDstField(dstField string) string {
 	var tenantId string = "0"
 	var siteId string = "0"
@@ -1335,6 +1347,9 @@ func NewIPFixClient(ctx *core.PluginCtx, initJson []byte) (*core.PluginBase, err
 	}
 
 	// Init Json was provided and successfully unmarshalled.
+
+	// Pre-process JSON domain-id field
+	init.DomainID = o.updateInitDomainIdField(init.DomainID)
 
 	// Pre-process JSON DST URL field
 	init.Dst = o.updateInitDstField(init.Dst)
