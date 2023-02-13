@@ -1194,10 +1194,10 @@ func isSupportedUrlScheme(scheme string) bool {
 func (p *PluginIPFixClient) updateInitDomainIdField(domainID uint32) uint32 {
 	var newDomainID uint32 = domainID
 
-	// If client is auto-triggered, update domainID so as to give each triggered device
-	// a different Id.
-	if p.autoTriggered {
-		newDomainID = domainID + p.trgDeviceInfo.index
+	// If client is auto-triggered and a base domainId is configured, update domainID
+	// so as to give each triggered device a different Id.
+	if p.autoTriggered && p.trgDeviceInfo.domainId > 0 {
+		newDomainID = p.trgDeviceInfo.domainId
 	}
 
 	return newDomainID
@@ -1390,6 +1390,7 @@ func NewIPFixClient(ctx *core.PluginCtx, initJson []byte) (*core.PluginBase, err
 		for i := range init.Generators {
 			gen, err := NewIPFixGen(o, init.Generators[i])
 			if err != nil {
+				log.Error("Failed to create generator, err: ", err)
 				o.stats.failedCreatingGen++
 				return nil, err
 			}
