@@ -27,7 +27,8 @@ type CZmqJsonRPC2 struct {
 	socket     *zmq.Socket
 	serverPort uint16
 	mr         *jsonrpc.MethodRepository
-	cn         chan []byte
+	chMain2Rx  chan []byte
+	chRx2Main  chan []byte
 }
 
 func RegisterCB(method string, h jsonrpc.Handler, noApi bool) {
@@ -45,24 +46,25 @@ func (o *CZmqJsonRPC2) SetRpcRecorder(rpcRec *[]interface{}) {
 
 // NewZmqRpc create a zmq server in port
 func (o *CZmqJsonRPC2) NewZmqRpc(serverPort uint16) {
+	o.chMain2Rx = make(chan []byte)
+	o.chRx2Main = make(chan []byte)
+
 	context, err := zmq.NewContext()
 	socket, err := context.NewSocket(zmq.REP)
-	o.cn = make(chan []byte)
 
 	if err != nil {
 		panic(err)
 	}
 
 	if socket == nil {
-		panic(" zmq client is nil")
+		panic("zmq client is nil")
 	}
 
 	o.ctx = context
 	o.socket = socket
 	o.serverPort = serverPort
 	bindStr := fmt.Sprintf("tcp://*:%d", o.serverPort)
-	err = socket.Bind(bindStr)
-	if err != nil {
+	if err = socket.Bind(bindStr); err != nil {
 		errStr := fmt.Sprintf("Failed to create ZMQ RPC server - %v", err.Error())
 		log.Fatalln(errStr)
 	}
@@ -87,8 +89,8 @@ func (o *CZmqJsonRPC2) rxThread() {
 		if err != nil {
 			time.Sleep(10 * time.Millisecond)
 		} else {
-			o.cn <- msg
-			res := <-o.cn
+			o.chRx2Main <- msg
+			res := <-o.chMain2Rx
 			o.socket.SendBytes(res, 0)
 
 		}
@@ -97,7 +99,7 @@ func (o *CZmqJsonRPC2) rxThread() {
 
 // GetC return the channel
 func (o *CZmqJsonRPC2) GetC() chan []byte {
-	return o.cn
+	return o.chRx2Main
 }
 
 // StartRxThread start a thread to handle the Req/Res
@@ -114,7 +116,7 @@ func (o *CZmqJsonRPC2) Delete() {
 // HandleReqToChan input buffer return resonse to chan
 func (o *CZmqJsonRPC2) HandleReqToChan(req []byte) {
 	res := o.mr.ServeBytesCompress(req)
-	o.cn <- res
+	o.chMain2Rx <- res
 }
 
 // HandleReq input buffer return buffer
