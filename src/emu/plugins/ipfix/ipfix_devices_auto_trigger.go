@@ -77,7 +77,7 @@ type DevicesAutoTriggerDeviceInfo struct {
 	tenantId         string
 	siteId           string
 	deviceId         string
-	deviceGuid       string
+	deviceUuid       string
 	clientsGenParams *ClientsGenParams
 }
 
@@ -90,7 +90,7 @@ func (p *DevicesAutoTriggerDeviceInfo) String() string {
 	s += fmt.Sprintln("\ttenantId -", p.tenantId)
 	s += fmt.Sprintln("\tsiteId -", p.siteId)
 	s += fmt.Sprintln("\tdeviceId -", p.deviceId)
-	s += fmt.Sprintln("\tdeviceGuid -", p.deviceGuid)
+	s += fmt.Sprintln("\tdeviceUuid -", p.deviceUuid)
 
 	if p.clientsGenParams != nil {
 		s += p.clientsGenParams.String()
@@ -315,7 +315,7 @@ func (p *DevicesAutoTrigger) triggerDevice() {
 	deviceInfo.tenantId = strconv.FormatUint(uint64(p.currTenantId), 10)
 	deviceInfo.siteId = strconv.FormatUint(uint64(p.currSiteId), 10)
 	deviceInfo.deviceId = strconv.FormatUint(uint64(p.currDeviceId), 10)
-	deviceInfo.deviceGuid = fmt.Sprintf("%v-%v", uuid.NewString(), p.currDeviceId)
+	deviceInfo.deviceUuid = uuid.NewString()
 
 	if p.clientsGenParams != nil {
 		var clientIpv4 core.Ipv4Key

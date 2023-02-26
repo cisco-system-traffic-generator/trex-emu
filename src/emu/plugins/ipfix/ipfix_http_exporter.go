@@ -158,7 +158,7 @@ const (
 	dstUrlTenantIdSpecifier   = "%t"
 	dstUrlSiteIdSpecifier     = "%s"
 	dstUrlDeviceIdSpecifier   = "%d"
-	dstUrlDeviceGuidSpecifier = "%u"
+	dstUrlDeviceUuidSpecifier = "%u"
 )
 
 func NewHttpExporter(client *PluginIPFixClient, params *HttpExporterParams) (*HttpExporter, error) {

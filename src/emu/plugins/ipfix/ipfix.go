@@ -1207,22 +1207,21 @@ func (p *PluginIPFixClient) updateInitDstField(dstField string) string {
 	var tenantId string = "0"
 	var siteId string = "0"
 	var deviceId string = "0"
-	var deviceGuid string = "0"
+	var deviceUuid string = "0"
 
 	// If client is auto-triggered, replace specifiers with corresponding
-	// tenantId, siteId, deviceId, and deviceGuid.
+	// tenantId, siteId, deviceId, and deviceUuid.
 	if p.autoTriggered {
 		tenantId = p.trgDeviceInfo.tenantId
 		siteId = p.trgDeviceInfo.siteId
 		deviceId = p.trgDeviceInfo.deviceId
-		deviceGuid = p.trgDeviceInfo.deviceGuid
+		deviceUuid = p.trgDeviceInfo.deviceUuid
 	}
 
-	// It is assumed that each specifier type appears at most once in the URL.
-	dstField = strings.Replace(dstField, dstUrlTenantIdSpecifier, tenantId, 1)
-	dstField = strings.Replace(dstField, dstUrlSiteIdSpecifier, siteId, 1)
-	dstField = strings.Replace(dstField, dstUrlDeviceIdSpecifier, deviceId, 1)
-	dstField = strings.Replace(dstField, dstUrlDeviceGuidSpecifier, deviceGuid, 1)
+	dstField = strings.Replace(dstField, dstUrlTenantIdSpecifier, tenantId, 3)
+	dstField = strings.Replace(dstField, dstUrlSiteIdSpecifier, siteId, 3)
+	dstField = strings.Replace(dstField, dstUrlDeviceIdSpecifier, deviceId, 3)
+	dstField = strings.Replace(dstField, dstUrlDeviceUuidSpecifier, deviceUuid, 3)
 
 	return dstField
 }
