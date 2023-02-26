@@ -32,25 +32,26 @@ type HttpExporterParams struct {
 }
 
 type HttpExporterStats struct {
-	apiWrites              uint64
-	apiWritesFailed        uint64
-	txTempRecords          uint64 // Total number of template records sent
-	txDataRecords          uint64 // Total number of data records sent
-	filesExport            uint64
-	filesExportFailed      uint64
-	filesExportFailedRetry uint64
-	filesExportRetry       uint64
-	failedToCreateRequest  uint64
-	failedToSendRequest    uint64
-	httpStatus2xx          uint64
-	httpStatus3xx          uint64
-	httpStatus4xx          uint64
-	httpStatus5xx          uint64
-	bytesUploaded          uint64 // Total number of bytes uploaded successfully
-	tempRecordsUploaded    uint64 // Total number of template records uploaded successfully
-	dataRecordsUploaded    uint64 // Total number of data records uploaded successfully
-	maxPosts               uint64 // Max number of posts to send (0 - no limit)
-	maxPostsExceeded       uint64 // Number of times post was blocked since maxPosts limit reached
+	apiWrites               uint64
+	apiWritesFailed         uint64
+	txTempRecords           uint64 // Total number of template records sent
+	txDataRecords           uint64 // Total number of data records sent
+	filesExport             uint64
+	filesExportFailed       uint64
+	filesExportFailedRetry  uint64
+	filesExportRetry        uint64
+	filesExportEmptyNotSent uint64 // Num of empty export files (records num is zero) not sent
+	failedToCreateRequest   uint64
+	failedToSendRequest     uint64
+	httpStatus2xx           uint64
+	httpStatus3xx           uint64
+	httpStatus4xx           uint64
+	httpStatus5xx           uint64
+	bytesUploaded           uint64 // Total number of bytes uploaded successfully
+	tempRecordsUploaded     uint64 // Total number of template records uploaded successfully
+	dataRecordsUploaded     uint64 // Total number of data records uploaded successfully
+	maxPosts                uint64 // Max number of posts to send (0 - no limit)
+	maxPostsExceeded        uint64 // Number of times post was blocked since maxPosts limit reached
 }
 
 type HttpExporter struct {
@@ -299,6 +300,14 @@ func (p *HttpExporter) newHttpExporterCountersDb() {
 		Counter:  &p.counters.filesExportRetry,
 		Name:     "filesExportRetry",
 		Help:     "Num of file send retries",
+		Unit:     "ops",
+		DumpZero: false,
+		Info:     core.ScINFO})
+
+	p.countersDb.Add(&core.CCounterRec{
+		Counter:  &p.counters.filesExportEmptyNotSent,
+		Name:     "filesExportEmptyNotSent",
+		Help:     "Num of empty export files not sent",
 		Unit:     "ops",
 		DumpZero: false,
 		Info:     core.ScINFO})
@@ -656,6 +665,12 @@ func (p *HttpExporter) sendFile(filePath string, tempRecordsNum uint32, dataReco
 		"\n\ttemp records num:", tempRecordsNum,
 		"\n\tdata records num:", dataRecordsNum,
 		"\n\tdestination URL:", p.url.String())
+
+	if tempRecordsNum == 0 && dataRecordsNum == 0 {
+		p.counters.filesExportEmptyNotSent++
+		os.Remove(filePath)
+		return nil
+	}
 
 	if p.maxPosts != 0 && p.currPostsNum >= p.maxPosts {
 		p.counters.maxPostsExceeded++
