@@ -1,8 +1,10 @@
 package core
 
 import (
+	"bytes"
 	"encoding/binary"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"math/rand"
@@ -693,6 +695,29 @@ func (o *CThreadCtx) UnmarshalValidate(data []byte, v interface{}) error {
 	if err != nil {
 		return err
 	}
+	return nil
+}
+
+// UnmarshalValidateDisallowUnknownFields:
+// - Unmarshals and validates the input JSON.
+// - The function will fail if the input JSON contains a field which does not match any struct field.
+func (o *CThreadCtx) UnmarshalValidateDisallowUnknownFields(data []byte, v interface{}) error {
+	if data == nil {
+		return nil
+	}
+
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	err := decoder.Decode(v)
+	if err != nil {
+		return err
+	}
+
+	err = o.validate.Struct(v)
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 

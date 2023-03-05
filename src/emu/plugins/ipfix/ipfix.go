@@ -1339,8 +1339,9 @@ func NewIPFixClient(ctx *core.PluginCtx, initJson []byte) (*core.PluginBase, err
 
 	// Parse the Init JSON.
 	init := IPFixClientParams{Ver: DefaultIPFixVersion, DomainID: o.domainID, AutoStart: true}
-	err := o.Tctx.UnmarshalValidate(initJson, &init)
+	err := o.Tctx.UnmarshalValidateDisallowUnknownFields(initJson, &init)
 	if err != nil {
+		log.Error("Failed to parse and validate IPFIX client init JSON, err: ", err)
 		o.stats.badOrNoInitJson++
 		return nil, err
 	}
@@ -1356,6 +1357,7 @@ func NewIPFixClient(ctx *core.PluginCtx, initJson []byte) (*core.PluginBase, err
 	// Parse dst URL field
 	dstUrl, isIpv6, err := parseDstField(init.Dst)
 	if err != nil {
+		log.Error("Failed to parse IPFIX client init JSON dst URL, err: ", err)
 		o.stats.invalidDst++
 		return nil, err
 	}

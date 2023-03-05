@@ -337,7 +337,7 @@ func getTemplate266(params *TemplateParams) string {
 				"data": [24, 0, 0, 1]
 			},
 			{
-				"name": "ipVersion"
+				"name": "ipVersion",
 				"type": 60,
 				"length": 1,
 				"data": [4]
@@ -880,7 +880,7 @@ func TestPluginIPFixNeg12(t *testing.T) {
 						"name": "nbar2HttpHost",
 						"type": 45003,
 						"length": 65535,
-						"enterprise_number": 9,
+						"enterprise_number": 9
 					}
 				]
 			}
@@ -1256,7 +1256,7 @@ func TestPluginIPFix7(t *testing.T) {
 				]
 			},
 			{
-				"name": "266"
+				"name": "266",
 				"auto_start": true,
 				"rate_pps": 2,
 				"data_records_num": 0,
@@ -1314,7 +1314,7 @@ func TestPluginIPFix8(t *testing.T) {
 							"min": 1,
 							"max": 255,
 							"op": "inc",
-							"step": 1,
+							"step": 1
 						}
 					}
 				]
@@ -1363,7 +1363,7 @@ func TestPluginIPFix9(t *testing.T) {
 							"min": 1,
 							"max": 255,
 							"op": "inc",
-							"step": 1,
+							"step": 1
 						}
 					},
 					{
@@ -1488,7 +1488,7 @@ func TestPluginIPFix10(t *testing.T) {
 								},
 								{
 									"v": 1,
-									"prob": 1,
+									"prob": 1
 								},
 								{
 									"v": 6,
@@ -1606,7 +1606,7 @@ func TestPluginIPFix11(t *testing.T) {
 				]
 			},
 			{
-				"name": "266"
+				"name": "266",
 				"auto_start": true,
 				"rate_pps": 0.5,
 				"data_records_num": 5,
@@ -1629,11 +1629,11 @@ func TestPluginIPFix11(t *testing.T) {
 							"entries": [
 								{
 									"v": 4,
-									"prob": 3,
+									"prob": 3
 								},
 								{
-									"v": 6
-									"prob": 1,
+									"v": 6,
+									"prob": 1
 								}
 							]
 						}
@@ -1844,7 +1844,7 @@ func TestPluginIPFix15(t *testing.T) {
 							"min": 1,
 							"max": 255,
 							"op": "inc",
-							"step": 1,
+							"step": 1
 						}
 					}
 				]
@@ -2145,7 +2145,7 @@ func getVariableLengthJson(rate float32, data_records_num uint16) string {
 							"size": 1,
 							"offset": 1,
 							"list": [1, 6, 17],
-							"op": "dec",
+							"op": "dec"
 						}
 					},
 					{
@@ -2158,7 +2158,7 @@ func getVariableLengthJson(rate float32, data_records_num uint16) string {
 								{
 									"schemes": ["https"],
 									"hosts": ["www.google.com", "www.facebook.com"],
-									"prob": 2,
+									"prob": 2
 								},
 								{
 									"schemes": ["http"],
@@ -2180,7 +2180,7 @@ func getVariableLengthJson(rate float32, data_records_num uint16) string {
 									"schemes": ["https"],
 									"hosts": ["stackoverflow.com"],
 									"random_queries": true,
-									"prob": 4,
+									"prob": 4
 								}
 							]
 						}
@@ -2357,7 +2357,7 @@ func TestPluginIPFix22(t *testing.T) {
 									"schemes": ["https"],
 									"hosts": ["stackoverflow.com"],
 									"random_queries": true,
-									"prob": 4,
+									"prob": 4
 								}
 							]
 						}
@@ -2422,16 +2422,16 @@ func TestPluginIPFix23(t *testing.T) {
 									{
 										"str": "Te0/0/0",
 										"prob": 4,
-										"padding_value": 35,
+										"padding_value": 35
 									},
 									{
 										"str": "Hu0/1",
 										"prob": 1,
-										"padding_value": 36,
+										"padding_value": 36
 									},
 									{
 										"str": "Gi0",
-										"prob": 2,
+										"prob": 2
 									}
 								]
 							}
@@ -2447,15 +2447,15 @@ func TestPluginIPFix23(t *testing.T) {
 									{
 										"str": "Cisco",
 										"prob": 1,
-										"padding_value": 35,
+										"padding_value": 35
 									},
 									{
 										"str": "TRex",
-										"prob": 2,
+										"prob": 2
 									},
 									{
 										"str": "TRex-Emu",
-										"prob": 1,
+										"prob": 1
 									}
 								]
 							}
