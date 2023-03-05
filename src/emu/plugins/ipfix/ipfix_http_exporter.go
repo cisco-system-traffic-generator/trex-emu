@@ -80,6 +80,7 @@ type HttpExporter struct {
 	fileInfoDb               []*HttpExporterFileInfo
 	currFileInfo             *HttpExporterFileInfo
 	currCancelFunc           context.CancelFunc
+	client                   *PluginIPFixClient
 }
 
 type HttpExporterFileInfo struct {
@@ -174,6 +175,7 @@ func NewHttpExporter(client *PluginIPFixClient, params *HttpExporterParams) (*Ht
 	}
 
 	p := new(HttpExporter)
+	p.client = client
 
 	kernelMode := client.Tctx.GetKernelMode()
 	if kernelMode != p.GetKernelMode() {
@@ -671,6 +673,9 @@ func (p *HttpExporter) sendFile(filePath string, tempRecordsNum uint32, dataReco
 	}
 
 	if p.maxPosts != 0 && p.currPostsNum >= p.maxPosts {
+		logMsg := fmt.Sprintf("Current num of posts (%v) exceeded the configured max posts (%v) - avoid sending file",
+			p.currPostsNum, p.maxPosts)
+		log.Info(logMsg)
 		p.counters.maxPostsExceeded++
 		os.Remove(filePath)
 		return nil
