@@ -506,6 +506,12 @@ func (p *HttpExporter) Close() error {
 func (p *HttpExporter) Enable(enable bool) error {
 	p.enabled = enable
 	p.fileExporter.Enable(enable)
+
+	if enable {
+		log.Debug("HTTP exporter - enabled")
+	} else {
+		log.Debug("HTTP exporter - disabled")
+	}
 	return nil
 }
 
@@ -682,6 +688,9 @@ func (p *HttpExporter) sendFile(filePath string, tempRecordsNum uint32, dataReco
 		log.Info(logMsg)
 		p.counters.maxPostsExceeded++
 		os.Remove(filePath)
+
+		// We reached the configured maximum number of posts - disable exporter
+		p.Enable(false)
 		return nil
 	}
 

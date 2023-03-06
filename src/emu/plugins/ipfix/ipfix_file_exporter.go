@@ -509,6 +509,12 @@ func (p *FileExporter) Close() error {
 
 func (p *FileExporter) Enable(enable bool) error {
 	p.enabled = enable
+
+	if enable {
+		log.Debug("File exporter - enabled")
+	} else {
+		log.Debug("File exporter - disabled")
+	}
 	return nil
 }
 
