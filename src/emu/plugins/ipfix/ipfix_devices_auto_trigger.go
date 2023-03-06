@@ -112,7 +112,7 @@ func NewDevicesAutoTrigger(ipfixNsPlugin *IpfixNsPlugin, initJson *fastjson.RawM
 		DevicesNum: defaultDevicesNum,
 	}
 
-	err := ipfixNsPlugin.Tctx.UnmarshalValidate(*initJson, params)
+	err := ipfixNsPlugin.Tctx.UnmarshalValidateDisallowUnknownFields(*initJson, params)
 	if err != nil {
 		return nil, err
 	}

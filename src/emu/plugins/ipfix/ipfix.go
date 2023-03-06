@@ -134,7 +134,7 @@ type IPFixGen struct {
 func NewIPFixGen(ipfix *PluginIPFixClient, initJson *fastjson.RawMessage) (*IPFixGen, error) {
 
 	init := IPFixGenParams{TemplateRate: DefaultIPFixTemplateRate, DataRate: DefaultIPFixDataRate, AutoStart: true}
-	err := ipfix.Tctx.UnmarshalValidate(*initJson, &init)
+	err := ipfix.Tctx.UnmarshalValidateDisallowUnknownFields(*initJson, &init)
 	if err != nil {
 		ipfix.stats.invalidJson++
 		return nil, err
@@ -1629,14 +1629,16 @@ func NewIpfixNs(ctx *core.PluginCtx, initJson []byte) (*core.PluginBase, error) 
 	p.cdbv = core.NewCCounterDbVec(IPFIX_PLUG)
 	p.cdbv.Add(p.cdb)
 
-	err := p.Tctx.UnmarshalValidate(initJson, &p.params)
+	err := p.Tctx.UnmarshalValidateDisallowUnknownFields(initJson, &p.params)
 	if err != nil {
+		log.Error("Failed to parse and validate IPFIX NS plugin init JSON, err: ", err)
 		p.stats.invalidInitJson++
 		return nil, err
 	}
 
 	p.devicesAutoTrigger, err = NewDevicesAutoTrigger(p, p.params.DevicesAutoTrigger)
 	if err != nil {
+		log.Error("Failed to create a new IPFIX NS plugin (devices-auto-trigger), err: ", err)
 		p.stats.failedToCreateDevicesAutoTrigger++
 		return nil, err
 	}

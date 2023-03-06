@@ -12,35 +12,40 @@ import (
 // A wrapper to a field engine used by auto-triggered devices to generate clients IPv4 addresses with a
 // given range and repetition.
 // As an example, let's consider the following clients generator params JSON:
-// "clients_generator": {
-//     "client_ipv4_field_name": "clientIPv4Address",
-//     "client_ipv4": [1,1,1,1],
-// .   "clients_per_device": 48,
-// .   "data_records_per_client": 41
-// }
+//
+//	"clients_generator": {
+//		   "client_ipv4_field_name": "clientIPv4Address",
+//		   "client_ipv4": [1,1,1,1],
+//		   "clients_per_device": 48,
+//		   "data_records_per_client": 41
+//	}
+//
 // This JSON will replace "clientIPv4Address" field (if exists) in the device's init JSON with the following JSON.
 // Field definition:
-// {
-//     "name": "clientIPv4Address",
-//     "type": 45004,
-//     "length": 4,
-//     "enterprise_number": 9,
-//     "data": [1,1,1,1]
-// }
+//
+//	{
+//	    "name": "clientIPv4Address",
+//	    "type": 45004,
+//	    "length": 4,
+//	    "enterprise_number": 9,
+//	    "data": [1,1,1,1]
+//	}
+//
 // Engine definition:
-// {
-//     "engine_type": "uint",
-//     "engine_name": "%v",
-//     "params":
-//     {
-//         "size": 4,
-//         "offset": 0,
-//         "op": "inc",
-//         "repeat":41,
-//         "min": 16843009,
-//         "max": 16843056,
-//     }
-// }
+//
+//	{
+//	    "engine_type": "uint",
+//	    "engine_name": "%v",
+//	    "params":
+//	    {
+//	        "size": 4,
+//	        "offset": 0,
+//	        "op": "inc",
+//	        "repeat":41,
+//	        "min": 16843009,
+//	        "max": 16843056,
+//	    }
+//	}
 type ClientsGen struct {
 	clientIpv4FieldName  string
 	clientIpv4           core.Ipv4Key
@@ -89,7 +94,7 @@ func UnmarshalClientsGenParams(ipfixNs *IpfixNsPlugin, clientsGenParams *fastjso
 
 	params := &ClientsGenParams{ClientIpv4FieldName: defaultClientIpv4AddressFieldName}
 
-	err := ipfixNs.Tctx.UnmarshalValidate(*clientsGenParams, params)
+	err := ipfixNs.Tctx.UnmarshalValidateDisallowUnknownFields(*clientsGenParams, params)
 	if err != nil {
 		return nil, err
 	}
@@ -148,7 +153,7 @@ func NewClientsGen(ipfix *PluginIPFixClient, params *ClientsGenParams) (*Clients
 	 ]}`, field.Name, params.DataRecordsPerClient, min_ip, max_ip)
 
 	engines_json := clientsGenEngines{}
-	err := ipfix.Tctx.UnmarshalValidate([]byte(engines_json_str), &engines_json)
+	err := ipfix.Tctx.UnmarshalValidateDisallowUnknownFields([]byte(engines_json_str), &engines_json)
 	if err != nil {
 		return nil, fmt.Errorf("Failed to parse engine JSON string: %w", err)
 	}
