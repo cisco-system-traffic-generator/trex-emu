@@ -29,6 +29,7 @@ type HttpExporterParams struct {
 	TlsCertFile              string   `json:"tls_cert_file"`
 	TlsKeyFile               string   `json:"tls_key_file"`
 	StoreExportedFilesOnDisk bool     `json:"store_exported_files_on_disk"`
+	InputChanCapacity        uint     `json:"input_channel_capacity"`
 }
 
 type HttpExporterStats struct {
@@ -62,6 +63,7 @@ type HttpExporter struct {
 	httpRespTimeout          time.Duration
 	removeDirOnClose         bool
 	storeExportedFilesOnDisk bool
+	inputChanCapacity        uint
 	enabled                  bool
 	init                     bool
 	fileExporter             *FileExporter
@@ -191,6 +193,7 @@ func NewHttpExporter(client *PluginIPFixClient, params *HttpExporterParams) (*Ht
 	fileExporterParams.Compress = params.Compress
 	fileExporterParams.Dir = params.Dir
 	fileExporterParams.MaxFiles = params.MaxFiles
+	fileExporterParams.InputChanCapacity = params.InputChanCapacity
 
 	p.fileExporter, err = NewFileExporter(client, fileExporterParams)
 	if err != nil {
@@ -233,6 +236,7 @@ func NewHttpExporter(client *PluginIPFixClient, params *HttpExporterParams) (*Ht
 		"\n\tmaxInterval - ", p.fileExporter.GetMaxInterval(),
 		"\n\tcompress - ", p.fileExporter.GetCompress(),
 		"\n\tmaxFiles - ", p.fileExporter.GetMaxFiles(),
+		"\n\tinputChanCapacity - ", p.fileExporter.GetInputChanCapacity(),
 		"\n\tmaxPosts - ", p.maxPosts,
 		"\n\tstoreExportedFilesOnDisk - ", p.storeExportedFilesOnDisk)
 

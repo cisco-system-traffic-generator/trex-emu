@@ -17,12 +17,13 @@ import (
 )
 
 type FileExporterParams struct {
-	Name        string   `json:"name"`
-	Dir         string   `json:"dir"`
-	MaxSize     int      `json:"max_size"`
-	MaxInterval Duration `json:"max_interval"`
-	MaxFiles    int      `json:"max_files"`
-	Compress    bool     `json:"compress"`
+	Name              string   `json:"name"`
+	Dir               string   `json:"dir"`
+	MaxSize           int      `json:"max_size"`
+	MaxInterval       Duration `json:"max_interval"`
+	MaxFiles          int      `json:"max_files"`
+	Compress          bool     `json:"compress"`
+	InputChanCapacity uint     `json:"input_channel_capacity"`
 }
 
 type FileExporterStats struct {
@@ -99,6 +100,7 @@ type FileExporter struct {
 	compress           bool
 	dir                string
 	maxFiles           int
+	inputChanCapacity  uint
 	enabled            bool
 	init               bool
 	file               *os.File
@@ -127,14 +129,12 @@ type FileExporterInfoJson struct {
 }
 
 const (
-	fileExporterType                 = "file"
-	fileExporterCountersDbName       = "IPFIX file exporter"
-	rotatedFileTimeFormat            = "20060102150405" /* yyyyMMddHHmmss */
-	compressSuffix                   = ".gz"
-	fileFormatRegexStr               = `\d+\.(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})-(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2}).`
-	fileExporterChanCapacity         = 10000
-	fileExporterChanLowWatermarkThr  = 2000
-	fileExporterChanHighWatermarkThr = 8000
+	fileExporterType            = "file"
+	fileExporterCountersDbName  = "IPFIX file exporter"
+	rotatedFileTimeFormat       = "20060102150405" /* yyyyMMddHHmmss */
+	compressSuffix              = ".gz"
+	fileFormatRegexStr          = `\d+\.(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})-(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2}).`
+	defFileExporterChanCapacity = 10000
 )
 
 type fileExporterCmdId int
@@ -189,6 +189,14 @@ func NewFileExporter(client *PluginIPFixClient, params *FileExporterParams) (*Fi
 	p.dir = params.Dir
 	p.client = client
 
+	p.inputChanCapacity = defFileExporterChanCapacity
+	if params.InputChanCapacity > 0 {
+		p.inputChanCapacity = params.InputChanCapacity
+	}
+
+	inputChanLowWatermarkThr := uint(float32(p.inputChanCapacity) * 0.2)
+	inputChanHighWatermarkThr := uint(float32(p.inputChanCapacity) * 0.8)
+
 	// If MaxSize is not provided assume no size limit
 	if params.MaxSize == 0 {
 		p.maxSize = math.MaxInt
@@ -203,9 +211,9 @@ func NewFileExporter(client *PluginIPFixClient, params *FileExporterParams) (*Fi
 	p.newMaxIntervalTimer()
 
 	p.cmdChan, err = core.NewNonBlockingChan(
-		fileExporterChanCapacity,
-		fileExporterChanLowWatermarkThr,
-		fileExporterChanHighWatermarkThr,
+		p.inputChanCapacity,
+		inputChanLowWatermarkThr,
+		inputChanHighWatermarkThr,
 		p.timerCtx)
 	if err != nil {
 		return nil, errors.New("Failed to create non-blocking channel")
@@ -224,7 +232,8 @@ func NewFileExporter(client *PluginIPFixClient, params *FileExporterParams) (*Fi
 		"\n\tmaxSize -", p.maxSize,
 		"\n\tmaxInterval -", p.maxInterval,
 		"\n\tcompress -", p.compress,
-		"\n\tmaxFiles -", p.maxFiles)
+		"\n\tmaxFiles -", p.maxFiles,
+		"\n\tinputChanCapacity -", p.inputChanCapacity)
 
 	return p, nil
 }
@@ -431,6 +440,10 @@ func (p *FileExporter) GetCompress() bool {
 
 func (p *FileExporter) GetMaxFiles() int {
 	return p.maxFiles
+}
+
+func (p *FileExporter) GetInputChanCapacity() uint {
+	return p.inputChanCapacity
 }
 
 func (p *FileExporter) GetType() string {
