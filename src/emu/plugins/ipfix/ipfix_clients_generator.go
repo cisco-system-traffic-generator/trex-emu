@@ -147,7 +147,7 @@ func NewClientsGen(ipfix *PluginIPFixClient, params *ClientsGenParams) (*Clients
 				"op": "inc",
 				"repeat":%v,
 				"min": %v,
-				"max": %v,
+				"max": %v
 			}
 		 }
 	 ]}`, field.Name, params.DataRecordsPerClient, min_ip, max_ip)
