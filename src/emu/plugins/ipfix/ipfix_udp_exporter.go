@@ -270,10 +270,6 @@ func (p *UdpExporter) Notify(event core.NonBlockingChanEvent) {
 }
 
 func (p *UdpExporter) write(b []byte) (int, error) {
-	if p.enabled == false {
-		return 0, nil
-	}
-
 	n, err := p.conn.Write(b)
 	if err != nil {
 		return 0, fmt.Errorf("Failed to write to socket - %s", err)
