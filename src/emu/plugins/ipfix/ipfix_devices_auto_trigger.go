@@ -295,6 +295,10 @@ func (p *DevicesAutoTrigger) triggerDevice() {
 	var domainId uint32
 	var deviceInit [][]byte
 
+	if p.triggeredDevicesNum >= p.devicesNum {
+		return
+	}
+
 	mac.SetUint64(p.deviceMac.Uint64() + uint64(p.triggeredDevicesNum))
 	ipv4.SetUint32(p.deviceIpv4.Uint32() + p.triggeredDevicesNum)
 	if p.deviceDomainId > 0 {
