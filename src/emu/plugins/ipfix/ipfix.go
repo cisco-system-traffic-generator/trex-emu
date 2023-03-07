@@ -340,11 +340,6 @@ func (o *IPFixGen) OnEvent(a, b interface{}) {
 	} else {
 		o.sendDataPkt()
 	}
-
-	if o.isReachedMaxDataRecordsToSend() && o.isReachedMaxTempRecordsToSend() {
-		// We reached the configured maximum number of records - disable exporting
-		o.ipfixPlug.Enable(false)
-	}
 }
 
 func (o *IPFixGen) getMaxPacketSize() int {
