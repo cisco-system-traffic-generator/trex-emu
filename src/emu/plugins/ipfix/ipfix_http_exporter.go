@@ -100,7 +100,7 @@ type HttpExporterFileInfo struct {
 func (p *HttpExporter) beginFileInfo(filePath string) {
 	p.currFileInfo = new(HttpExporterFileInfo)
 	p.currFileInfo.Name = filepath.Base(filePath)
-	p.currFileInfo.Time = currentTime().Format("2006-01-02 15:04:05")
+	p.currFileInfo.Time = currentTime().Format("2006-01-02 15:04:05.000")
 	p.currFileInfo.Status = StInProgress
 }
 
