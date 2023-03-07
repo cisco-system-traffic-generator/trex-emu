@@ -547,7 +547,7 @@ func (p *HttpExporter) cmdThread() {
 		case false:
 			select {
 			case event := <-p.fileExporterEvQueue:
-				if !p.enabled || !p.init {
+				if !p.init {
 					break
 				}
 
@@ -559,7 +559,7 @@ func (p *HttpExporter) cmdThread() {
 		case true:
 			select {
 			case <-p.retryTimer.C:
-				if !p.enabled || !p.init {
+				if !p.init {
 					break
 				}
 

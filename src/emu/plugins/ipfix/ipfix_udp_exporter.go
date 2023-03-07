@@ -290,10 +290,6 @@ func (p *UdpExporter) writerThread() {
 			return
 		}
 
-		if p.enabled == false {
-			break
-		}
-
 		p.counters.writeChanLen = uint64(p.writeChan.GetLen())
 		p.counters.txWrites++
 

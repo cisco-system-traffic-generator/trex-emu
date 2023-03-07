@@ -573,6 +573,7 @@ func (p *FileExporter) Notify(event core.NonBlockingChanEvent) {
 func (p *FileExporter) cmdThread() {
 	defer p.wg.Done()
 	var err error
+	var disableMaxIntervalTimer bool = false
 
 	for {
 		select {
@@ -587,10 +588,6 @@ func (p *FileExporter) cmdThread() {
 				p.counters.cmdWrite++
 				p.counters.cmdChanLen = uint64(p.cmdChan.GetLen())
 
-				if p.enabled == false {
-					break
-				}
-
 				p.counters.txWrites++
 
 				_, err = p.writeInt(*&cmd.writeBuffer, cmd.writeTempRecordsNum, cmd.writeDataRecordsNum)
@@ -601,10 +598,6 @@ func (p *FileExporter) cmdThread() {
 				p.counters.cmdRotate++
 				p.counters.cmdChanLen = uint64(p.cmdChan.GetLen())
 
-				if p.enabled == false {
-					break
-				}
-
 				if err := p.rotateInt(); err != nil {
 					return
 				}
@@ -612,8 +605,12 @@ func (p *FileExporter) cmdThread() {
 		case <-p.maxIntervalTimer.C:
 			p.counters.maxIntervalTimerExpired++
 
-			if p.enabled == false {
+			if disableMaxIntervalTimer {
 				break
+			}
+
+			if !p.enabled && p.cmdChan.GetLen() == 0 {
+				disableMaxIntervalTimer = true
 			}
 
 			if err := p.rotateInt(); err != nil {
