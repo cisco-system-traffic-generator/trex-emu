@@ -159,9 +159,12 @@ const (
 	// Dst URL specifiers: a specifier in DST URL init JSON will be replaced with its corresponding
 	// Id (example: device-%d --> device-76)
 	dstUrlTenantIdSpecifier   = "%t"
+	dstUrlTenantUuidSpecifier = "%Ut"
 	dstUrlSiteIdSpecifier     = "%s"
+	dstUrlSiteUuidSpecifier   = "%Us"
 	dstUrlDeviceIdSpecifier   = "%d"
-	dstUrlDeviceUuidSpecifier = "%u"
+	dstUrlDeviceUuidSpecifier = "%Ud"
+	dstUrlUuidSpecifier       = "%u"
 )
 
 func NewHttpExporter(client *PluginIPFixClient, params *HttpExporterParams) (*HttpExporter, error) {

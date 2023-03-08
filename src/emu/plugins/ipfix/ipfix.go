@@ -1210,23 +1210,35 @@ func (p *PluginIPFixClient) updateInitDomainIdField(domainID uint32) uint32 {
 
 func (p *PluginIPFixClient) updateInitDstField(dstField string) string {
 	var tenantId string = "0"
+	var tenantUuid string = "0"
 	var siteId string = "0"
+	var siteUuid string = "0"
 	var deviceId string = "0"
 	var deviceUuid string = "0"
+	var uuid string = "0"
 
 	// If client is auto-triggered, replace specifiers with corresponding
-	// tenantId, siteId, deviceId, and deviceUuid.
+	// tenantId, tenantUuid, siteId, siteUuid, deviceId, and deviceUuid.
 	if p.autoTriggered {
 		tenantId = p.trgDeviceInfo.tenantId
+		tenantUuid = p.trgDeviceInfo.tenantUuid
+
 		siteId = p.trgDeviceInfo.siteId
+		siteUuid = p.trgDeviceInfo.siteUuid
+
 		deviceId = p.trgDeviceInfo.deviceId
 		deviceUuid = p.trgDeviceInfo.deviceUuid
+
+		uuid = p.trgDeviceInfo.uuid
 	}
 
 	dstField = strings.Replace(dstField, dstUrlTenantIdSpecifier, tenantId, 3)
+	dstField = strings.Replace(dstField, dstUrlTenantUuidSpecifier, tenantUuid, 3)
 	dstField = strings.Replace(dstField, dstUrlSiteIdSpecifier, siteId, 3)
+	dstField = strings.Replace(dstField, dstUrlSiteUuidSpecifier, siteUuid, 3)
 	dstField = strings.Replace(dstField, dstUrlDeviceIdSpecifier, deviceId, 3)
 	dstField = strings.Replace(dstField, dstUrlDeviceUuidSpecifier, deviceUuid, 3)
+	dstField = strings.Replace(dstField, dstUrlUuidSpecifier, uuid, 3)
 
 	return dstField
 }

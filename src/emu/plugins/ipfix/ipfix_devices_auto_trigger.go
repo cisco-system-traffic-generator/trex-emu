@@ -30,6 +30,9 @@ type DevicesAutoTrigger struct {
 	currTenantId               uint32                                          // Current tenant ID
 	currSiteId                 uint32                                          // Current site ID
 	currDeviceId               uint32                                          // Current device ID
+	tenantUuidDb               map[uint32]string                               // Map containing uuid per tenant ID
+	siteUuidDb                 map[uint32]string                               // Map containing uuid per site ID
+	deviceUuidDb               map[uint32]string                               // Map containing uuid per device ID
 	timerTickNum               uint32                                          // Timer tick number
 	timerTicksTriggerPeriod    uint32                                          // Number of timer ticks to wait between triggers
 	deviceTriggersPerTimerTick uint32                                          // Number of devices to trigger in a single timer tick
@@ -73,11 +76,14 @@ type DevicesAutoTriggerDeviceInfo struct {
 	timestamp        time.Time
 	mac              core.MACKey
 	ipv4             core.Ipv4Key
-	domainId         uint32
-	tenantId         string
-	siteId           string
-	deviceId         string
-	deviceUuid       string
+	domainId         uint32 // Domain ID to be used by triggered device (ignored if zero)
+	tenantId         string // Tenant ID
+	tenantUuid       string // Tenant UUID
+	siteId           string // Site ID per tenant
+	siteUuid         string // Site UUID per tenant
+	deviceId         string // Device ID per site
+	deviceUuid       string // Device UUID per site
+	uuid             string // UUID per device
 	clientsGenParams *ClientsGenParams
 }
 
@@ -88,9 +94,12 @@ func (p *DevicesAutoTriggerDeviceInfo) String() string {
 	s += fmt.Sprintln("\tipv4 -", p.ipv4.ToIP())
 	s += fmt.Sprintln("\tdomainId -", p.domainId)
 	s += fmt.Sprintln("\ttenantId -", p.tenantId)
+	s += fmt.Sprintln("\ttenantUuid -", p.tenantUuid)
 	s += fmt.Sprintln("\tsiteId -", p.siteId)
+	s += fmt.Sprintln("\tsiteUuid -", p.siteUuid)
 	s += fmt.Sprintln("\tdeviceId -", p.deviceId)
 	s += fmt.Sprintln("\tdeviceUuid -", p.deviceUuid)
+	s += fmt.Sprintln("\tuuid -", p.uuid)
 
 	if p.clientsGenParams != nil {
 		s += p.clientsGenParams.String()
@@ -147,6 +156,10 @@ func NewDevicesAutoTrigger(ipfixNsPlugin *IpfixNsPlugin, initJson *fastjson.RawM
 			return nil, err
 		}
 	}
+
+	p.tenantUuidDb = make(map[uint32]string)
+	p.siteUuidDb = make(map[uint32]string)
+	p.deviceUuidDb = make(map[uint32]string)
 
 	p.timerCtx = ipfixNsPlugin.Tctx.GetTimerCtx()
 	p.timer.SetCB(p, 0, 0)
@@ -289,6 +302,30 @@ func (p *DevicesAutoTrigger) triggerDevices(numDevices uint32) {
 	}
 }
 
+func (p *DevicesAutoTrigger) getUuids(tenantId, siteId, deviceId uint32) (tenantUuid, siteUuid, deviceUuid string) {
+	var isExist bool
+
+	tenantUuid, isExist = p.tenantUuidDb[tenantId]
+	if !isExist {
+		tenantUuid = uuid.NewString()
+		p.tenantUuidDb[p.currTenantId] = tenantUuid
+	}
+
+	siteUuid, isExist = p.siteUuidDb[siteId]
+	if !isExist {
+		siteUuid = uuid.NewString()
+		p.siteUuidDb[p.currSiteId] = siteUuid
+	}
+
+	deviceUuid, isExist = p.deviceUuidDb[deviceId]
+	if !isExist {
+		deviceUuid = uuid.NewString()
+		p.deviceUuidDb[p.currDeviceId] = deviceUuid
+	}
+
+	return tenantUuid, siteUuid, deviceUuid
+}
+
 func (p *DevicesAutoTrigger) triggerDevice() {
 	var mac core.MACKey
 	var ipv4 core.Ipv4Key
@@ -319,7 +356,9 @@ func (p *DevicesAutoTrigger) triggerDevice() {
 	deviceInfo.tenantId = strconv.FormatUint(uint64(p.currTenantId), 10)
 	deviceInfo.siteId = strconv.FormatUint(uint64(p.currSiteId), 10)
 	deviceInfo.deviceId = strconv.FormatUint(uint64(p.currDeviceId), 10)
-	deviceInfo.deviceUuid = uuid.NewString()
+	deviceInfo.uuid = uuid.NewString()
+	deviceInfo.tenantUuid, deviceInfo.siteUuid, deviceInfo.deviceUuid =
+		p.getUuids(p.currTenantId, p.currSiteId, p.currDeviceId)
 
 	if p.clientsGenParams != nil {
 		var clientIpv4 core.Ipv4Key
@@ -338,6 +377,7 @@ func (p *DevicesAutoTrigger) triggerDevice() {
 	// Create client IPFIX plugin. This must be done after device info was inserted to the DB.
 	client.PluginCtx.CreatePlugins([]string{IPFIX_PLUG}, deviceInit)
 
+	// Create new Tenant/Site/Device ids
 	p.triggeredDevicesNum++
 	p.currDeviceId++
 	if p.devicesPerSite != 0 && p.currDeviceId%p.devicesPerSite == 0 {
