@@ -109,11 +109,11 @@ func createFileExporter(client *PluginIPFixClient, dstUrl *url.URL, initJson *fa
 
 	params := &FileExporterParams{
 		Name:        defaultFileExporterName,
+		Dir:         defaultFileExporterDir,
 		MaxSize:     defaultFileExporterMaxSize,
 		MaxInterval: Duration{Duration: defaultFileExporterMaxInterval},
-		Compress:    defaultFileExporterCompress,
-		Dir:         defaultFileExporterDir,
 		MaxFiles:    defaultFileExporterMaxFiles,
+		Compress:    defaultFileExporterCompress,
 	}
 
 	if len(dstUrl.Path) > 0 {
@@ -146,11 +146,11 @@ func createHttpExporter(client *PluginIPFixClient, dstUrl *url.URL, initJson *fa
 
 	params := &HttpExporterParams{
 		Name:        defaultFileExporterName,
+		Dir:         defaultFileExporterDir,
 		MaxSize:     defaultFileExporterMaxSize,
 		MaxInterval: Duration{Duration: defaultFileExporterMaxInterval},
-		Compress:    defaultFileExporterCompress,
-		Dir:         defaultFileExporterDir,
 		MaxFiles:    defaultFileExporterMaxFiles,
+		Compress:    defaultFileExporterCompress,
 	}
 
 	params.Url = dstUrl.String()

@@ -3297,30 +3297,35 @@ We designed our Netflow plugin to have the most generic and modular implementati
 
 Prior to proceeding into the Netflow plugin, knowledge of engines is required. Please refer to the xref:engines[engines] section: 
 
-==== Netflow Plugin
+==== Netflow EMU Client Plugin
+In order to configure an EMU client to generate and export IPFIX records, the user has to provide a corresponding plugin initialization JSON when the EMU client is created. This JSON is used among other things to define:
 
-The Netflow/IPFix plugin in TRex expects an init JSON upon creation of the plugin. Most of the information is provided in this init JSON, however some of the information can be modified through the API
-after the plugin is loaded and transmitting. Let us take a look at an init JSON:
+* The content of generated Netflow/IPFIX template and data records.
+* The rate at which records of each type are generated.
+* Where to export the generated IPFIX records and how.
+
+Some of the configuration parameters can also be updated after the EMU client was created via API or console commands.
+Note that all parameters in this JSON are *optional* unless stated otherwise.
+
+Let us take a look at an example init JSON:
 
 [source, json]
 .Init JSON example
 ----
 {
     "netflow_version": 10,
-    "dst": "48.0.0.0:4739",
+    "dst": "http://48.0.0.0:4739",
     "domain_id": 7777,
     "max_template_records": 0,
     "max_data_records": 0,
+    "max_time": "300s",
+    "auto_start": true,
     "exporter_params": {
-           "name": "fnf_agg.ipfix",
-           "dir": "",
            "max_size": 1048576,
            "max_interval": "60s",
            "max_files": 100,
            "max_posts": 0,
            "compress": true,
-           "tls_cert_file": "",
-           "tls_key_file": ""
     },
     "generators": [
         {
@@ -3476,36 +3481,40 @@ after the plugin is loaded and transmitting. Let us take a look at an init JSON:
     ]
 }
 ----
-* `netflow_version`: Might be 9 or 10, notice version 9 doesn't support variable length fields or per enterprise fields. Defaults to 10.
-* `dst`: The destination URL. The scheme of the URL is used to determine the exporter type - emu-udp, udp, file, http, or https. If no scheme is specified, emu-udp exporter will be used and the expected string should be of the format host:port. For example, "127.0.0.1:8080" or "[2001:db8::1]:4739". Please refer to 'IPFix Exporters' section below for more information.
+* `netflow_version`: Might be 9 or 10, notice that version 9 doesn't support variable length fields or per enterprise fields. Defaults to 10.
+* `dst` *(mandatory)*: Defines the destination URL to which IPFIX records will be sent. The scheme of the URL is used to determine how records are exported (the exporter type). The following exporter types (schemas) are supported: emu-udp, udp, file, http, and https. If no scheme is specified, emu-udp exporter will be used and the expected string should be of the format host:port. For example, `"127.0.0.1:8080"` or `"[2001:db8::1]:4739"`. Please refer to 'IPFix Exporters' section below for more information.
 * `domain_id`: The observation domain ID as defined in IPFix. If not provided, it will be randomly generated.
-* `max_template_records`: An *optional* parameter to limit the number of template records exported by the IPFix plugin after it is loaded. The default value is zero which means no limit is imposed.
-* `max_data_records`: An *optional* parameter to limit the number of data records exported by the IPFix plugin after it is loaded. The default value is zero which means no limit is imposed.
-* `exporter_params`: An *optional* JSON object used to configure the exporter used by the client. Please refer to the 'IPFix exporters' section below for more information.
-* `generators`: A list of generators. Each generator defines a Template and operations on that template, like for example the data packets rate. Each generator contains:
-** `name`: Name of the generator. This field is required.
+* `max_template_records`: A limit on the number of template records exported by the IPFix plugin after it is loaded. The default value is zero which means no limit is imposed.
+* `max_data_records`: A limit on the number of data records exported by the IPFix plugin after it is loaded. The default value is zero which means no limit is imposed.
+* `max_time`: Defines a maximum time duration where records are generated and exported by the plugin. The default value is zero which means no limit is imposed.
+* `auto_start`: If true, the client will automatically start sending IPFIX packets upon creation. Otherwise, the user has to manually enable the client using API or console command. The default is true.
+* `exporter_params`: A JSON object that configures the exporter used by the client. The content of `exporter_params` depends on the type of the exporter being used. Please refer to 'IPFix exporters' section below for more information.
+* `generators` *(mandatory)*: A list of generators. Each generator defines a Template and operations on that template, like for example the data packets rate. Each generator contains:
+** `name` *(mandatory)*: Name of the generator. This field is required.
 ** `auto_start`: If true will automatically start sending IPFix packets upon creation.
 ** `template_rate_pps`: Rate of IPFix template packets (in pps), defaults to 1.
 ** `rate_pps`: Rate of IPFix data packets (in pps), defaults to 3.
 ** `data_records_num`: Number of data records in each data packet. If not provided, it will default to the maximum number of data packets which doesn't exceed the MTU.
-** `is_options_template`: Indicates if this is generator will send Options Template (True) packets or Data Template packets (False). Defaults to False.
+** `is_options_template`: Indicates if this generator will send Options Template (True) packets or Data Template packets (False). Defaults to False.
 ** `scope_count`: Scope count in case of Options Template packets. Must be bigger than 0.
-** `template_id`: The template ID for this generator. Must be greater than 255. This field is required. Each generator must have a unique template identifier.
-** `fields`: List of fields for this generator. Fields are very much alike the fields of Netflow. Each field is represented by a dictionary.
-*** `name`: Name of this field. The name is required.
-*** `type`: A uint16 that is unique per type. One can consult the RFC for specific values of types.
-*** `length`: Length of this field in bytes. If the value is 0xFFFF, this indicates variable length fields. Variable length fields are not supported at the moment. Variable lengths are supported only in v10.
+** `template_id` *(mandatory)*: The template ID for this generator. Must be greater than 255. This field is required. Each generator must have a unique template identifier.
+** `fields` *(mandatory)*: List of fields for this generator. Fields are very much alike the fields of Netflow. Each field is represented by a dictionary.
+*** `name` *(mandatory)*: Name of this field. The name is required.
+*** `type` *(mandatory)*: A uint16 that is unique per type. One can consult the RFC for specific values of types.
+*** `length` *(mandatory)*: Length of this field in bytes. If the value is 0xFFFF, this indicates variable length fields. Variable length fields are not supported at the moment. Variable lengths are supported only in v10.
 *** `enterprise_number`: Enterprise number in case the field is specific per enterprise and the type's MSB equals 1 to indicate this is an enterprise field. Enterprise fields are supported only in v10.
 *** `data`: List of bytes of size length. This will be the initial data in data packets and can be modified by the engines.
 ** `engines`: List of engines as described in the previous sections. This field is not mandatory in case we don't want to modify any data. However it is important that the name of each engine should be a field name, and the offset
 is relative to the beginning of that field.
 
 ==== IPFix Exporters
-The IPFix plugin supports several ways to send the generated template and data records to the collector, namely - *exporters*. Exporters are defined and configured per client as part of its initialization JSON. The type of exporter to use and destination URL are specified by the "dst" field in the init JSON as explained below.
+The IPFix plugin supports several ways to send the generated template and data records to a collector, namely - *exporters*. Exporters are defined and configured per client as part of its initialization JSON. The type of exporter to use and destination URL are specified by the "dst" field in the init JSON as explained below.
+
+The `exporter_params` optional object in the JSON may be used to configure the exporter. All fields of `exporter_params` are optional. If a given field is not specified, its default value will be used.
 
 [NOTE]
 =====================================================================
-In order to use the kernel-level exporters (udp, file, http, and https) - the emu-server must run in kernel mode as follows:
+In order to use the kernel-level exporters - the emu-server must run in kernel mode as follows:
 [source, bash]
 ----
 bin$ ./trex-emu -k
@@ -3515,72 +3524,123 @@ or
 ----
 bin$ ./trex-emu --kernel-mode
 ----
+The kernel-level exporters are - *udp*, *file*, *http*, and *https*
 =====================================================================
 
 The following exporter types are supported:
 
-* `emu-udp`:
-In this case flow records are sent using the TREX-EMU UDP transport where the UDP packets are generated in the application layer. The IPfix records are aggregated up to MTU size and sent to the specified IP:PORT destination. There are two ways to define it using the "dst" field:
-** `“host:port”` – host:port URL without scheme will use EMU-UDP exporter.
-Examples: "10.56.216.158:8080" or "[2001:db8::1]:4739".
-** `"emu-udp://host:port"` – you can also specify the scheme explicitly.
-Example: “emu-udp://10.56.216.158:8080”
+[.underline]#EMU-UDP#
 
-* `udp`:
-Flow records are sent using GoLang UDP sockets library utilizing the OS kernel. Records are aggregated up to MTU size and sent to the specified IP:PORT destination. 
+This exporter type configures the client to send IPFIX UDP packets built in the application layer using TREX. The IPfix records are aggregated up to MTU size and the resulting UDP packet is sent to the specified IP:PORT destination.
+
+There are two ways to define it using the "dst" field:
+
+* `“host:port”` – host:port URL without scheme will use EMU-UDP exporter.
+Examples: `"10.56.216.158:8080"` or `"[2001:db8::1]:4739"`.
+* `"emu-udp://host:port"` – you can also specify the scheme explicitly.
+Example: `“emu-udp://10.56.216.158:8080”`
+
+
+[.underline]#UDP#
+
+In this case flow records are sent using GoLang UDP sockets library utilizing the OS kernel. Records are aggregated up to MTU size and sent to the specified IP:PORT destination.
 "dst" field should be specified as follows - `"udp://host:port"`.
-Example: “udp://10.56.216.158:8080”
+Example: `“udp://10.56.216.158:8080”`
 
-* `file`:
-Flow records are stored in files in a user-defined directory. The generated records are aggregated in a single file up to a max size and for max interval duration. Once the file aggregation reaches either of these limits, it will be ‘rotated’ – closed and compressed with a unique name in the same directory.
+[source, json]
+.UDP exporter params
+----
+"exporter_params": {
+    "use_emu_client_ip_addr": false,
+    "raw_socket_interface_name": "lo"
+},
+----
+* `use_emu_client_ip_addr` (default: false): If false the source IP address of the UDP connection will be the host's address as set by the OS. If true, the source IP address will be set to be the EMU client's IPv4 address, if it exist. Enabling this option requires EMU server to run as root. Otherwise, IPFIX plugin creation will fail.
+
+* `raw_socket_interface_name` (default: lo): Name of the interface to use to bind raw-sockets when `use_emu_client_ip_addr` is enabled. If not defined, the UDP exporter will use the localhost interface ("lo").
+
+[.underline]#FILE#
+
+This exporter type stores generated flow records in files in a user-defined directory. The generated records are aggregated in a single file up to a max size and for max interval duration. Once the file aggregation reaches either of these limits, it will be ‘rotated’ – closed and compressed with a unique name in the same directory.
 There is also an option to limit the max number of files created in the directory. Once the maximum number of files is reached - old (rotated) files may be deleted. "dst" field should be specified as follows - `“file://dir/name”`.
-Example: “file:///auto/avc-devtest/tmp/obarash/trex-emu/fnf_agg.ipfix”.
+Example: `“file:///auto/avc-devtest/tmp/obarash/trex-emu/fnf_agg.ipfix”`.
 File URL will use the file exporter with the given dir/name path. 
 dir/name can be also specified explicitly in the `exporter_params` object.
 
-* `http/https`:
-This exporter is based on the file exporter to temporarily aggregate flow records in files.
-Once a file is rotated, a POST HTTP or HTTPS post request will be created to the user-defined URL.
-The temporary file will be deleted after the porst request transaction is completed (either with success or failure).
-"dst" field should be specified as follows - `“http://host:port/path”`.
-Example: “http://10.56.216.158:8080/api/ipfixfilecollector/exalt-tenant/site9999/device10/post_file”.
-Rotated files will be sent to destination URL using HTTP/HTTPS.
-
-The `exporter_params` optional object in the JSON may be used to configure the exporters (udp, file, http, or https). Also, all fields of `exporter_params` are optional. If a given field is not specified, its default value will be used.
 [source, json]
-.exporter_params example
+.File exporter params
 ----
-    "exporter_params": {
-           "name": "fnf_agg.ipfix",
-           "dir": "/scratch/myproject",
-           "max_size": 1048576,
-           "max_interval": "15s",
-           "max_files": 100,
-           "max_posts": 0,
-           "compress": true,
-           "tls_cert_file": "",
-           "tls_key_file": ""
-    },
+"exporter_params": {
+       "name": "fnf_agg.ipfix",
+       "dir": "/scratch/myproject",
+       "max_size": 1048576,
+       "max_interval": "15s",
+       "max_files": 100,
+       "compress": true,
+       "input_channel_capacity": 500
+}
 ----
+[NOTE]
+=====================================================================
+There is no need to specify 'name' and 'dir' params explicitly - if it is not defined it will be derived from "dst" field.
+=====================================================================
+
 * `name` (default: fnf_agg.ipfix): The filename to write flow records to. 
 Name structure is “base.ext”. In the example base is ‘fnf_agg’ and ext is ‘ipfix’.
 The name of rotated files is of the form – `<base>_<index>.<start-timestamp>-<end-timestamp>.<ext>.gz`
-Example: fnf_agg_1.20220603084739-20220603084839.ipfix.gz
-* `dir` (default: empty string):  The path in which export files are created. If empty string (the default), will use the OS temp directory (/tmp).
-The exporter of each client will have a separate unique folder under dir path with the following name – `<base>_<mac>.<ext>`
-Example: fnf_agg_000000700003.ipfix. As an example, suppose the user’s directory is ‘/scratch/myproject’, name is ‘fnf_agg.ipfix’ and we have 2 clients - 01:01:01:01:01:01 and 02:02:02:02:02:02.
+Example: `fnf_agg_1.20220603084739-20220603084839.ipfix.gz`
+* `dir` (default: empty string):  The path in which export files are created. If empty string (the default) is configured the exporter will use the OS temp directory (/tmp).
+The exporter of each client will have a separate unique folder under dir path with the following name – `<base>_<pid>_<mac>.<ext>` (<pid> is the process's id)
+Example: `fnf_agg_129399_000000700003.ipfix` (where 129399 is the process id). As an example, suppose the user’s directory is ‘/scratch/myproject’, name is ‘fnf_agg.ipfix’ and we have 2 clients - 01:01:01:01:01:01 and 02:02:02:02:02:02.
 Files will be created in two separate folders - 
-`/scratch/myproject/fnf_agg_010101010101.ipfix/fnf_agg_1.20220603084739-20220603084839.ipfix.gz` and `/scratch/myproject/fnf_agg_020202020202.ipfix/fnf_agg_1.20220603084739-20220603084839.ipfix.gz`
+`/scratch/myproject/fnf_agg_129399_010101010101.ipfix/fnf_agg_1.20220603084739-20220603084839.ipfix.gz` and `/scratch/myproject/fnf_agg_129399_020202020202.ipfix/fnf_agg_1.20220603084739-20220603084839.ipfix.gz`
 * `max_size` (default: 1048576): The maximum size in bytes of the export file before it gets rotated. Once the file gets to this size it will be immediately rotated. Value of zero means no limit on the size. 
 * `max_interval` (default: '60s'): The maximum time duration in seconds where IPFix records can be aggregated to a file before it is rotated. The parameter's value type can be:
 ** Integer - Holding the time duration in nanoseconds.
 ** String - The time duration is represented as a Go time.Duration string type.
 In the example max_interval is "15s" and so a file will be exported every 15 seconds (unless it reached max_size faster).
 * `max_files` (default: 100): The maximum number of old rotated files to retain. Value of zero means to retain all rotated files.
-* `max_posts` (default: 0): For HTTP/HTTPs - limit the maximum number of posts requests to send. Once the exporter reached this limit no further posts will be created.
 * `compress` (default: true): Determines if the rotated files should be compressed using gzip.
+* `input_channel_capacity` (default: 10000): The maximum size of the input queue. This can be lowered to reduce memory consumption in case of a large number of EMU clients and low records rate per client. 
+
+[.underline]#HTTP/HTTPS#
+
+HTTP exporter is based on an underlying file exporter to temporarily aggregate flow records in files.
+Once a file is rotated, an HTTP or HTTPS post request will be created and sent to the user-defined URL.
+The temporary file will be deleted after the post request transaction is completed (either with success or failure).
+
+"dst" field should be specified as follows - `“http://host:port/path”`.
+Example: `“http://10.56.216.158:8080/api/ipfixfilecollector/exalt-tenant/site9999/device10/post_file”`.
+Rotated files will be sent to the destination URL using HTTP/HTTPS.
+
+[source, json]
+.HTTP/HTTPS exporter params
+----
+"exporter_params": {
+       "name": "fnf_agg.ipfix",
+       "url": "http://10.56.216.158:8080/api/ipfixfilecollector/exalt-tenant/site9999/device10/post_file"
+       "dir": "/scratch/myproject",
+       "max_size": 1048576,
+       "max_interval": "15s",
+       "max_files": 100,
+       "max_posts": 0,
+       "compress": true,
+       "tls_cert_file": "",
+       "tls_key_file": "",
+       "store_exported_files_on_disk": false,
+       "input_channel_capacity": 500
+}
+----
+[NOTE]
+=====================================================================
+* HTTP exporters share all of the parameters of file exporters. Below is a description of the parameters which are unique to HTTP.
+* There is no need to specify 'url' explicitly - if it is not defined, "dst" field will be used.
+=====================================================================
+
+* `url`: Defines the POST reaquest URL path to which export files are sent. If not defined, uses URL path from 'dst' field.
 * `tls_cert_file` (default: “”): The location of the certificate file for HTTPS.
 * `tls_key_file` (default: “”): The location of the private key file for HTTPS.
+* `store_exported_files_on_disk` (default: false): If true exported files are not deleted from disk. Otherwise, exported files are removed after they are sent.
 
 ==== Netflow example
 
@@ -3751,6 +3811,286 @@ Sending profile took: 23.76 [ms]
 42.69 [ms]
 ----
 
+==== IPFIX namespace plugin - devices auto trigger
+EMU also supports an option to automatically generate a large number of devices at the namespace level based on a predefined IPFIX plugin. It enables users to easily create a multi-device IPFIX profile which can scale to a large number of devices. This profile can be used instead of creating each device individually. The devices are created gradually over the course of a user-defined ramp-up time.
+
+[.underline]#Terminology#
+
+Let us first define more concretely some terms we are using:
+
+1. *Device* – this is an IPFIX device which generates records and exports them. In our model, each device is associated with some EMU-client and holds one exporter which can be UDP or HTTP. Devices are identified internally in EMU by their MAC and IP addresses.
+2. *Tenant* – multi-tenancy is used to separate groups of devices (especially in cloud-delivered deployments).
+A tenant is identified by its tenant-id. Each device belongs to one tenant. A tenant may contain 1 or more devices.
+a. UDP – multi-tenancy is not supported.
+b. HTTP – tenants are identified by the tenant-id in the POST DST URL (tenant-id/site-id/device-id).
+3. *Client* – a node in the network which creates flows that are captured and exported as data records by the IPFIX device.
+Clients are identified by their source address (IP_SRC_ADDR [8]) field in the IPFIX data record.
+4. *App* – Applications used by a client. Apps are identified by their APPLICATION_ID [95] field in the IPFIX data record.
+
+[.underline]#Configuration#
+
+[NOTE]
+=====================================================================
+* IPFIX devices auto-trigger namespace plugin is supported only in kernel mode (EMU server should be run with `-k` flag).
+* All fields are optional unless stated explicitly.
+=====================================================================
+
+Configuring `devices auto-trigger` feature is done via the namespace level init JSON as shown in the following example:
+
+[source, json]
+.IPFIX devices auto-trigger namespace init JSON
+----
+{
+    "def_ns_plugs": {},
+    "namespaces": [
+        {
+            "vport": 0,
+            "tci": [
+                0
+            ],
+            "tpid": [
+                0
+            ],
+            "plugs": {
+                "ipfix": {
+                    "devices_auto_trigger": {
+                        "device_mac": "00:00:00:70:00:02",
+                        "device_ipv4": "1.1.1.1",
+                        "devices_num": 10000,
+                        "device_domain_id": 1,
+                        "rampup_time": "5m",
+                        "sites_per_tenant": 1,
+                        "devices_per_site": 1,
+                        "total_rate_pps": 20000,
+                        "clients_generator": {
+                                    "client_ipv4_field_name": "clientIPv4Address",
+                                    "client_ipv4": [1,1,1,1],
+                                    "clients_per_device": 48,
+                                    "data_records_per_client": 41
+                        },
+                        "device_init": {
+                            "netflow_version": 10,
+                            "dst": "http://127.0.0.1:18088/api/ipfixfilecollector/tenant-%t/site-%s/device-%d/post_file",
+                            "domain_id": 16777217,
+                            "auto_start_after": "2s",
+                            "exporter_params": {
+                                <<snip>>
+                            },
+                            "generators": <<snip>>
+                        }
+                    }
+                }
+            },
+            "def_c_plugs": {},
+            "clients": []
+        }
+    ]
+}
+----
+* `device_init` *(mandatory)*: A fully-fledged IPFIX plugin initialization JSON. It describes the IPFIX configuration of each created device.
+* `devices_num` *(mandatory)*: Number of devices to automatically create.
+* `device_mac` *(mandatory)*: MAC address of the first device to be created. The MAC address of consecutive devices will increment starting from this MAC.
+* `device_ipv4` *(mandatory)*: IPv4 address of the first device to be created. The MAC address of consecutive devices will increment starting from this IP.
+* `device_domain_id` (default: 0): domain-id of the first devices to be created. The domain-id of consecurive devices will increment starting from this domain-id. If this field is zero it will be ignored and the domain-id will be determined from device_init JSON.
+* `rampup_time` (default: ‘1s’): The time interval over which the devices are gradually triggered at a rate of `<rampup_time>/<num_devices>` devices per second.
+* `sites_per_tenant` (default: 0): Number of sites per tenant. Tenant ID will increment modulo this value. Value of zero means that tenant ID will not change.
+* `devices_per_site` (default: 0): Number of devices per site. Site ID will incitement modulo this value. Value of zero means that site ID will not change.
+* `total_rate_pps`: Defines the total rate of the data records from all devices. The rate of data records will be normalized and then scaled by a factor of `<total_rate_pps>/<num_devices>`. Note that this scaling applies only to flows data records. The rate of options templates, data templates, and options data records will not be affected (we assume that these packets are sent only once or in a very slow rate).
+* `clients_generator`: This section configures EMU to dynamically generate client IPs which are unique across all triggered devices. In this example, each device will be assigned a range of 48 client IPs which are repeated 41 times in a round-robin fashion. This configuration results in 48*41 client-app unique combinations for each device. The total number of unique “4T+App+Exp+Obs” keys for all devices is thus 48*41*10000.
+
+[.underline]#Tenant/Site/Device Ids#
+
+Each triggered device is given IDs based on `devices_per_site` and `sites_per_tenant` configuration parameters. The DST URL can optionally contain embedded format specifiers that are replaced by the values of the corresponding Id. Following is the list of Ids associated with each triggered devices and its format specifier:
+
+* `Tenant Id` (specifier: `%t`): Tenant Id starting from zero and increments after each `sites_per_tenant`.
+* `Tenant UUID` (specifier: `%Ut`): UUID corresponding to each tenant Id.
+* `Site Id` (specifier: `%s`): Site Id modulo `sites_per_tenant` starting from zero and increments after each `devicesPerSite` devices.
+* `Site UUID` (specifier: `%Us`): UUID corresponding to each site Id.
+* `Device Id` (specifier: `%d`): Device Id modulo `devices_per_site` starting from zero and incremented for each device.
+* `Device UUID` (specifier: `%Ud`): UUID corresponding to each device Id.
+* `UUID` (specifier: `%u`): UUID unique for each triggered device.
+
+*Example:*
+
+Suppose we have `sites_per_tenant = 2`, `devices_per_site = 3`, and the DST URL is defined with the following format - `tenant-%Ut-%t/site-%Us-%s/device-%Ud-%d`.
+
+The following URLs will be generated for 18 devices:
+----
+tenant-ff454036-b7fa-411a-8e02-24d01dd830dd-0/site-a43ed1a2-b0c2-471f-946f-35068d635405-0/device-21c1012e-2bd2-43ad-9d49-92915c5a6651-0
+tenant-ff454036-b7fa-411a-8e02-24d01dd830dd-0/site-a43ed1a2-b0c2-471f-946f-35068d635405-0/device-bfa18cad-00f1-4983-9b3a-7235f2d7efac-1
+tenant-ff454036-b7fa-411a-8e02-24d01dd830dd-0/site-a43ed1a2-b0c2-471f-946f-35068d635405-0/device-0955928e-e78d-4ae9-80f3-90be4010bfdf-2
+tenant-ff454036-b7fa-411a-8e02-24d01dd830dd-0/site-18805fee-d17e-4a9d-8adc-bbf91805e51c-1/device-21c1012e-2bd2-43ad-9d49-92915c5a6651-0
+tenant-ff454036-b7fa-411a-8e02-24d01dd830dd-0/site-18805fee-d17e-4a9d-8adc-bbf91805e51c-1/device-bfa18cad-00f1-4983-9b3a-7235f2d7efac-1
+tenant-ff454036-b7fa-411a-8e02-24d01dd830dd-0/site-18805fee-d17e-4a9d-8adc-bbf91805e51c-1/device-0955928e-e78d-4ae9-80f3-90be4010bfdf-2
+tenant-f04f5225-9045-44aa-b40a-a8876b26044b-1/site-a43ed1a2-b0c2-471f-946f-35068d635405-0/device-21c1012e-2bd2-43ad-9d49-92915c5a6651-0
+tenant-f04f5225-9045-44aa-b40a-a8876b26044b-1/site-a43ed1a2-b0c2-471f-946f-35068d635405-0/device-bfa18cad-00f1-4983-9b3a-7235f2d7efac-1
+tenant-f04f5225-9045-44aa-b40a-a8876b26044b-1/site-a43ed1a2-b0c2-471f-946f-35068d635405-0/device-0955928e-e78d-4ae9-80f3-90be4010bfdf-2
+tenant-f04f5225-9045-44aa-b40a-a8876b26044b-1/site-18805fee-d17e-4a9d-8adc-bbf91805e51c-1/device-21c1012e-2bd2-43ad-9d49-92915c5a6651-0
+tenant-f04f5225-9045-44aa-b40a-a8876b26044b-1/site-18805fee-d17e-4a9d-8adc-bbf91805e51c-1/device-bfa18cad-00f1-4983-9b3a-7235f2d7efac-1
+tenant-f04f5225-9045-44aa-b40a-a8876b26044b-1/site-18805fee-d17e-4a9d-8adc-bbf91805e51c-1/device-0955928e-e78d-4ae9-80f3-90be4010bfdf-2
+tenant-7427783f-e01f-4257-b1af-217124aeb84a-2/site-a43ed1a2-b0c2-471f-946f-35068d635405-0/device-21c1012e-2bd2-43ad-9d49-92915c5a6651-0
+tenant-7427783f-e01f-4257-b1af-217124aeb84a-2/site-a43ed1a2-b0c2-471f-946f-35068d635405-0/device-bfa18cad-00f1-4983-9b3a-7235f2d7efac-1
+tenant-7427783f-e01f-4257-b1af-217124aeb84a-2/site-a43ed1a2-b0c2-471f-946f-35068d635405-0/device-0955928e-e78d-4ae9-80f3-90be4010bfdf-2
+tenant-7427783f-e01f-4257-b1af-217124aeb84a-2/site-18805fee-d17e-4a9d-8adc-bbf91805e51c-1/device-21c1012e-2bd2-43ad-9d49-92915c5a6651-0
+tenant-7427783f-e01f-4257-b1af-217124aeb84a-2/site-18805fee-d17e-4a9d-8adc-bbf91805e51c-1/device-bfa18cad-00f1-4983-9b3a-7235f2d7efac-1
+tenant-7427783f-e01f-4257-b1af-217124aeb84a-2/site-18805fee-d17e-4a9d-8adc-bbf91805e51c-1/device-0955928e-e78d-4ae9-80f3-90be4010bfdf-2
+----
+
+[.underline]#devices_auto_trigger_ipfix.py#
+
+The EMU client console provides a predefined profile file named `devices_auto_trigger_ipfix.py`. This file can be used to create IPFIX devices auto-trigger namespace level profile as described above.
+
+[source, json]
+.IPFIX devices auto-trigger namespace init JSON
+----
+emu>emu_load_profile -f emu/devices_auto_trigger_ipfix.py -t --help
+usage: trex_console.py [-h] [--domain-id DOMAIN_ID] [--dst-url DST_URL] [--device-mac DEVICE_MAC] [--device-ipv4 DEVICE_IPV4] [--devices-num DEVICES_NUM] [--rampup-time RAMPUP_TIME]
+                       [--sites-per-tenant SITES_PER_TENANT] [--devices-per-site DEVICES_PER_SITE] [--total-rate-pps TOTAL_RATE_PPS] [--max-template-records MAX_TEMPLATE_RECORDS]
+                       [--max-data-records MAX_DATA_RECORDS] [--exporter-max-interval EXPORTER_MAX_INTERVAL] [--exporter-max-size EXPORTER_MAX_SIZE] [--exporter-max-posts EXPORTER_MAX_POSTS]
+                       [--exporter-compressed | --no-exporter-compressed] [--exporter-store-exported-files-on-disk | --no-exporter-store-exported-files-on-disk]
+
+Argparser for IPFIX devices auto generation (triggering)
+
+optional arguments:
+  -h, --help            show this help message and exit
+  --domain-id DOMAIN_ID
+                        Domain ID. Registered domain IDs are {6, 256, 512, 768, 1024} (default: 256)
+  --dst-url DST_URL     Exporter destination URL (default: udp://127.0.0.1:18088)
+  --device-mac DEVICE_MAC
+                        Mac address of the first device to be generated (default: 00:00:00:70:00:03)
+  --device-ipv4 DEVICE_IPV4
+                        IPv4 address of the first device to be generated (default: 1.1.1.3)
+  --devices-num DEVICES_NUM
+                        Number of devices to generate (default: 1)
+  --rampup-time RAMPUP_TIME
+                        The time duration over which the devices should be generated (default: None)
+  --sites-per-tenant SITES_PER_TENANT
+                        Number of sites per tenant (default: None)
+  --devices-per-site DEVICES_PER_SITE
+                        Number of devices per site (default: None)
+  --total-rate-pps TOTAL_RATE_PPS
+                        The total rate (pps) in which all devices export IPFIX packets (default: None)
+  --max-template-records MAX_TEMPLATE_RECORDS
+                        Max template records to send. Value of 0 means no limit (default: None)
+  --max-data-records MAX_DATA_RECORDS
+                        Max data records to send. Value of 0 means no limit (default: None)
+  --exporter-max-interval EXPORTER_MAX_INTERVAL
+                        HTTP exporter max interval to wait between two consecutive posts (default: None)
+  --exporter-max-size EXPORTER_MAX_SIZE
+                        HTTP exporter max size of files to export (default: None)
+  --exporter-max-posts EXPORTER_MAX_POSTS
+                        HTTP exporter max posts to export (default: None)
+  --exporter-compressed, --no-exporter-compressed
+                        HTTP exporter store exported files on disk (default: None)
+  --exporter-store-exported-files-on-disk, --no-exporter-store-exported-files-on-disk
+                        HTTP exporter store exported files on disk (default: None)
+----
+
+
+[.underline]#dnac_scale_test_ipfix.py#
+
+The EMU client console provides a predefined profile file named `dnac_scale_test_ipfix.py`. This profile is based on IPFIX devices auto-triggering capability in order to send traffic pattern which is essentially the same as the standard 'DNAC Scale Test' legacy Python script.
+
+[source, json]
+.IPFIX DNAC scale test init JSON
+----
+emu>emu_load_profile -f emu/dnac_scale_test_ipfix.py -t --help
+usage: trex_console.py [-h] [--dst-ipv4 DST_IPV4] [--dst-port DST_PORT] [--device-mac DEVICE_MAC] [--device-ipv4 DEVICE_IPV4] [--devices-num DEVICES_NUM] [--rampup-time RAMPUP_TIME]
+                       [--total-rate-pps TOTAL_RATE_PPS] [--client-ipv4 CLIENT_IPV4] [--clients-per-device CLIENTS_PER_DEVICE] [--apps-per-client APPS_PER_CLIENT]
+                       [--exporter-use-emu-client-ip-addr USE_EMU_CLIENT_IP_ADDR] [--exporter-raw-socket-interface-name RAW_SOCKET_INTERFACE_NAME]
+
+Argparser for IPFIX DNAC scale test
+
+optional arguments:
+  -h, --help            show this help message and exit
+  --dst-ipv4 DST_IPV4   Ipv4 address of collector (default: 127.0.0.1)
+  --dst-port DST_PORT   Destination port (default: 18088)
+  --device-mac DEVICE_MAC
+                        Mac address of the first device to be generated (default: 00:00:00:70:00:01)
+  --device-ipv4 DEVICE_IPV4
+                        IPv4 address of the first device to be generated (default: 128.1.1.1)
+  --devices-num DEVICES_NUM
+                        Number of devices to generate (default: 4000)
+  --rampup-time RAMPUP_TIME
+                        The time duration over which the devices should be generated (default: 1s)
+  --total-rate-pps TOTAL_RATE_PPS
+                        The total rate (pps) in which all devices export IPFIX packets (default: 25000)
+  --client-ipv4 CLIENT_IPV4
+                        The total rate (pps) in which all devices export IPFIX packets (default: 1.1.1.1)
+  --clients-per-device CLIENTS_PER_DEVICE
+                        The total rate (pps) in which all devices export IPFIX packets (default: 48)
+  --apps-per-client APPS_PER_CLIENT
+                        The total rate (pps) in which all devices export IPFIX packets (default: 41)
+  --exporter-use-emu-client-ip-addr USE_EMU_CLIENT_IP_ADDR
+                        UDP exporter use EMU client IP addr (default: None)
+  --exporter-raw-socket-interface-name RAW_SOCKET_INTERFACE_NAME
+                        UDP exporter raw socket interface name to use if use-emu-client-ip-addr is set (default: None)
+----
+
+[source, json]
+.DNAC scale test IPFIX namespace init JSON
+----
+"ipfix": {
+    "devices_auto_trigger": {
+        "device_mac": [0,0,0,70,0,1],
+        "device_ipv4": [128,1,1,1],
+        "devices_num": 4000,
+        "rampup_time": "1s",
+        "total_rate_pps": 25000,
+        "clients_generator": {
+            "client_ipv4_field_name": "clientIPv4Address",
+            "client_ipv4": [1,1,1,1],
+            "clients_per_device": 48,
+            "data_records_per_client": 41
+        },
+        "device_init": {
+            "netflow_version": 10,
+            "dst": "udp://127.0.0.1:4511/",
+            "domain_id": 256,
+            "max_template_records": 1,
+            "exporter_params": {
+                "use_emu_client_ip_addr": true
+            },
+            <<snip>>
+        }
+    }
+}
+----
+
+* 4000 devices are triggered immediately (ramped up in the first second).
+* Overall PPS rate for all devices is ~25K.
+* “use_emu_client_ip_addr” field in UDP’s exporter params section configures the exporter of each device to use its IPv4 address as the source IP instead of the address of the host machine. The default is false.
+* “clients_generator” section configures EMU to dynamically generate client IPs which are unique across all triggered devices. In this example, each device will be assigned a range of 48 client IPs which are repeated 41 times in a round-robin fashion. This configuration results in 48*41 client-app unique combinations for each device to get a total of 48*41*4000 active “4T+App+Exp+Obs” keys in the main aggregator.
+
+[.underline]#emu_ipfix_show_ns_counters#
+
+The console command `emu_ipfix_show_ns_counters` can be used to show IPFIX namespace counters:
+[source, bash]
+----
+emu_ipfix_show_ns_counters -   Show IPFix namespace counters
+----
+
+Example:
+[source, bash]
+----
+emu>emu_load_profile -f emu/devices_auto_trigger_ipfix.py -t --rampup-time 30s --devices-num 60
+Converting file to profile                                   [SUCCESS]
+Converting profile took: 3.88 [ms]
+Removing old emu profile
+[SUCCESS]
+Sending emu profile
+[SUCCESS]
+
+emu>emu_ipfix_show_ns_counters -p 0
+Devices Auto Trigger Counters
+
+      name       | value
+-----------------+------
+rampupTime       | 30
+rampupTimeSoFar  | 19
+devicesToTrigger | 60
+devicesTriggered | 38
+----
 
 
 ==== Netflow/IPFix Console API
@@ -3766,6 +4106,7 @@ emu_ipfix_get_gen_info -       Get IPFix generators information.
 emu_ipfix_set_data_rate -      Set IPFix generator data rate.
 emu_ipfix_set_template_rate -  Set IPFix generator template rate.
 emu_ipfix_show_counters -      Show IPFix data counters data.
+emu_ipfix_show_ns_counters -   Show IPFix namespace counters
 ----
 
 
