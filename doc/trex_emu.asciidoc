@@ -3524,7 +3524,7 @@ or
 ----
 bin$ ./trex-emu --kernel-mode
 ----
-The kernel-level exporters are - *udp*, *file*, *http*, and *https*
+The kernel-level exporters are *udp*, *file*, *http*, and *https*
 =====================================================================
 
 The following exporter types are supported:
