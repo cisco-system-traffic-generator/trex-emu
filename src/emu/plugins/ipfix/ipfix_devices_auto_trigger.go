@@ -5,10 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strconv"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/intel-go/fastjson"
 )
 
@@ -27,12 +25,6 @@ type DevicesAutoTrigger struct {
 	init                       bool                                            // Indicates wether this module is initialized
 	triggeredDevicesDb         map[*core.CClient]*DevicesAutoTriggerDeviceInfo // DB of triggered devices
 	triggeredDevicesNum        uint32                                          // Number of devices triggered until now
-	currTenantId               uint32                                          // Current tenant ID
-	currSiteId                 uint32                                          // Current site ID
-	currDeviceId               uint32                                          // Current device ID
-	tenantUuidDb               map[uint32]string                               // Map containing uuid per tenant ID
-	siteUuidDb                 map[uint32]string                               // Map containing uuid per site ID
-	deviceUuidDb               map[uint32]string                               // Map containing uuid per device ID
 	timerTickNum               uint32                                          // Timer tick number
 	timerTicksTriggerPeriod    uint32                                          // Number of timer ticks to wait between triggers
 	deviceTriggersPerTimerTick uint32                                          // Number of devices to trigger in a single timer tick
@@ -43,6 +35,7 @@ type DevicesAutoTrigger struct {
 	timerCtx      *core.TimerCtx
 	counters      DevicesAutoTriggerCounters
 	countersDb    *core.CCounterDb
+	deviceIdsGen  *DeviceIdsGen
 }
 
 const (
@@ -77,13 +70,7 @@ type DevicesAutoTriggerDeviceInfo struct {
 	mac              core.MACKey
 	ipv4             core.Ipv4Key
 	domainId         uint32 // Domain ID to be used by triggered device (ignored if zero)
-	tenantId         string // Tenant ID
-	tenantUuid       string // Tenant UUID
-	siteId           string // Site ID per tenant
-	siteUuid         string // Site UUID per tenant
-	deviceId         string // Device ID per site
-	deviceUuid       string // Device UUID per site
-	uuid             string // UUID per device
+	deviceIdsGen     *DeviceIdsGen
 	clientsGenParams *ClientsGenParams
 }
 
@@ -93,13 +80,10 @@ func (p *DevicesAutoTriggerDeviceInfo) String() string {
 	s += fmt.Sprintln("\tmac -", p.mac)
 	s += fmt.Sprintln("\tipv4 -", p.ipv4.ToIP())
 	s += fmt.Sprintln("\tdomainId -", p.domainId)
-	s += fmt.Sprintln("\ttenantId -", p.tenantId)
-	s += fmt.Sprintln("\ttenantUuid -", p.tenantUuid)
-	s += fmt.Sprintln("\tsiteId -", p.siteId)
-	s += fmt.Sprintln("\tsiteUuid -", p.siteUuid)
-	s += fmt.Sprintln("\tdeviceId -", p.deviceId)
-	s += fmt.Sprintln("\tdeviceUuid -", p.deviceUuid)
-	s += fmt.Sprintln("\tuuid -", p.uuid)
+
+	if p.deviceIdsGen != nil {
+		s += p.deviceIdsGen.GetDeviceIds(p.index).String()
+	}
 
 	if p.clientsGenParams != nil {
 		s += p.clientsGenParams.String()
@@ -157,9 +141,10 @@ func NewDevicesAutoTrigger(ipfixNsPlugin *IpfixNsPlugin, initJson *fastjson.RawM
 		}
 	}
 
-	p.tenantUuidDb = make(map[uint32]string)
-	p.siteUuidDb = make(map[uint32]string)
-	p.deviceUuidDb = make(map[uint32]string)
+	p.deviceIdsGen, err = NewDeviceIdsGen(p.devicesPerSite, p.sitesPerTenant)
+	if err != nil {
+		return nil, err
+	}
 
 	p.timerCtx = ipfixNsPlugin.Tctx.GetTimerCtx()
 	p.timer.SetCB(p, 0, 0)
@@ -213,6 +198,10 @@ func (p *DevicesAutoTrigger) Delete() {
 
 func (p *DevicesAutoTrigger) GetRatePerDevicePps() float32 {
 	return float32(p.totalRatePps) / float32(p.devicesNum)
+}
+
+func (p *DevicesAutoTrigger) GetDeviceIdsGen() *DeviceIdsGen {
+	return p.deviceIdsGen
 }
 
 func (p *DevicesAutoTrigger) GetTriggeredDeviceInfo(client *core.CClient) (*DevicesAutoTriggerDeviceInfo, error) {
@@ -302,30 +291,6 @@ func (p *DevicesAutoTrigger) triggerDevices(numDevices uint32) {
 	}
 }
 
-func (p *DevicesAutoTrigger) getUuids(tenantId, siteId, deviceId uint32) (tenantUuid, siteUuid, deviceUuid string) {
-	var isExist bool
-
-	tenantUuid, isExist = p.tenantUuidDb[tenantId]
-	if !isExist {
-		tenantUuid = uuid.NewString()
-		p.tenantUuidDb[p.currTenantId] = tenantUuid
-	}
-
-	siteUuid, isExist = p.siteUuidDb[siteId]
-	if !isExist {
-		siteUuid = uuid.NewString()
-		p.siteUuidDb[p.currSiteId] = siteUuid
-	}
-
-	deviceUuid, isExist = p.deviceUuidDb[deviceId]
-	if !isExist {
-		deviceUuid = uuid.NewString()
-		p.deviceUuidDb[p.currDeviceId] = deviceUuid
-	}
-
-	return tenantUuid, siteUuid, deviceUuid
-}
-
 func (p *DevicesAutoTrigger) triggerDevice() {
 	var mac core.MACKey
 	var ipv4 core.Ipv4Key
@@ -353,12 +318,7 @@ func (p *DevicesAutoTrigger) triggerDevice() {
 	deviceInfo.mac = mac
 	deviceInfo.ipv4 = ipv4
 	deviceInfo.domainId = domainId
-	deviceInfo.tenantId = strconv.FormatUint(uint64(p.currTenantId), 10)
-	deviceInfo.siteId = strconv.FormatUint(uint64(p.currSiteId), 10)
-	deviceInfo.deviceId = strconv.FormatUint(uint64(p.currDeviceId), 10)
-	deviceInfo.uuid = uuid.NewString()
-	deviceInfo.tenantUuid, deviceInfo.siteUuid, deviceInfo.deviceUuid =
-		p.getUuids(p.currTenantId, p.currSiteId, p.currDeviceId)
+	deviceInfo.deviceIdsGen = p.deviceIdsGen
 
 	if p.clientsGenParams != nil {
 		var clientIpv4 core.Ipv4Key
@@ -379,15 +339,6 @@ func (p *DevicesAutoTrigger) triggerDevice() {
 
 	// Create new Tenant/Site/Device ids
 	p.triggeredDevicesNum++
-	p.currDeviceId++
-	if p.devicesPerSite != 0 && p.currDeviceId%p.devicesPerSite == 0 {
-		p.currDeviceId = 0
-		p.currSiteId++
-		if p.sitesPerTenant != 0 && p.currSiteId%p.sitesPerTenant == 0 {
-			p.currSiteId = 0
-			p.currTenantId++
-		}
-	}
 
 	log.Info(deviceInfo)
 
