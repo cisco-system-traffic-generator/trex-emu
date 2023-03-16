@@ -35,7 +35,6 @@ type DevicesAutoTrigger struct {
 	timerCtx      *core.TimerCtx
 	counters      DevicesAutoTriggerCounters
 	countersDb    *core.CCounterDb
-	deviceIdsGen  *DeviceIdsGen
 }
 
 const (
@@ -141,11 +140,6 @@ func NewDevicesAutoTrigger(ipfixNsPlugin *IpfixNsPlugin, initJson *fastjson.RawM
 		}
 	}
 
-	p.deviceIdsGen, err = NewDeviceIdsGen(p.devicesPerSite, p.sitesPerTenant)
-	if err != nil {
-		return nil, err
-	}
-
 	p.timerCtx = ipfixNsPlugin.Tctx.GetTimerCtx()
 	p.timer.SetCB(p, 0, 0)
 
@@ -198,10 +192,6 @@ func (p *DevicesAutoTrigger) Delete() {
 
 func (p *DevicesAutoTrigger) GetRatePerDevicePps() float32 {
 	return float32(p.totalRatePps) / float32(p.devicesNum)
-}
-
-func (p *DevicesAutoTrigger) GetDeviceIdsGen() *DeviceIdsGen {
-	return p.deviceIdsGen
 }
 
 func (p *DevicesAutoTrigger) GetTriggeredDeviceInfo(client *core.CClient) (*DevicesAutoTriggerDeviceInfo, error) {
@@ -318,7 +308,14 @@ func (p *DevicesAutoTrigger) triggerDevice() {
 	deviceInfo.mac = mac
 	deviceInfo.ipv4 = ipv4
 	deviceInfo.domainId = domainId
-	deviceInfo.deviceIdsGen = p.deviceIdsGen
+
+	deviceIdsGen, err := NewDeviceIdsGen(p.devicesPerSite, p.sitesPerTenant)
+	if err != nil {
+		s := fmt.Sprintln("Failed to create DeviceIdsGen, err: ", err)
+		panic(s)
+	}
+
+	deviceInfo.deviceIdsGen = deviceIdsGen
 
 	if p.clientsGenParams != nil {
 		var clientIpv4 core.Ipv4Key

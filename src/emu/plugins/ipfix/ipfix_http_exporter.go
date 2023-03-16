@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -30,6 +31,8 @@ type HttpExporterParams struct {
 	TlsKeyFile               string   `json:"tls_key_file"`
 	StoreExportedFilesOnDisk bool     `json:"store_exported_files_on_disk"`
 	InputChanCapacity        uint     `json:"input_channel_capacity"`
+	RepeatsNum               uint32   `json:"repeats_num"`       // Number of times to repeat sending each file
+	RepeatsWaitTime          Duration `json:"repeats_wait_time"` // Time to wait between file repeats
 }
 
 type HttpExporterStats struct {
@@ -63,11 +66,13 @@ type HttpExporter struct {
 	httpRespTimeout          time.Duration
 	removeDirOnClose         bool
 	storeExportedFilesOnDisk bool
-	inputChanCapacity        uint
+	repeatsNum               uint32
+	repeatsWaitTime          time.Duration
 	enabled                  bool
 	init                     bool
 	fileExporter             *FileExporter
 	fileExporterEvQueue      chan FileExporterEvent
+	retryUrl                 *url.URL
 	retryTimer               *time.Timer
 	done                     chan bool
 	wg                       sync.WaitGroup
@@ -158,13 +163,13 @@ const (
 
 	// Dst URL specifiers: a specifier in DST URL init JSON will be replaced with its corresponding
 	// Id (example: device-%d --> device-76)
-	dstUrlTenantIdSpecifier   = "%t"
-	dstUrlTenantUuidSpecifier = "%Ut"
-	dstUrlSiteIdSpecifier     = "%s"
-	dstUrlSiteUuidSpecifier   = "%Us"
-	dstUrlDeviceIdSpecifier   = "%d"
-	dstUrlDeviceUuidSpecifier = "%Ud"
-	dstUrlUuidSpecifier       = "%u"
+	dstUrlTenantIdSpecifier   = "%20t"
+	dstUrlTenantUuidSpecifier = "%20Ut"
+	dstUrlSiteIdSpecifier     = "%20s"
+	dstUrlSiteUuidSpecifier   = "%20Us"
+	dstUrlDeviceIdSpecifier   = "%20d"
+	dstUrlDeviceUuidSpecifier = "%20Ud"
+	dstUrlUuidSpecifier       = "%20u"
 )
 
 func NewHttpExporter(client *PluginIPFixClient, params *HttpExporterParams) (*HttpExporter, error) {
@@ -210,6 +215,12 @@ func NewHttpExporter(client *PluginIPFixClient, params *HttpExporterParams) (*Ht
 	p.httpRespTimeout = defaultHttpRespTimeout
 	p.maxPosts = params.MaxPosts
 	p.counters.maxPosts = p.maxPosts
+	p.repeatsNum = params.RepeatsNum
+	p.repeatsWaitTime = params.RepeatsWaitTime.Duration
+
+	if p.repeatsNum == 0 {
+		p.repeatsNum = 1
+	}
 
 	err = p.createHttpClient()
 	if err != nil {
@@ -241,7 +252,9 @@ func NewHttpExporter(client *PluginIPFixClient, params *HttpExporterParams) (*Ht
 		"\n\tmaxFiles - ", p.fileExporter.GetMaxFiles(),
 		"\n\tinputChanCapacity - ", p.fileExporter.GetInputChanCapacity(),
 		"\n\tmaxPosts - ", p.maxPosts,
-		"\n\tstoreExportedFilesOnDisk - ", p.storeExportedFilesOnDisk)
+		"\n\tstoreExportedFilesOnDisk - ", p.storeExportedFilesOnDisk,
+		"\n\trepeatsNum - ", p.repeatsNum,
+		"\n\trepeatsWaitTime - ", p.repeatsWaitTime)
 
 	return p, nil
 }
@@ -532,7 +545,7 @@ func (p *HttpExporter) handlefileExporterEv(event FileExporterEvent) {
 	switch event.id {
 	case EvFileCreated:
 		log.Debug("Got fileCreated event - \n", event)
-		err := p.sendFile(event.filePath, event.tempRecordsNum, event.dataRecordsNum)
+		err := p.sendFileRepeated(event.filePath, event.tempRecordsNum, event.dataRecordsNum)
 		if err != nil {
 			log.Debug("Failed to send file, error: ", err)
 		}
@@ -569,9 +582,13 @@ func (p *HttpExporter) cmdThread() {
 				log.Debug("HTTP file upload retry timer expired")
 				p.retryWaitState = false
 				p.counters.filesExportRetry++
-				err := p.sendFile(p.currFileToSend, p.currFileTempRecordsNum, p.currFileDataRecordsNum)
+				err := p.sendFile(p.retryUrl, p.currFileToSend, p.currFileTempRecordsNum, p.currFileDataRecordsNum)
 				if err != nil {
 					log.Debug("Failed to send file, error: ", err)
+				}
+
+				if !p.storeExportedFilesOnDisk {
+					os.Remove(p.currFileToSend)
 				}
 			case <-p.done:
 				log.Debug("Shutting down HTTP exporter commands thread")
@@ -667,19 +684,16 @@ func (p *HttpExporter) preSendFile(filePath string, tempRecordsNum uint32, dataR
 
 func (p *HttpExporter) postSendFile() {
 	p.endFileInfo()
-	if !p.retryWaitState && !p.storeExportedFilesOnDisk {
-		os.Remove(p.currFileToSend)
-	}
 }
 
-func (p *HttpExporter) sendFile(filePath string, tempRecordsNum uint32, dataRecordsNum uint32) error {
+func (p *HttpExporter) sendFile(dstUrl *url.URL, filePath string, tempRecordsNum uint32, dataRecordsNum uint32) error {
 	var err error
 
 	log.Info("Trying to send file: ",
 		"\n\tfile name:", filePath,
 		"\n\ttemp records num:", tempRecordsNum,
 		"\n\tdata records num:", dataRecordsNum,
-		"\n\tdestination URL:", p.url.String())
+		"\n\tdestination URL:", dstUrl.String())
 
 	if tempRecordsNum == 0 && dataRecordsNum == 0 {
 		p.counters.filesExportEmpty++
@@ -690,7 +704,6 @@ func (p *HttpExporter) sendFile(filePath string, tempRecordsNum uint32, dataReco
 			p.currPostsNum, p.maxPosts)
 		log.Info(logMsg)
 		p.counters.maxPostsExceeded++
-		os.Remove(filePath)
 
 		// We reached the configured maximum number of posts - disable exporter
 		p.Enable(false)
@@ -704,7 +717,7 @@ func (p *HttpExporter) sendFile(filePath string, tempRecordsNum uint32, dataReco
 	p.counters.txTempRecords += uint64(tempRecordsNum)
 	p.counters.txDataRecords += uint64(dataRecordsNum)
 
-	req, cancel, err := p.createHttpPostRequest(&p.url, filePath)
+	req, cancel, err := p.createHttpPostRequest(dstUrl, filePath)
 	if err != nil {
 		p.counters.filesExportFailed++
 		p.counters.failedToCreateRequest++
@@ -743,8 +756,11 @@ func (p *HttpExporter) sendFile(filePath string, tempRecordsNum uint32, dataReco
 		p.counters.httpStatus5xx++
 		p.counters.filesExportFailedRetry++
 
-		p.retryWaitState = true
-		p.retryTimer = time.NewTimer(defaultRetryTimeout)
+		if p.repeatsNum > 1 {
+			p.retryWaitState = true
+			p.retryUrl = dstUrl
+			p.retryTimer = time.NewTimer(defaultRetryTimeout)
+		}
 	default:
 		p.counters.filesExportFailed++
 	}
@@ -768,4 +784,66 @@ func (p *HttpExporter) sendFile(filePath string, tempRecordsNum uint32, dataReco
 	}
 
 	return nil
+}
+
+func (p *HttpExporter) sendFileRepeated(filePath string, tempRecordsNum uint32, dataRecordsNum uint32) error {
+	var err error
+	var currRepeat uint32
+	var dstUrl *url.URL
+	var startIndex uint32
+
+	if p.client.autoTriggered {
+		startIndex = p.client.trgDeviceInfo.index * p.repeatsNum
+	}
+
+	for currRepeat = 0; currRepeat < uint32(p.repeatsNum); currRepeat++ {
+		if !p.enabled {
+			break
+		}
+
+		dstUrl, err = p.updateDstUrl(&p.url, startIndex+currRepeat)
+		if err != nil {
+			break
+		}
+
+		err = p.sendFile(dstUrl, filePath, tempRecordsNum, dataRecordsNum)
+		if err != nil {
+			break
+		}
+		time.Sleep(p.repeatsWaitTime)
+	}
+
+	if !p.retryWaitState && !p.storeExportedFilesOnDisk {
+		os.Remove(p.currFileToSend)
+	}
+
+	return err
+}
+
+func (p *HttpExporter) updateDstUrl(dstUrl *url.URL, deviceIndex uint32) (*url.URL, error) {
+	var err error
+	var deviceIds *DeviceIds = &DeviceIds{}
+	var urlStr string = dstUrl.String()
+
+	if !strings.Contains(urlStr, "%20") {
+		return dstUrl, nil
+	}
+
+	// If client is auto-triggered, replace specifiers with corresponding
+	// tenantId, tenantUuid, siteId, siteUuid, deviceId, and deviceUuid.
+	if p.client.autoTriggered {
+		deviceIds = p.client.trgDeviceInfo.deviceIdsGen.GetDeviceIds(deviceIndex)
+	}
+
+	urlStr = strings.ReplaceAll(urlStr, dstUrlTenantIdSpecifier, deviceIds.tenantId)
+	urlStr = strings.ReplaceAll(urlStr, dstUrlTenantUuidSpecifier, deviceIds.tenantUuid)
+	urlStr = strings.ReplaceAll(urlStr, dstUrlSiteIdSpecifier, deviceIds.siteId)
+	urlStr = strings.ReplaceAll(urlStr, dstUrlSiteUuidSpecifier, deviceIds.siteUuid)
+	urlStr = strings.ReplaceAll(urlStr, dstUrlDeviceIdSpecifier, deviceIds.deviceId)
+	urlStr = strings.ReplaceAll(urlStr, dstUrlDeviceUuidSpecifier, deviceIds.deviceUuid)
+	urlStr = strings.ReplaceAll(urlStr, dstUrlUuidSpecifier, deviceIds.uuid)
+
+	dstUrl, err = url.Parse(urlStr)
+
+	return dstUrl, err
 }

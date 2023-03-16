@@ -1208,26 +1208,6 @@ func (p *PluginIPFixClient) updateInitDomainIdField(domainID uint32) uint32 {
 	return newDomainID
 }
 
-func (p *PluginIPFixClient) updateInitDstField(dstField string) string {
-	var deviceIds *DeviceIds = &DeviceIds{}
-
-	// If client is auto-triggered, replace specifiers with corresponding
-	// tenantId, tenantUuid, siteId, siteUuid, deviceId, and deviceUuid.
-	if p.autoTriggered {
-		deviceIds = p.trgDeviceInfo.deviceIdsGen.GetDeviceIds(p.trgDeviceInfo.index)
-	}
-
-	dstField = strings.Replace(dstField, dstUrlTenantIdSpecifier, deviceIds.tenantId, 3)
-	dstField = strings.Replace(dstField, dstUrlTenantUuidSpecifier, deviceIds.tenantUuid, 3)
-	dstField = strings.Replace(dstField, dstUrlSiteIdSpecifier, deviceIds.siteId, 3)
-	dstField = strings.Replace(dstField, dstUrlSiteUuidSpecifier, deviceIds.siteUuid, 3)
-	dstField = strings.Replace(dstField, dstUrlDeviceIdSpecifier, deviceIds.deviceId, 3)
-	dstField = strings.Replace(dstField, dstUrlDeviceUuidSpecifier, deviceIds.deviceUuid, 3)
-	dstField = strings.Replace(dstField, dstUrlUuidSpecifier, deviceIds.uuid, 3)
-
-	return dstField
-}
-
 func parseDstField(dstField string) (*url.URL, bool, error) {
 	var err error
 	var dstUrl *url.URL
@@ -1235,6 +1215,7 @@ func parseDstField(dstField string) (*url.URL, bool, error) {
 	var isUrl = false
 	var isIpv6 = false
 
+	dstField = strings.ReplaceAll(dstField, "%", "%20")
 	if dstUrl, err = url.Parse(dstField); err == nil {
 		// dstField is a valid URL with a scheme
 		isUrl = true
@@ -1352,9 +1333,6 @@ func NewIPFixClient(ctx *core.PluginCtx, initJson []byte) (*core.PluginBase, err
 
 	// Pre-process JSON domain-id field
 	init.DomainID = o.updateInitDomainIdField(init.DomainID)
-
-	// Pre-process JSON DST URL field
-	init.Dst = o.updateInitDstField(init.Dst)
 
 	// Parse dst URL field
 	dstUrl, isIpv6, err := parseDstField(init.Dst)
