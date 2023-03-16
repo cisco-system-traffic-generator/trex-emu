@@ -88,6 +88,8 @@ func (p *DeviceIdsGen) getTenantSiteDeviceIds(deviceIndex uint32) (tenantId, sit
 			siteId = (deviceIndex / p.devicesPerSite) % p.sitesPerTenant
 			tenantId = (deviceIndex / p.devicesPerSite) / (p.sitesPerTenant)
 		}
+	} else {
+		deviceId = deviceIndex
 	}
 
 	return tenantId, siteId, deviceId
