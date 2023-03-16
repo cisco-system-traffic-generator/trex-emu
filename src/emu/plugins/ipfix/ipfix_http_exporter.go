@@ -756,7 +756,7 @@ func (p *HttpExporter) sendFile(dstUrl *url.URL, filePath string, tempRecordsNum
 		p.counters.httpStatus5xx++
 		p.counters.filesExportFailedRetry++
 
-		if p.repeatsNum > 1 {
+		if p.repeatsNum < 1 {
 			p.retryWaitState = true
 			p.retryUrl = dstUrl
 			p.retryTimer = time.NewTimer(defaultRetryTimeout)
@@ -797,10 +797,6 @@ func (p *HttpExporter) sendFileRepeated(filePath string, tempRecordsNum uint32, 
 	}
 
 	for currRepeat = 0; currRepeat < uint32(p.repeatsNum); currRepeat++ {
-		if !p.enabled {
-			break
-		}
-
 		dstUrl, err = p.updateDstUrl(&p.url, startIndex+currRepeat)
 		if err != nil {
 			break
@@ -810,6 +806,11 @@ func (p *HttpExporter) sendFileRepeated(filePath string, tempRecordsNum uint32, 
 		if err != nil {
 			break
 		}
+
+		if !p.enabled {
+			break
+		}
+
 		time.Sleep(p.repeatsWaitTime)
 	}
 
