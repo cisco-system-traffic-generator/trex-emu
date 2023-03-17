@@ -3309,7 +3309,7 @@ Note that all parameters in this JSON are *optional* unless stated otherwise.
 
 Let us take a look at an example init JSON:
 
-[source, json]
+[source, python]
 .Init JSON example
 ----
 {
@@ -3547,7 +3547,7 @@ In this case flow records are sent using GoLang UDP sockets library utilizing th
 "dst" field should be specified as follows - `"udp://host:port"`.
 Example: `“udp://10.56.216.158:8080”`
 
-[source, json]
+[source, python]
 .UDP exporter params
 ----
 "exporter_params": {
@@ -3567,7 +3567,7 @@ Example: `“file:///auto/avc-devtest/tmp/obarash/trex-emu/fnf_agg.ipfix”`.
 File URL will use the file exporter with the given dir/name path. 
 dir/name can be also specified explicitly in the `exporter_params` object.
 
-[source, json]
+[source, python]
 .File exporter params
 ----
 "exporter_params": {
@@ -3613,7 +3613,7 @@ The temporary file will be deleted after the post request transaction is complet
 Example: `“http://10.56.216.158:8080/api/ipfixfilecollector/exalt-tenant/site9999/device10/post_file”`.
 Rotated files will be sent to the destination URL using HTTP/HTTPS.
 
-[source, json]
+[source, python]
 .HTTP/HTTPS exporter params
 ----
 "exporter_params": {
@@ -3629,6 +3629,8 @@ Rotated files will be sent to the destination URL using HTTP/HTTPS.
        "tls_key_file": "",
        "store_exported_files_on_disk": false,
        "input_channel_capacity": 500
+	   "repeats_num": 15
+	   "repeats_wait_time": "1s"
 }
 ----
 [NOTE]
@@ -3641,6 +3643,8 @@ Rotated files will be sent to the destination URL using HTTP/HTTPS.
 * `tls_cert_file` (default: “”): The location of the certificate file for HTTPS.
 * `tls_key_file` (default: “”): The location of the private key file for HTTPS.
 * `store_exported_files_on_disk` (default: false): If true exported files are not deleted from disk. Otherwise, exported files are removed after they are sent.
+* `repeats_num` (default: 1): Number of times to repeat each file export.  
+* `repeats_wait_time` (default: "0s"): Time to wait between file repeats. In the example, each file export will be repeated 15 times with 1 second between each repeat.
 
 ==== Netflow example
 
@@ -3837,7 +3841,7 @@ Clients are identified by their source address (IP_SRC_ADDR [8]) field in the IP
 
 Configuring `devices auto-trigger` feature is done via the namespace level init JSON as shown in the following example:
 
-[source, json]
+[source, python]
 .IPFIX devices auto-trigger namespace init JSON
 ----
 {
@@ -3940,7 +3944,7 @@ tenant-7427783f-e01f-4257-b1af-217124aeb84a-2/site-18805fee-d17e-4a9d-8adc-bbf91
 
 The EMU client console provides a predefined profile file named `devices_auto_trigger_ipfix.py`. This file can be used to create IPFIX devices auto-trigger namespace level profile as described above.
 
-[source, json]
+[source, python]
 .IPFIX devices auto-trigger namespace init JSON
 ----
 emu>emu_load_profile -f emu/devices_auto_trigger_ipfix.py -t --help
@@ -3984,6 +3988,10 @@ optional arguments:
                         HTTP exporter store exported files on disk (default: None)
   --exporter-store-exported-files-on-disk, --no-exporter-store-exported-files-on-disk
                         HTTP exporter store exported files on disk (default: None)
+  --exporter-repeats-num EXPORTER_REPEATS_NUM
+                        HTTP exporter number of times to repeat each export (default: None)
+  --exporter-repeats-wait-time EXPORTER_REPEATS_WAIT_TIME
+                        HTTP exporter time to wait between repeats (default: None)
 ----
 
 
@@ -3991,7 +3999,7 @@ optional arguments:
 
 The EMU client console provides a predefined profile file named `dnac_scale_test_ipfix.py`. This profile is based on IPFIX devices auto-triggering capability in order to send traffic pattern which is essentially the same as the standard 'DNAC Scale Test' legacy Python script.
 
-[source, json]
+[source, python]
 .IPFIX DNAC scale test init JSON
 ----
 emu>emu_load_profile -f emu/dnac_scale_test_ipfix.py -t --help
@@ -4027,7 +4035,7 @@ optional arguments:
                         UDP exporter raw socket interface name to use if use-emu-client-ip-addr is set (default: None)
 ----
 
-[source, json]
+[source, python]
 .DNAC scale test IPFIX namespace init JSON
 ----
 "ipfix": {
@@ -4711,7 +4719,7 @@ type FieldEngineIF interface {
 
 Engines are defined through simple JSON dictionaries. Let us look at the following example:
 
-[source, json]
+[source, python]
 .Simple Uint Engine
 ----
 {
@@ -4742,7 +4750,7 @@ If we use `int` instead, the value will be written in 2's complementary.
 =====================================================================
 
 We can also generate floats using engines. For example:
-[source, json]
+[source, python]
 .Simple Float Engine
 ----
 {
@@ -4762,7 +4770,7 @@ Hence the only supported operation is random. For example, this engine will gene
 
 Sometimes however, we want to generate values from a specific list of values. For this purpose we have have the following list engines.
 
-[source, json]
+[source, python]
 .Int list
 ----
 {
@@ -4784,7 +4792,7 @@ For example with this engine, at bytes 4-5 of the provided buffer (`offset=4`, `
 
 
 The same can be done with strings or floats. For example we can write the following engine:
-[source, json]
+[source, python]
 .String list
 ----
 {
@@ -4800,7 +4808,7 @@ The same can be done with strings or floats. For example we can write the follow
 }
 ----
 
-[source, json]
+[source, python]
 .Float list
 ----
 {
@@ -4823,7 +4831,7 @@ The engines we saw until here are very simple and do some simple operation. In c
 fast non uniform random distribution. Hence we have the following engines:
 
 
-[source, json]
+[source, python]
 .Simple Histogram
 ----
 {
@@ -4855,7 +4863,7 @@ For size 8, please use `engine_type = "histogram_uint64"`. We have to thank Gola
 
 Another type of engine would be generating values in different ranges where each range has some probability of being chosen.
 
-[source, json]
+[source, python]
 .Range Histogram
 ----
 {
@@ -4886,7 +4894,7 @@ is generated uniformly. For sizes {1, 2, 4} please use `"engine_type": "histogra
 
 Now, let us look at an engine that picks an entry from a list with some predefined distribution.
 
-[source, json]
+[source, python]
 .List Histogram
 ----
 {
@@ -4914,7 +4922,7 @@ The values 17, 6 represent UDP and TCP respectively. The entry containing this v
 Time related fields need special handling and as such we created special engines for them. Time engines always come in couples and need an `Engine Manager` (will be defined shorty) to work. 
 Both of the engines `time_start`, `time_end` must be always provided.
 
-[source, json]
+[source, python]
 .Time engines
 ----
 {
@@ -4950,7 +4958,7 @@ the can be used for relative times (`time_offset = upTime`) or absolute times (`
 All the values are in `milliseconds`.
 
 To generate hosts realistically, we provide an engine for building URLs.
-[source, json]
+[source, python]
 .Histogram URLs
 ----
 {
