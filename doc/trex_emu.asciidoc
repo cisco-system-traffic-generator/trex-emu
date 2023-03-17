@@ -3951,7 +3951,8 @@ emu>emu_load_profile -f emu/devices_auto_trigger_ipfix.py -t --help
 usage: trex_console.py [-h] [--domain-id DOMAIN_ID] [--dst-url DST_URL] [--device-mac DEVICE_MAC] [--device-ipv4 DEVICE_IPV4] [--devices-num DEVICES_NUM] [--rampup-time RAMPUP_TIME]
                        [--sites-per-tenant SITES_PER_TENANT] [--devices-per-site DEVICES_PER_SITE] [--total-rate-pps TOTAL_RATE_PPS] [--max-template-records MAX_TEMPLATE_RECORDS]
                        [--max-data-records MAX_DATA_RECORDS] [--exporter-max-interval EXPORTER_MAX_INTERVAL] [--exporter-max-size EXPORTER_MAX_SIZE] [--exporter-max-posts EXPORTER_MAX_POSTS]
-                       [--exporter-compressed | --no-exporter-compressed] [--exporter-store-exported-files-on-disk | --no-exporter-store-exported-files-on-disk]
+                       [--exporter-compressed | --no-exporter-compressed] [--exporter-store-exported-files-on-disk | --no-exporter-store-exported-files-on-disk] [--exporter-repeats-num EXPORTER_REPEATS_NUM]
+                       [--exporter-repeats-wait-time EXPORTER_REPEATS_WAIT_TIME]
 
 Argparser for IPFIX devices auto generation (triggering)
 
