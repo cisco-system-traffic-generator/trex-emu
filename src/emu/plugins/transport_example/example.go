@@ -25,6 +25,7 @@ const (
 )
 
 type TransEInit struct {
+	Network  string `json:"network"`
 	Addr     string `json:"addr"`
 	DataSize uint32 `json:"size"`
 	Loops    uint32 `json:"loops"`
@@ -134,7 +135,7 @@ func NewTransportEClient(ctx *core.PluginCtx, initJson []byte) (*core.PluginBase
 	nsplg := o.Ns.PluginCtx.GetOrCreate(TRANS_E_PLUG)
 	o.tranNsPlug = nsplg.Ext.(*PluginTransportENs)
 
-	o.cfg = TransEInit{Addr: "48.0.0.1:80", DataSize: 10, Loops: 1}
+	o.cfg = TransEInit{Network: "tcp", Addr: "48.0.0.1:80", DataSize: 10, Loops: 1}
 	ctx.Tctx.UnmarshalValidate(initJson, &o.cfg)
 	o.b = make([]byte, o.cfg.DataSize)
 	for i := 0; i < int(o.cfg.DataSize-1); i++ {
@@ -222,11 +223,14 @@ func (o *PluginTransportEClient) OnEvent(msg string, a, b interface{}) {
 		if resolvedIPv4 {
 			// now we can dial
 			o.ctx = transport.GetTransportCtx(o.Client)
-			s, err := o.ctx.Dial("tcp", o.cfg.Addr, o, nil, nil, 0)
+			s, err := o.ctx.Dial(o.cfg.Network, o.cfg.Addr, o, nil, nil, 0)
 			if err != nil {
 				return
 			}
 			o.s = s
+			if o.cfg.Network == "udp" {
+				o.startLoop()
+			}
 		}
 	}
 }
