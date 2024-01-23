@@ -172,7 +172,7 @@ func (o *CZmqProxy) MainLoop() {
 		select {
 		case pkt := <-o.rawSocket.GetC(): // raw socket rx -> send to veth
 			o.OnRxPkt(pkt)
-		case <-o.tctx.C(): // timer flush
+		case <-o.tctx.GetTimerCtx().GetC(): // timer flush
 			o.tctx.HandleMainTimerTicks()
 		case msg := <-o.tctx.Veth.GetC(): // zmq -> raw_socket
 			o.tctx.Veth.OnRxStream(msg) // call  HandleRxPacket
