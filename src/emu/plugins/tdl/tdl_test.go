@@ -561,6 +561,7 @@ func TestTypeDef1(t *testing.T) {
 		initJSON:     [][]byte{[]byte(initJson)},
 		duration:     10 * time.Second,
 		clientsToSim: 1,
+		seed:         1,
 	}
 	a.Run(t, true)
 }
