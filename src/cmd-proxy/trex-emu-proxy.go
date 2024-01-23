@@ -30,7 +30,6 @@ const (
 )
 
 type MainArgs struct {
-	port       *int
 	vethPort   *int
 	verbose    *bool
 	monitor    *bool
@@ -172,15 +171,13 @@ func (o *CZmqProxy) MainLoop() {
 		select {
 		case pkt := <-o.rawSocket.GetC(): // raw socket rx -> send to veth
 			o.OnRxPkt(pkt)
-		case <-o.tctx.C(): // timer flush
+		case <-o.tctx.GetTimerCtx().GetC(): // timer flush
 			o.tctx.HandleMainTimerTicks()
 		case msg := <-o.tctx.Veth.GetC(): // zmq -> raw_socket
 			o.tctx.Veth.OnRxStream(msg) // call  HandleRxPacket
 		}
 		o.tctx.Veth.FlushTx()
 	}
-	o.tctx.Veth.SimulatorCleanup()
-	o.tctx.MPool.ClearCache()
 }
 
 func RunCoreZmq(args *MainArgs) {
