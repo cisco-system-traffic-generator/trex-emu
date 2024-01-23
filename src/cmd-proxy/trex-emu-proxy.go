@@ -30,7 +30,6 @@ const (
 )
 
 type MainArgs struct {
-	port       *int
 	vethPort   *int
 	verbose    *bool
 	monitor    *bool
@@ -179,8 +178,6 @@ func (o *CZmqProxy) MainLoop() {
 		}
 		o.tctx.Veth.FlushTx()
 	}
-	o.tctx.Veth.SimulatorCleanup()
-	o.tctx.MPool.ClearCache()
 }
 
 func RunCoreZmq(args *MainArgs) {
