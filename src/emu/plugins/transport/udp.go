@@ -94,6 +94,9 @@ func (o *UdpSocket) Write(buf []byte) (res SocketErr, queued bool) {
 	if o.isClosed {
 		return SeCONNECTION_IS_CLOSED, false
 	}
+	if o.resolve() == false {
+		return SeUNRESOLVED, false
+	}
 	var pkt udpPkt
 
 	if uint16(len(buf)) > o.GetL7MTU() {
@@ -101,12 +104,7 @@ func (o *UdpSocket) Write(buf []byte) (res SocketErr, queued bool) {
 		return SeENOBUFS, false
 	}
 
-	if o.buildDpkt(&pkt, buf) < 0 {
-		if !o.resolved {
-			return SeUNRESOLVED, false
-		}
-		return SeENOBUFS, false
-	}
+	o.buildDpkt(&pkt, buf)
 	o.ctx.udpStats.udp_sndpack++
 	o.ctx.udpStats.udp_sndbyte += uint64(len(buf))
 	o.send(&pkt)
@@ -160,9 +158,6 @@ func (o *UdpSocket) send(pkt *udpPkt) int {
 }
 
 func (o *UdpSocket) buildDpkt(pkt *udpPkt, data []byte) int {
-	if o.resolve() == false {
-		return -1
-	}
 	dl := uint16(len(data))
 	m := o.ns.AllocMbuf(uint16(len(o.pktTemplate)) + dl)
 	m.Append(o.pktTemplate) // template
