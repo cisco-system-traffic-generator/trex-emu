@@ -12,6 +12,8 @@ package core
 
 import (
 	"encoding/binary"
+	"external/google/gopacket"
+	"external/google/gopacket/ip4defrag"
 	"external/google/gopacket/layers"
 	"fmt"
 	"runtime"
@@ -519,6 +521,8 @@ type Parser struct {
 	eapol   ParserCb
 	ppp     ParserCb
 	Cdb     *CCounterDb
+
+	Defrag *ip4defrag.IPv4Defragmenter
 }
 
 func parserNotSupported(ps *ParserPacketState) int {
@@ -578,6 +582,7 @@ func (o *Parser) Init(tctx *CThreadCtx) {
 	o.mdns = parserNotSupported
 	o.ppp = parserNotSupported
 	o.Cdb = newParserStatsDb(&o.stats)
+	o.Defrag = ip4defrag.NewIPv4Defragmenter()
 }
 
 func (o *Parser) parsePacketL4(ps *ParserPacketState,
@@ -830,10 +835,6 @@ func (o *Parser) ParsePacket(m *Mbuf) int {
 				o.stats.errIPv4HeaderTooShort++
 				return PARSER_ERR
 			}
-			if ipv4.IsFragment() {
-				o.stats.errIPv4Fragment++
-				return PARSER_ERR
-			}
 			hdr := ipv4.GetHeaderLen()
 			if hdr < 20 {
 				o.stats.errIPv4HeaderTooShort++
@@ -854,6 +855,56 @@ func (o *Parser) ParsePacket(m *Mbuf) int {
 			if !ipv4.IsValidHeaderChecksum() {
 				o.stats.errIPv4cs++
 				return PARSER_ERR
+			}
+			if ipv4.IsFragment() {
+				// Only handles fragmented IP packet containing UDP
+				if ipv4.GetNextProtocol() != uint8(layers.IPProtocolUDP) {
+					o.stats.errIPv4Fragment++
+					return PARSER_ERR
+				}
+
+				packet := gopacket.NewPacket(m.GetData(), layers.LayerTypeEthernet, gopacket.NoCopy)
+				ipv4Layer := packet.Layer(layers.LayerTypeIPv4)
+				if ipv4Layer == nil {
+					return PARSER_ERR
+				}
+				in := ipv4Layer.(*layers.IPv4)
+				out, err := o.Defrag.DefragIPv4(in)
+				if err != nil {
+					return PARSER_ERR
+				}
+				if out == nil {
+					// Packet is fragmented, wait for next fragment
+					return PARSER_OK
+				}
+
+				// Decode defragmented packet
+				pb, ok := packet.(gopacket.PacketBuilder)
+				if !ok {
+					return PARSER_ERR
+				}
+				nextDecoder := out.NextLayerType()
+				err = nextDecoder.Decode(out.Payload, pb)
+				if err != nil {
+					return PARSER_ERR
+				}
+				// TODO: Call DiscardOlderThan
+
+				// Encode defragmented packet to buffer
+				buf := gopacket.NewSerializeBuffer()
+				opts := gopacket.SerializeOptions{FixLengths: true, ComputeChecksums: true}
+				err = gopacket.SerializePacket(buf, opts, packet)
+
+				// Allocated a new Mbuf for the defragmented packet
+				m = o.tctx.MPool.Alloc(offset + hdr + uint16(len(buf.Bytes())))
+				defer m.FreeMbuf()
+				m.Append(p[0 : offset+hdr]) // Append ethernet and ipv4 header
+				m.Append(buf.Bytes())       // Append defragmented payload
+
+				p = m.GetData()
+				ipv4 = layers.IPv4Header(p[offset : offset+hdr])
+				ipv4.SetLength(hdr + uint16(len(buf.Bytes()))) // Set correct payload length
+				ps.M = m
 			}
 			l4len := ipv4.GetLength() - ipv4.GetHeaderLen()
 			ps.L4 = offset + hdr
