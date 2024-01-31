@@ -44,7 +44,7 @@ Make code and documentation changes directly in this git repository.
 
 General Best Practices:
  1. fork this repository
- 2. make changes in your own fork on a narrowly focussed branch
+ 2. make changes in your own fork on a narrowly focused branch
  3. squash commits
  4. submit a pull-request
  5. follow https://github.com/cisco-system-traffic-generator/trex-core/wiki#how-to-contribute 

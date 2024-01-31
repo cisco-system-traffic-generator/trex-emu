@@ -408,7 +408,7 @@ Use the following command to start the console with EMU support. Note that the c
 [bash]> ./trex-console  --emu
 
  
-Using 'python3' as Python interpeter
+Using 'python3' as Python interpreter
 
 
 Connecting to RPC server on port:4501                 [SUCCESS]
@@ -706,7 +706,7 @@ To show counters per plugin info use `emu_xxx_show_counters` where xxx is the pl
     csi-mcp-asr1k-40
 ----
 
-The router succesfully idetified the client in the ARP table and it is possible to ping to it from the router. 
+The router successfully identified the client in the ARP table and it is possible to ping it from the router.
 
 Now you can try with 10,000 clients.
 
@@ -1489,7 +1489,7 @@ DHCPDECLINE can be used as a tool to exhaust the pool of available
 addresses and exploit a Denial of Service attack. Use with care!
 =====================================================================
 
-- The server can be specified a default lease time to provide its clients with. It can also be provided with a minimal and maximal possible lease time so that clients requesting a specific lease time can be granted that lease iff the requested lease time is within the bounds of minimal and maximal possible lease.
+- The server can be specified a default lease time to provide its clients with. It can also be provided with a minimal and maximal possible lease time so that clients requesting a specific lease time can be granted that lease if the requested lease time is within the bounds of minimal and maximal possible lease.
 
 - The server supports multiple pools/scopes. Each pool is represented by a range [min-max] and a subnet mask given as a prefix. Also, we can specify a list of IPv4 to exclude from the pool in case of static addresses or addresses already in use by the default gateway.
 
@@ -3639,7 +3639,7 @@ Rotated files will be sent to the destination URL using HTTP/HTTPS.
 * There is no need to specify 'url' explicitly - if it is not defined, "dst" field will be used.
 =====================================================================
 
-* `url`: Defines the POST reaquest URL path to which export files are sent. If not defined, uses URL path from 'dst' field.
+* `url`: Defines the POST request URL path to which export files are sent. If not defined, uses URL path from 'dst' field.
 * `tls_cert_file` (default: “”): The location of the certificate file for HTTPS.
 * `tls_key_file` (default: “”): The location of the private key file for HTTPS.
 * `store_exported_files_on_disk` (default: false): If true exported files are not deleted from disk. Otherwise, exported files are removed after they are sent.
@@ -3895,7 +3895,7 @@ Configuring `devices auto-trigger` feature is done via the namespace level init 
 * `devices_num` *(mandatory)*: Number of devices to automatically create.
 * `device_mac` *(mandatory)*: MAC address of the first device to be created. The MAC address of consecutive devices will increment starting from this MAC.
 * `device_ipv4` *(mandatory)*: IPv4 address of the first device to be created. The MAC address of consecutive devices will increment starting from this IP.
-* `device_domain_id` (default: 0): domain-id of the first devices to be created. The domain-id of consecurive devices will increment starting from this domain-id. If this field is zero it will be ignored and the domain-id will be determined from device_init JSON.
+* `device_domain_id` (default: 0): domain-id of the first devices to be created. The domain-id of consecutive devices will increment starting from this domain-id. If this field is zero it will be ignored and the domain-id will be determined from device_init JSON.
 * `rampup_time` (default: ‘1s’): The time interval over which the devices are gradually triggered at a rate of `<rampup_time>/<num_devices>` devices per second.
 * `sites_per_tenant` (default: 0): Number of sites per tenant. Tenant ID will increment modulo this value. Value of zero means that tenant ID will not change.
 * `devices_per_site` (default: 0): Number of devices per site. Site ID will incitement modulo this value. Value of zero means that site ID will not change.
@@ -4215,12 +4215,12 @@ You can now use `emu_ipfix_get_exp_info` to show info about the most recently ex
 
 image::images/emu_ipfix_get_exp_info.png[title="emu_ipfix_get_exp_info output",align="left",width={p_width}, link="images/emu_ipfix_get_exp_info.png"]
 
-For each file export attemp it shows:
+For each file export attempt it shows:
 
 * `Name`: The name of the file.
 * `Time`: The local time of when the export was done.
-* `Status`: Was the file exported successfully? A success means that we got a positive reply from the collector (HTTP 200 OK). A failure to export can be caused either by a tranport error or HTTP error.
-* `Trans Status`: The transport status - if 'failed' it means that no connection coule be established with the collector's HTTP server.
+* `Status`: Was the file exported successfully? A success means that we got a positive reply from the collector (HTTP 200 OK). A failure to export can be caused either by a transport error or HTTP error.
+* `Trans Status`: The transport status - if 'failed' it means that no connection could be established with the collector's HTTP server.
 * `HTTP Status`: The HTTP status code as received from the collector.
 * `HTTP Response Message`: A textual representation of the HTTP status code.
 * `Bytes Uploaded`: The number of bytes uploaded to the collector by the file in case of success, or zero otherwise.
@@ -4313,7 +4313,7 @@ invalidScopeCount*                     | 0
 
 Appsim plugin provide similar capabilities as ASTF L7 interpreter. The objective is to simulate L7 applications (client and server) on top of a transport layer (tcp/udp). Each client/server could have about ~250 active flows (UDP/TCP).
 
-let's start with a an example that simulate SSDP notification (IPv4/UDP/HTTP header). it is a multicast address 
+Let's start with an example that simulate SSDP notification (IPv4/UDP/HTTP header) using a multicast address.
 
 [source, python]
 .name space json
@@ -4467,12 +4467,12 @@ class Prof1():
         return EMUProfile(ns = ns_list, def_ns_plugs = self.def_ns_plugs)
 ----
 
-The namespace includes the program that is common for all the clients and each client has a streams.
-in this case there is one stream base of  `tid`  0 (program 0), client side, ipv4, udp, to dest-ip 239.255.255.250:1900 (multicast)
-this will create a udp socket evey 1 second (cps=1) and will send one SSDP UDP packet 
-for more information about the json format (ns and client) and capabilities have a look into the SDK and into the tests.
+The namespace includes the program that is common for all the clients and each client has a stream.
+In this case there is one stream base of  `tid`  0 (program 0), client side, ipv4, udp, to dest-ip 239.255.255.250:1900 (multicast).
+This will create a udp socket every 1 second (cps=1) and will send one SSDP UDP packet.
+For more information about the json format (ns and client) and capabilities have a look into the SDK and into the tests.
 
-To understand the rational behide this engine, it could help to read the ASTF manual 
+To understand the rational behind this engine, it could help to read the ASTF manual.
 
 === Tutorial: Load TRex server in multi-core
 
@@ -6229,7 +6229,7 @@ Next, we will connect the console to the EMU server and emulate one client which
 scripts$ ./trex-console --emu-only-server
 ----
 
-Let's add one client which makes use of the `transe` plugin. This plugin is a simple plugin which sends TCP traffic. The name derives from tranport example.
+Let's add one client which makes use of the `transe` plugin. This plugin is a simple plugin which sends TCP traffic. The name derives from transport example.
 
 We can see the relevant configuration from the link:{github_emu_path}/simple_icmp_local.py[simple_icmp_local.py] profile here:
 
