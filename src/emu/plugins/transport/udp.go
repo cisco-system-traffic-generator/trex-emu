@@ -94,19 +94,56 @@ func (o *UdpSocket) Write(buf []byte) (res SocketErr, queued bool) {
 	if o.isClosed {
 		return SeCONNECTION_IS_CLOSED, false
 	}
+	if o.resolve() == false {
+		return SeUNRESOLVED, false
+	}
 	var pkt udpPkt
 
-	if uint16(len(buf)) > o.GetL7MTU() {
-		o.ctx.udpStats.udp_drop_msg_bigger_mtu++
-		return SeENOBUFS, false
+	mtu := o.GetL7MTU()
+	if uint16(len(buf)) > mtu {
+		if o.ipv6 {
+			o.ctx.udpStats.udp_drop_msg_bigger_mtu++
+			return SeENOBUFS, false
+		}
+		// Send large data in multiple IPv4 packets, fragmented
+
+		// The payload size in a fragment need to be a multiple of 8
+		maxPayloadSize := uint16(mtu/8) * 8
+		payload := buf[:maxPayloadSize]
+		payloadSize := uint16(len(payload))
+		pkt.datalen = uint16(len(buf))
+
+		// Send first fragment containing UDP header
+		o.buildDpktFirstFragment(&pkt, payload)
+		o.ctx.udpStats.udp_sndpack++
+		o.ctx.udpStats.udp_sndbyte += uint64(payloadSize)
+		o.tctx.Veth.Send(pkt.m)
+		dataSent := payloadSize
+
+		// Send trailing segments
+		for {
+			if dataSent+maxPayloadSize > pkt.datalen {
+				payload = buf[dataSent:]
+			} else {
+				payload = buf[dataSent : dataSent+maxPayloadSize]
+			}
+			payloadSize = uint16(len(payload))
+
+			o.buildDpktTrailingFragment(&pkt, payload, dataSent+UDP_HEADER_LEN)
+			o.ctx.udpStats.udp_sndpack++
+			o.ctx.udpStats.udp_sndbyte += uint64(payloadSize)
+			o.tctx.Veth.Send(pkt.m)
+
+			dataSent += payloadSize
+			if dataSent >= pkt.datalen {
+				break // All data is sent
+			}
+		}
+
+		return SeOK, true
 	}
 
-	if o.buildDpkt(&pkt, buf) < 0 {
-		if !o.resolved {
-			return SeUNRESOLVED, false
-		}
-		return SeENOBUFS, false
-	}
+	o.buildDpkt(&pkt, buf)
 	o.ctx.udpStats.udp_sndpack++
 	o.ctx.udpStats.udp_sndbyte += uint64(len(buf))
 	o.send(&pkt)
@@ -159,10 +196,60 @@ func (o *UdpSocket) send(pkt *udpPkt) int {
 	return 0
 }
 
-func (o *UdpSocket) buildDpkt(pkt *udpPkt, data []byte) int {
-	if o.resolve() == false {
-		return -1
+func (o *UdpSocket) buildDpktFirstFragment(pkt *udpPkt, data []byte) int {
+	tl := uint16(len(o.pktTemplate))
+	dl := uint16(len(data))
+	m := o.ns.AllocMbuf(tl + dl)
+	m.Append(o.pktTemplate) // template with IP and UDP header
+	m.Append(data)
+	pkt.m = m
+
+	p := m.GetData()
+	l3 := o.l3Offset
+
+	// Update fragment flags
+	f := (uint16(layers.IPv4MoreFragments) << 13)
+	binary.BigEndian.PutUint16(p[l3+6:l3+8], f)
+
+	// Update UDP header length
+	binary.BigEndian.PutUint16(p[l3+24:l3+26], pkt.datalen+UDP_HEADER_LEN)
+
+	// Update IPv4 header
+	ipv4 := layers.IPv4Header(p[l3 : l3+20])
+	ipv4.SetLength(20 + uint16(len(data)) + UDP_HEADER_LEN)
+	ipv4.UpdateChecksum()
+
+	return 0
+}
+
+func (o *UdpSocket) buildDpktTrailingFragment(pkt *udpPkt, data []byte, dataSent uint16) int {
+	tl := uint16(len(o.pktTemplate)) - UDP_HEADER_LEN
+	dl := uint16(len(data))
+	m := o.ns.AllocMbuf(tl + dl)
+	m.Append(o.pktTemplate[:tl]) // template without UDP header
+	m.Append(data)
+	pkt.m = m
+
+	p := m.GetData()
+	l3 := o.l3Offset
+	payload_size := uint16(len(data))
+
+	// Update fragment offset and flag if more fragments are required
+	f := dataSent / 8
+	if dataSent+payload_size < pkt.datalen {
+		f += (uint16(layers.IPv4MoreFragments) << 13)
 	}
+	binary.BigEndian.PutUint16(p[l3+6:l3+8], f)
+
+	// Update IPv4 header
+	ipv4 := layers.IPv4Header(p[l3 : l3+20])
+	ipv4.SetLength(20 + payload_size)
+	ipv4.UpdateChecksum()
+
+	return 0
+}
+
+func (o *UdpSocket) buildDpkt(pkt *udpPkt, data []byte) int {
 	dl := uint16(len(data))
 	m := o.ns.AllocMbuf(uint16(len(o.pktTemplate)) + dl)
 	m.Append(o.pktTemplate) // template
